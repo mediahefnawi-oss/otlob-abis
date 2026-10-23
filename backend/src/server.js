@@ -16,8 +16,9 @@ for (const key of required) {
 if (process.env.JWT_SECRET.length < 32) { console.error('JWT_SECRET must be at least 32 characters.'); process.exit(1); }
 
 const app = express();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: process.env.VERCEL ? 3 : 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use(helmet());
 const allowedOrigins = (process.env.CORS_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean);
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
@@ -71,13 +72,21 @@ async function ensureSchema() {
   await pool.query(schema);
   const username = process.env.OWNER_USERNAME;
   const phone = process.env.OWNER_PHONE || '01000000000';
-  const passwordHash = await bcrypt.hash(process.env.OWNER_PASSWORD, 12);
   const existing = await pool.query("SELECT id FROM users WHERE role='admin' AND phone=$1", [phone]);
   if (!existing.rowCount) {
+    const passwordHash = await bcrypt.hash(process.env.OWNER_PASSWORD, 12);
     await pool.query("INSERT INTO users(name, phone, password_hash, role, address, status) VALUES($1,$2,$3,'admin','إدارة التطبيق','active')", [username, phone, passwordHash]);
     console.log('Initial owner account created from environment settings.');
   }
 }
+
+// Serverless hosting (Vercel) has no long-running boot step, so prepare the schema once per instance.
+let schemaReady = null;
+const ready = () => schemaReady || (schemaReady = ensureSchema().catch(e => { schemaReady = null; throw e; }));
+app.use((_req, _res, next) => {
+  if (!process.env.VERCEL) return next();
+  ready().then(() => next(), next);
+});
 
 app.get('/api/health', asyncRoute(async (_req, res) => {
   await pool.query('SELECT 1');
@@ -398,15 +407,18 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'حدث خطأ داخلي. حاول لاحقًا' });
 });
 pool.on('error', err => console.error('Unexpected PostgreSQL pool error:', err.message));
-const port = Number(process.env.PORT || 4000);
-let server;
-ensureSchema().then(() => {
-  server = app.listen(port, () => console.log(`Otlob Abis API listening on ${port}`));
-}).catch(err => { console.error('API startup failed:', err.message); process.exit(1); });
-async function shutdown(signal) {
-  console.log(`${signal} received; shutting down API`);
-  if (server) server.close();
-  try { await pool.end(); } finally { process.exit(0); }
+if (require.main === module) {
+  const port = Number(process.env.PORT || 4000);
+  let server;
+  ensureSchema().then(() => {
+    server = app.listen(port, () => console.log(`Otlob Abis API listening on ${port}`));
+  }).catch(err => { console.error('API startup failed:', err.message); process.exit(1); });
+  async function shutdown(signal) {
+    console.log(`${signal} received; shutting down API`);
+    if (server) server.close();
+    try { await pool.end(); } finally { process.exit(0); }
+  }
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 }
-process.once('SIGTERM', () => shutdown('SIGTERM'));
-process.once('SIGINT', () => shutdown('SIGINT'));
+module.exports = app;
