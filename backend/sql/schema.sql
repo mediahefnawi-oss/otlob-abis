@@ -99,3 +99,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 INSERT INTO app_settings(id) VALUES(1) ON CONFLICT (id) DO NOTHING;
+
+-- Phase 3: soft-delete so order/invoice history stays intact when the owner removes a service.
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;

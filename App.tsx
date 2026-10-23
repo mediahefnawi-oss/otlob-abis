@@ -10,8 +10,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { C } from './lib/theme';
-import { initStore, useStore, useMe, availableCouriers } from './lib/store';
-import { Overlays, Logo } from './components/ui';
+import { initStore, useStore, useMe, availableCouriers, setStoreErrorHandler } from './lib/store';
+import { Overlays, Logo, toast } from './components/ui';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
@@ -23,6 +23,8 @@ import { CourierWorkScreen, CourierHistoryScreen, CourierProfileScreen } from '.
 import {
   AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen,
 } from './screens/admin';
+
+setStoreErrorHandler((msg) => toast(msg, 'err'));
 
 const Stack = createNativeStackNavigator();
 

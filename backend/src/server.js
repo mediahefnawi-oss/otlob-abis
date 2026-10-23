@@ -65,6 +65,24 @@ async function authCore(req, res, next, allowInactive) {
 // Normal routes need an active account; /api/me must also answer for pending accounts so the app can show approval status.
 const auth = (req, res, next) => authCore(req, res, next, false);
 const authAny = (req, res, next) => authCore(req, res, next, true);
+// Public routes that show more to a signed-in owner/admin: a bad or missing token just means "anonymous".
+async function optionalAuth(req, _res, next) {
+  const h = req.headers.authorization || '';
+  if (!h.startsWith('Bearer ')) return next();
+  try {
+    const claims = jwt.verify(h.slice(7), process.env.JWT_SECRET, { issuer: 'otlob-abis-api', audience: 'otlob-abis-app' });
+    const r = await pool.query('SELECT id, role, status FROM users WHERE id=$1', [claims.sub]);
+    if (r.rowCount) req.viewer = { id: String(r.rows[0].id), role: r.rows[0].role, status: r.rows[0].status };
+  } catch {}
+  next();
+}
+// SQL fragment + params: which providers this viewer may see (never soft-deleted ones).
+function providerVisibility(viewer, values) {
+  if (viewer && viewer.role === 'admin') return 'p.deleted_at IS NULL';
+  if (viewer && viewer.role === 'provider') { values.push(Number(viewer.id)); return `p.deleted_at IS NULL AND (p.status='active' OR p.owner_user_id=$${values.length})`; }
+  return "p.deleted_at IS NULL AND p.status='active'";
+}
+const providerJson = p => ({ ...p.metadata, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 async function ensureSchema() {
@@ -277,21 +295,59 @@ app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(
   res.json({user:{id:String(r.rows[0].id),name:r.rows[0].name,role:r.rows[0].role,status:r.rows[0].status}});
 }));
 
-app.get('/api/providers', asyncRoute(async (req, res) => {
-  const { type } = req.query;
+app.get('/api/providers', optionalAuth, asyncRoute(async (req, res) => {
   const values = [];
-  let sql = "SELECT p.* FROM providers p WHERE p.status='active'";
-  if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
-  sql += ' ORDER BY p.created_at DESC LIMIT 200';
+  let sql = `SELECT p.* FROM providers p WHERE ${providerVisibility(req.viewer, values)}`;
+  if (req.query.type) { values.push(String(req.query.type)); sql += ` AND p.type=$${values.length}`; }
+  sql += ' ORDER BY p.created_at DESC LIMIT 500';
   const r = await pool.query(sql, values);
-  res.json({ providers: r.rows.map(p => ({ ...p.metadata, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open })) });
+  res.json({ providers: r.rows.map(providerJson) });
 }));
-app.get('/api/products', asyncRoute(async (req, res) => {
-  const values = []; let sql = "SELECT pr.*, p.name AS provider_name FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE pr.available=TRUE AND p.status='active'";
+app.get('/api/products', optionalAuth, asyncRoute(async (req, res) => {
+  const values = [];
+  let sql = `SELECT pr.* FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE ${providerVisibility(req.viewer, values)}`;
   if (req.query.providerId) { const providerId = positiveId(req.query.providerId); if (!providerId) return res.status(400).json({ error: 'معرّف مقدم الخدمة غير صالح' }); values.push(providerId); sql += ` AND pr.provider_id=$${values.length}`; }
-  sql += ' ORDER BY pr.created_at DESC LIMIT 500';
+  sql += ' ORDER BY pr.created_at ASC LIMIT 2000';
   const r = await pool.query(sql, values);
   res.json({ products: r.rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available })) });
+}));
+
+// Owner of the service (or the app owner) edits the service details / open-closed switch.
+app.patch('/api/providers/:id', auth, roles('provider','admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف مقدم الخدمة غير صالح' });
+  const found = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [id]);
+  if (!found.rowCount) return res.status(404).json({ error: 'مقدم الخدمة غير موجود' });
+  const old = found.rows[0];
+  if (req.auth.role !== 'admin' && String(old.owner_user_id) !== req.auth.sub) return res.status(403).json({ error: 'غير مسموح' });
+  const b = req.body || {};
+  const name = b.name === undefined ? old.name : String(b.name).trim();
+  if (name.length < 2) return res.status(400).json({ error: 'اكتب اسم الخدمة' });
+  const fee = b.deliveryFee === undefined ? Number(old.delivery_fee) : Number(b.deliveryFee);
+  if (!Number.isFinite(fee) || fee < 0) return res.status(400).json({ error: 'رسوم التوصيل غير صالحة' });
+  const meta = { ...old.metadata };
+  for (const k of ['specialty', 'emoji', 'eta']) if (typeof b[k] === 'string') meta[k] = b[k].slice(0, 100);
+  const r = await pool.query('UPDATE providers SET name=$1, description=$2, address=$3, phone=$4, delivery_fee=$5, is_open=$6, metadata=$7 WHERE id=$8 RETURNING *', [
+    name,
+    b.desc === undefined ? old.description : String(b.desc).slice(0, 1000),
+    b.address === undefined ? old.address : String(b.address).slice(0, 300),
+    b.phone === undefined ? old.phone : String(b.phone).replace(/\s+/g, '').slice(0, 20),
+    fee,
+    b.open === undefined ? old.is_open : Boolean(b.open),
+    JSON.stringify(meta), id,
+  ]);
+  res.json({ provider: providerJson(r.rows[0]) });
+}));
+// Owner removes a service: it disappears everywhere, but old orders/invoices keep working.
+app.delete('/api/admin/providers/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف مقدم الخدمة غير صالح' });
+  const r = await pool.query('UPDATE providers SET deleted_at=NOW(), is_open=FALSE WHERE id=$1 AND deleted_at IS NULL RETURNING owner_user_id', [id]);
+  if (!r.rowCount) return res.status(404).json({ error: 'مقدم الخدمة غير موجود' });
+  const owner = r.rows[0].owner_user_id;
+  const left = await pool.query("SELECT 1 FROM providers WHERE owner_user_id=$1 AND deleted_at IS NULL LIMIT 1", [owner]);
+  if (!left.rowCount) await pool.query("UPDATE users SET status='suspended' WHERE id=$1 AND role='provider'", [owner]);
+  res.json({ ok: true });
 }));
 
 app.post('/api/products', auth, roles('provider','admin'), asyncRoute(async (req, res) => {
@@ -378,7 +434,7 @@ app.post('/api/orders/:id/messages', auth, asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {
-  const r = await pool.query("SELECT p.*,u.name AS owner_name FROM providers p JOIN users u ON u.id=p.owner_user_id WHERE p.status='pending' ORDER BY p.created_at ASC");
+  const r = await pool.query("SELECT p.*,u.name AS owner_name FROM providers p JOIN users u ON u.id=p.owner_user_id WHERE p.status='pending' AND p.deleted_at IS NULL ORDER BY p.created_at ASC");
   res.json({ providers: r.rows.map(p => ({ ...p.metadata, id: String(p.id), ownerId: String(p.owner_user_id), ownerName: p.owner_name, type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status })) });
 }));
 app.patch('/api/admin/providers/:id/decision', auth, roles('admin'), asyncRoute(async (req, res) => {

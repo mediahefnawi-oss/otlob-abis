@@ -6,6 +6,7 @@ import {
   ApiError, ServerUser, apiLogin, apiRegister, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
+  apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiUpdateProvider, apiAdminDeleteProvider,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -144,32 +145,75 @@ const EMOJI: Record<ProviderType, string> = { restaurant: '🍽️', supermarket
 
 // Owner device: bring pending couriers / providers registered from other devices into the review queues.
 async function syncAdminQueues() {
-  const [{ users }, { providers }] = await Promise.all([
-    apiListUsers({ status: 'pending' }),
-    apiListPendingProviders<any>(),
-  ]);
+  const { users } = await apiListUsers({ status: 'pending' });
   const haveU = new Set(state.db.users.map((u) => u.id));
-  const haveP = new Set(state.db.providers.map((p) => p.id));
   const newUsers = users.filter((u) => !haveU.has(u.id));
-  const newProv = providers.filter((p: any) => !haveP.has(p.id));
-  if (!newUsers.length && !newProv.length) return;
+  if (!newUsers.length) return;
   mutate((db) => {
     db.users = [...db.users, ...newUsers.map((u) => fromServer(u))];
-    db.providers = [
-      ...db.providers,
-      ...newProv.map((p: any): Provider => ({
-        id: p.id, ownerId: p.ownerId, type: p.type, name: p.name, desc: p.desc || '', address: p.address || '',
-        phone: p.phone || '', emoji: EMOJI[p.type as ProviderType] || '🏪', rating: 0,
-        eta: p.type === 'clinic' ? '' : '30-45', deliveryFee: p.deliveryFee || 0, status: 'pending', open: false,
-        specialty: p.specialty || undefined, createdAt: Date.now(),
-      })),
-    ];
   });
 }
 
+/* ---------- central catalog (providers + products) ---------- */
+let storeErrorHandler: (msg: string) => void = () => {};
+/** The UI registers a toast here so background saves can report a failure. */
+export function setStoreErrorHandler(fn: (msg: string) => void) { storeErrorHandler = fn; }
+
+let pendingWrites = 0; // while >0 a background catalog refresh would overwrite an unsaved optimistic edit
+
+const toProvider = (x: any): Provider => ({
+  id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
+  phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0,
+  eta: x.eta ?? (x.type === 'clinic' ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
+  open: !!x.open, specialty: x.specialty || undefined, createdAt: Number(x.createdAt) || Date.now(),
+});
+const toProduct = (x: any): Product => ({
+  id: String(x.id), providerId: String(x.providerId), kind: x.kind === 'doctor' ? 'doctor' : 'item', name: x.name,
+  price: Number(x.price) || 0, emoji: x.emoji || (x.kind === 'doctor' ? '👨‍⚕️' : '📦'), category: x.category || 'عام',
+  desc: x.desc || '', available: !!x.available, slots: Array.isArray(x.slots) ? x.slots : undefined,
+});
+
+/** Removes the built-in demo data (sample shops, users, orders). Only central (numeric-id) records survive. */
+function stripDemo(db: DB): DB {
+  const orders = db.orders.filter((o) => isServerId(o.providerId));
+  const orderIds = new Set(orders.map((o) => o.id));
+  const appts = db.appointments.filter((a) => isServerId(a.providerId));
+  const apptIds = new Set(appts.map((a) => a.id));
+  return {
+    ...db,
+    users: db.users.filter((u) => isServerId(u.id)),
+    providers: db.providers.filter((p) => isServerId(p.id)),
+    products: db.products.filter((p) => isServerId(p.providerId) && isServerId(p.id)),
+    orders,
+    appointments: appts,
+    invoices: db.invoices.filter((i) => (i.appointmentId && apptIds.has(i.appointmentId)) || i.parts.some((p) => orderIds.has(p.orderId))),
+    messages: db.messages.filter((m) => orderIds.has(m.orderId)),
+  };
+}
+
+async function syncCatalog() {
+  if (pendingWrites > 0) return;
+  const [{ providers }, { products }] = await Promise.all([apiListProviders<any>(), apiListProducts<any>()]);
+  if (pendingWrites > 0) return;
+  const P = providers.map(toProvider);
+  const I = products.map(toProduct);
+  const same = JSON.stringify(P) === JSON.stringify(state.db.providers) && JSON.stringify(I) === JSON.stringify(state.db.products);
+  if (same) return;
+  mutate((db) => {
+    const clean = stripDemo(db);
+    db.users = clean.users; db.orders = clean.orders; db.appointments = clean.appointments;
+    db.invoices = clean.invoices; db.messages = clean.messages;
+    db.providers = P;
+    db.products = I;
+  });
+  const ids = new Set(I.map((p) => p.id));
+  if (state.cart.some((l) => !ids.has(l.productId))) saveCart(state.cart.filter((l) => ids.has(l.productId)));
+}
+
 let syncing = false;
+let syncTick = 0;
 /** Pull the central settings (maintenance/announcement) and refresh the signed-in account. */
-export async function syncRemote() {
+export async function syncRemote(withCatalog = true) {
   if (syncing) return;
   syncing = true;
   try {
@@ -177,6 +221,9 @@ export async function syncRemote() {
       const { settings } = await apiGetSettings();
       applySettings(settings);
     } catch {}
+    if (withCatalog) {
+      try { await syncCatalog(); } catch {}
+    }
     if (state.userId && (await hasApiToken())) {
       try {
         const { user } = await apiMe();
@@ -201,7 +248,7 @@ export async function initStore() {
     const raw = await AsyncStorage.getItem(DB_KEY);
     let db: DB = raw ? JSON.parse(raw) : buildSeed();
     // Owner/admin accounts only exist on the server now; drop any locally-stored admin from older builds.
-    db = { ...db, users: db.users.filter((u) => u.role !== 'admin' || isServerId(u.id)) };
+    db = stripDemo(db);
     if (!raw) await AsyncStorage.setItem(DB_KEY, JSON.stringify(db));
     const sid = await secure.get(SESSION_KEY);
     const cartRaw = await AsyncStorage.getItem(CART_KEY);
@@ -228,7 +275,7 @@ export async function initStore() {
   setState({ ready: true });
 
   // Live sync: central settings + account status every 10s and whenever the app returns to the foreground
-  setInterval(() => { syncRemote(); }, 10000);
+  setInterval(() => { syncRemote(++syncTick % 2 === 0); }, 10000);
   AppState.addEventListener('change', (st) => { if (st === 'active') syncRemote(); });
   // Same-device multi-tab sync of local data (orders/products stay local until they are migrated)
   setInterval(async () => {
@@ -288,21 +335,14 @@ export async function register(inp: RegisterInput): Promise<Result<{ user: User 
       provider: inp.role === 'provider' && inp.provider ? { ...inp.provider } : undefined,
     });
     mirrorUser(su);
-    // Local-only business data (until phase 3): shop record for providers, vehicle for couriers
+    // Local-only courier field (vehicle); the shop record itself comes from the server catalog
     mutate((db) => {
       db.users = db.users.map((u) => (u.id === su.id && inp.role === 'courier' ? { ...u, vehicle: inp.vehicle || 'موتوسيكل', available: false } : u));
-      if (inp.role === 'provider' && inp.provider && !db.providers.some((p) => p.ownerId === su.id)) {
-        const t = inp.provider;
-        db.providers = [...db.providers, {
-          id: uid(db, 'p'), ownerId: su.id, type: t.type, name: t.name.trim(), desc: t.desc.trim(), address: inp.address.trim(),
-          phone, emoji: EMOJI[t.type], rating: 0, eta: t.type === 'clinic' ? '' : '30-45',
-          deliveryFee: t.type === 'clinic' ? 0 : t.deliveryFee, status: 'pending', open: false, specialty: t.specialty, createdAt: Date.now(),
-        }];
-      }
-    });
+        });
     const user = state.db.users.find((u) => u.id === su.id)!;
     setState({ userId: user.id });
     secure.set(SESSION_KEY, user.id);
+    if (inp.role === 'provider') await syncCatalog().catch(() => {});
     return { ok: true, user };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
@@ -677,20 +717,57 @@ export function apptAction(id: string, action: 'confirm' | 'reject' | 'complete'
 }
 
 /* ---------- provider catalog ---------- */
+const productData = (p: Partial<Product>) => ({ kind: p.kind, emoji: p.emoji, category: p.category, desc: p.desc, slots: p.slots });
+
+/** Optimistic: the screen updates at once, the server write runs behind it; a failure reverts to the server's truth. */
+async function backgroundWrite(job: () => Promise<void>) {
+  pendingWrites++;
+  try {
+    await job();
+  } catch (e) {
+    storeErrorHandler(errMsg(e));
+  } finally {
+    pendingWrites--;
+    syncCatalog().catch(() => {});
+  }
+}
+
 export function saveProduct(p: Omit<Product, 'id'> & { id?: string }) {
+  const existing = p.id && isServerId(p.id) ? state.db.products.find((x) => x.id === p.id) : undefined;
+  const tempId = existing ? p.id! : uid(state.db, p.kind === 'doctor' ? 'd' : 'i');
   mutate((db) => {
-    if (p.id) db.products = db.products.map((x) => (x.id === p.id ? ({ ...x, ...p } as Product) : x));
-    else db.products = [...db.products, { ...p, id: uid(db, p.kind === 'doctor' ? 'd' : 'i') } as Product];
+    const next = { ...(existing || {}), ...p, id: tempId } as Product;
+    db.products = db.products.some((x) => x.id === tempId) ? db.products.map((x) => (x.id === tempId ? next : x)) : [...db.products, next];
+  });
+  if (!isServerId(p.providerId)) return;
+  backgroundWrite(async () => {
+    if (existing) {
+      await apiUpdateProduct(tempId, { name: p.name, price: p.price, available: p.available, data: productData(p) });
+    } else {
+      const { product } = await apiCreateProduct({ providerId: p.providerId, name: p.name, price: p.price, data: productData(p) });
+      mutate((db) => {
+        db.products = db.products.map((x) => (x.id === tempId ? toProduct(product) : x));
+      });
+    }
   });
 }
 export function deleteProduct(id: string) {
   mutate((db) => {
     db.products = db.products.filter((x) => x.id !== id);
   });
+  if (!isServerId(id)) return;
+  backgroundWrite(async () => { await apiDeleteProduct(id); });
 }
 export function updateProvider(id: string, patch: Partial<Provider>) {
   mutate((db) => {
     db.providers = db.providers.map((p) => (p.id === id ? { ...p, ...patch } : p));
+  });
+  if (!isServerId(id)) return;
+  backgroundWrite(async () => {
+    await apiUpdateProvider(id, {
+      name: patch.name, desc: patch.desc, address: patch.address, phone: patch.phone,
+      deliveryFee: patch.deliveryFee, open: patch.open, specialty: patch.specialty, emoji: patch.emoji, eta: patch.eta,
+    });
   });
 }
 
@@ -803,9 +880,8 @@ const TYPES_EMOJI: Record<ProviderType, string> = { restaurant: '🍽️', super
 export async function adminDeleteProvider(providerId: string): Promise<Result> {
   const p = state.db.providers.find((x) => x.id === providerId);
   if (!p) return { ok: true };
-  // Central accounts are suspended (not erased) so order/invoice history stays intact.
-  if (isServerId(p.ownerId)) {
-    try { await apiSetUserStatus(p.ownerId, 'suspended'); }
+  if (isServerId(providerId)) {
+    try { await apiAdminDeleteProvider(providerId); }
     catch (e) { return { ok: false, error: errMsg(e) }; }
   }
   mutate((db) => {

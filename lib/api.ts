@@ -133,12 +133,12 @@ export async function apiHealth() {
 
 export async function apiListProviders<T = Record<string, unknown>>(type?: string) {
   const query = type ? `?type=${encodeURIComponent(type)}` : '';
-  return apiRequest<{ providers: T[] }>(`/api/providers${query}`, {}, false);
+  return apiRequest<{ providers: T[] }>(`/api/providers${query}`, {}, true);
 }
 
 export async function apiListProducts<T = Record<string, unknown>>(providerId?: string | number) {
   const query = providerId === undefined ? '' : `?providerId=${encodeURIComponent(String(providerId))}`;
-  return apiRequest<{ products: T[] }>(`/api/products${query}`, {}, false);
+  return apiRequest<{ products: T[] }>(`/api/products${query}`, {}, true);
 }
 
 export async function apiCreateProduct(input: {
@@ -226,4 +226,17 @@ export async function apiAdminCreateProvider(input: {
   specialty?: string; emoji?: string; managerName?: string; managerPhone: string; managerPass: string;
 }) {
   return apiRequest<{ user: ServerUser; providerId: string }>('/api/admin/providers', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** Phase 3: service details and removal. */
+export async function apiUpdateProvider(id: string | number, patch: {
+  name?: string; desc?: string; address?: string; phone?: string; deliveryFee?: number; open?: boolean;
+  specialty?: string; emoji?: string; eta?: string;
+}) {
+  return apiRequest<{ provider: Record<string, unknown> }>(`/api/providers/${encodeURIComponent(String(id))}`, {
+    method: 'PATCH', body: JSON.stringify(patch),
+  });
+}
+export async function apiAdminDeleteProvider(id: string | number) {
+  return apiRequest<{ ok: boolean }>(`/api/admin/providers/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
 }
