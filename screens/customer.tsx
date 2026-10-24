@@ -10,7 +10,7 @@ import {
 } from '../components/ui';
 import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
 import {
-  useStore, useMe, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, CUSTOM_FEE, feeFor } from '../lib/store';
+  useStore, useMe, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS } from '../lib/format';
 import { ProviderType, Provider } from '../lib/types';
 
@@ -371,9 +371,9 @@ export function CartScreen({ navigation }: any) {
   const [busy, setBusy] = useState(false);
   const qty = (id: string) => cart.find((l) => l.productId === id)?.qty || 0;
 
-  const submit = () => {
+  const submit = async () => {
     setBusy(true);
-    const r = placeOrder(me, { name, phone, address, notes });
+    const r = await placeOrder(me, { name, phone, address, notes });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     toast('تم إرسال طلبك بنجاح ✅');
@@ -448,8 +448,8 @@ export function CustomOrderScreen({ navigation }: any) {
   const [phone, setPhone] = useState(me.phone);
   const [address, setAddress] = useState(me.address);
   const sug = ['علبة شاي وسكر', 'أدوية من صيدلية معينة', 'وجبة من مطعم غير مسجل', 'هدية وورد', 'خبز وفطير'];
-  const submit = () => {
-    const r = placeCustomOrder(me, { text, phone, address });
+  const submit = async () => {
+    const r = await placeCustomOrder(me, { text, phone, address });
     if (!r.ok) return toast(r.error, 'err');
     toast('تم إرسال طلبك للمناديب 🛵');
     navigation.replace('OrderDetail', { id: r.orderId });
@@ -473,7 +473,7 @@ export function CustomOrderScreen({ navigation }: any) {
               <Icon name="information-circle" size={18} color={C.goldDeep} />
               <T w="bold" size={13} color={C.goldDeep}>كيف يعمل؟</T>
             </View>
-            <T size={12.5} color={C.dark3}>سيقبل أحد المناديب المتاحين طلبك ويتواصل معك عبر الشات الداخلي لتأكيد التفاصيل والسعر. رسوم الخدمة {money(CUSTOM_FEE)} + ثمن المشتريات كاش عند الاستلام.</T>
+            <T size={12.5} color={C.dark3}>سيقبل أحد المناديب المتاحين طلبك ويتواصل معك عبر الشات الداخلي لتأكيد التفاصيل والسعر. رسوم الخدمة {money(customFee())} + ثمن المشتريات كاش عند الاستلام.</T>
           </Card>
           <Btn title="إرسال الطلب" icon="send" onPress={submit} />
         </ScrollView>
@@ -508,9 +508,9 @@ export function BookingScreen({ navigation, route }: any) {
     return h * 60 + m > nowH.getHours() * 60 + nowH.getMinutes();
   });
 
-  const submit = () => {
+  const submit = async () => {
     if (!time) return toast('اختر ميعاد الحجز', 'err');
-    const r = bookAppointment(me, { doctor: doc, date, time, patientName: pname, phone, notes });
+    const r = await bookAppointment(me, { doctor: doc, date, time, patientName: pname, phone, notes });
     if (!r.ok) return toast(r.error, 'err');
     toast('تم إرسال طلب الحجز للعيادة ✅');
     navigation.replace('ApptDetail', { id: r.id });

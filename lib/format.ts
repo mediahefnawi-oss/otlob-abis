@@ -43,6 +43,8 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; color: string; s
   delivered: { label: 'تم التسليم', color: C.green, soft: C.greenSoft, icon: 'checkmark-circle' },
   rejected: { label: 'مرفوض', color: C.red, soft: C.redSoft, icon: 'close-circle' },
   cancelled: { label: 'ملغي', color: C.red, soft: C.redSoft, icon: 'close-circle' },
+  quoted: { label: 'بانتظار موافقتك على الفاتورة', color: C.goldDeep, soft: C.goldSoft, icon: 'receipt' },
+  unavailable: { label: 'الأصناف غير متوفرة', color: C.red, soft: C.redSoft, icon: 'alert-circle' },
 };
 
 export const APPT_STATUS: Record<ApptStatus, { label: string; color: string; soft: string }> = {

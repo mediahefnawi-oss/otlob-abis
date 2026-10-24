@@ -419,7 +419,6 @@ export function AdminSettingsScreen({ navigation }: any) {
             </View>
           ))}
         </View>
-        <Btn variant="soft" icon="refresh" title="إعادة ضبط البيانات التجريبية" onPress={() => confirmDialog({ title: 'إعادة ضبط كل البيانات؟', message: 'سيتم حذف جميع التغييرات والعودة للبيانات الأولية وتسجيل الخروج.', danger: true, confirmText: 'إعادة ضبط', onConfirm: () => { resetAll(); toast('تمت إعادة الضبط'); } })} />
       </Card>
     </>
   );

@@ -114,3 +114,21 @@ CREATE TABLE IF NOT EXISTS regions (
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS region_id BIGINT REFERENCES regions(id) ON DELETE SET NULL;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS regions_seeded BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Phase 4 (part B): central orders, chat and bookings.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS available BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS available_since TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS region_id BIGINT REFERENCES regions(id) ON DELETE SET NULL;
+ALTER TABLE messages ALTER COLUMN sender_user_id DROP NOT NULL;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_role TEXT NOT NULL DEFAULT 'customer';
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_status_v2') THEN
+    ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;
+    ALTER TABLE orders ADD CONSTRAINT orders_status_v2 CHECK (status IN ('pending','accepted','ready','on_the_way','delivered','rejected','cancelled','quoted','unavailable'));
+  END IF;
+END $$;
+-- Two customers can never hold the same doctor slot.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_appt_slot ON appointments(doctor_product_id, appointment_date, appointment_time) WHERE status IN ('pending','confirmed');
+CREATE INDEX IF NOT EXISTS idx_orders_courier ON orders(courier_user_id, status);

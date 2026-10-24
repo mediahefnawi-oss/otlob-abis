@@ -57,7 +57,7 @@ export async function apiLogin(input: { phone?: string; password: string; userna
   return result;
 }
 
-export async function apiRegister(input: { name: string; phone: string; password: string; address?: string; role?: string; regionId?: string; provider?: Record<string, unknown> }) {
+export async function apiRegister(input: { name: string; phone: string; password: string; address?: string; role?: string; regionId?: string; vehicle?: string; provider?: Record<string, unknown> }) {
   const result = await apiRequest<{ token: string; user: { id: string; name: string; phone: string; role: string; address: string; status: string } }>(
     '/api/auth/register', { method: 'POST', body: JSON.stringify(input) }, false,
   );
@@ -84,38 +84,6 @@ export async function apiGetSettings() {
 export async function apiUpdateSettings(patch: Partial<CentralSettings>) {
   return apiRequest<{ settings: CentralSettings }>('/api/admin/settings', {
     method: 'PATCH', body: JSON.stringify(patch),
-  });
-}
-
-export async function apiListAppointments<T = Record<string, unknown>>() {
-  return apiRequest<{ appointments: T[] }>('/api/appointments');
-}
-
-export async function apiCreateAppointment(input: {
-  providerId: string | number; doctorId?: string | number; date: string; time: string;
-  fee?: number; data?: Record<string, unknown>;
-}) {
-  return apiRequest<{ appointment: Record<string, unknown> }>('/api/appointments', {
-    method: 'POST', body: JSON.stringify(input),
-  });
-}
-
-export async function apiUpdateAppointmentStatus(id: string | number, status: 'confirmed' | 'rejected' | 'completed' | 'cancelled') {
-  return apiRequest<{ appointment: Record<string, unknown> }>(`/api/appointments/${encodeURIComponent(String(id))}/status`, {
-    method: 'PATCH', body: JSON.stringify({ status }),
-  });
-}
-
-export async function apiListInvoices<T = Record<string, unknown>>() {
-  return apiRequest<{ invoices: T[] }>('/api/invoices');
-}
-
-export async function apiCreateInvoice(input: {
-  customerId: string | number; orderId?: string | number; appointmentId?: string | number;
-  kind: 'delivery' | 'booking'; total: number; data?: Record<string, unknown>;
-}) {
-  return apiRequest<{ invoice: Record<string, unknown> }>('/api/invoices', {
-    method: 'POST', body: JSON.stringify(input),
   });
 }
 
@@ -161,34 +129,6 @@ export async function apiDeleteProduct(id: string | number) {
   return apiRequest<void>(`/api/products/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
 }
 
-export async function apiListOrders<T = Record<string, unknown>>() {
-  return apiRequest<{ orders: T[] }>('/api/orders');
-}
-
-export async function apiCreateOrder(input: {
-  providerId?: string | number | null; total: number; data: Record<string, unknown>;
-}) {
-  return apiRequest<{ order: Record<string, unknown> }>('/api/orders', {
-    method: 'POST', body: JSON.stringify(input),
-  });
-}
-
-export async function apiUpdateOrderStatus(id: string | number, status: 'accepted' | 'ready' | 'on_the_way' | 'delivered' | 'rejected' | 'cancelled') {
-  return apiRequest<{ order: Record<string, unknown> }>(`/api/orders/${encodeURIComponent(String(id))}/status`, {
-    method: 'PATCH', body: JSON.stringify({ status }),
-  });
-}
-
-export async function apiListOrderMessages<T = Record<string, unknown>>(orderId: string | number) {
-  return apiRequest<{ messages: T[] }>(`/api/orders/${encodeURIComponent(String(orderId))}/messages`);
-}
-
-export async function apiSendOrderMessage(orderId: string | number, text: string) {
-  return apiRequest<{ message: Record<string, unknown> }>(`/api/orders/${encodeURIComponent(String(orderId))}/messages`, {
-    method: 'POST', body: JSON.stringify({ text }),
-  });
-}
-
 export async function apiListPendingProviders<T = Record<string, unknown>>() {
   return apiRequest<{ providers: T[] }>('/api/admin/providers/pending');
 }
@@ -200,12 +140,12 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null };
+export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; vehicle?: string; available?: boolean; availableSince?: number };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');
 }
-export async function apiUpdateProfile(patch: { name?: string; address?: string; regionId?: string | null }) {
+export async function apiUpdateProfile(patch: { name?: string; address?: string; regionId?: string | null; available?: boolean }) {
   return apiRequest<{ user: ServerUser }>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
 }
 export async function apiChangePassword(oldPassword: string, newPassword: string) {
@@ -254,4 +194,28 @@ export async function apiAdminUpdateRegion(id: string | number, patch: { name?: 
 }
 export async function apiAdminDeleteRegion(id: string | number) {
   return apiRequest<{ ok: boolean }>(`/api/admin/regions/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+}
+
+/** Phase 4 (part B): orders, invoices, bookings and chat are central. */
+export type SyncPayload = { orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
+export async function apiSync() {
+  return apiRequest<SyncPayload>('/api/sync');
+}
+export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[] }) {
+  return apiRequest<{ invoice: any; orders: any[]; address: string }>('/api/orders/checkout', { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiCustomOrder(input: { text: string; phone: string; address: string }) {
+  return apiRequest<{ invoice: any; orders: any[] }>('/api/orders/custom', { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiOrderAction(id: string | number, action: string, reason?: string) {
+  return apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(id))}/action`, { method: 'POST', body: JSON.stringify({ action, reason }) });
+}
+export async function apiSendMessage(orderId: string | number, text: string) {
+  return apiRequest<{ message: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/messages`, { method: 'POST', body: JSON.stringify({ text }) });
+}
+export async function apiBookAppointment(input: { doctorId: string; date: string; time: string; patientName: string; phone: string; notes: string }) {
+  return apiRequest<{ appointment: any }>('/api/appointments/book', { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiApptAction(id: string | number, action: string) {
+  return apiRequest<{ appointment: any }>(`/api/appointments/${encodeURIComponent(String(id))}/action`, { method: 'POST', body: JSON.stringify({ action }) });
 }

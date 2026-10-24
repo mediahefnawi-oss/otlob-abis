@@ -8,6 +8,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
+  apiSync, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -95,10 +96,9 @@ const isServerId = (id: string) => /^\d+$/.test(id);
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'حدث خطأ غير متوقع. حاول مرة أخرى');
 
 const fromServer = (s: ServerUser, old?: User): User => ({
-  // local-only courier fields survive a refresh from the server
-  vehicle: old?.vehicle,
-  available: old?.available,
-  availableSince: old?.availableSince,
+  vehicle: s.vehicle || old?.vehicle,
+  available: !!s.available,
+  availableSince: s.availableSince,
   id: s.id,
   name: s.name,
   phone: s.phone,
@@ -114,7 +114,8 @@ function mirrorUser(s: ServerUser) {
   const old = state.db.users.find((u) => u.id === s.id);
   const next = fromServer(s, old);
   const same = old && old.name === next.name && old.phone === next.phone && old.role === next.role
-    && old.address === next.address && old.status === next.status && (old.regionId ?? null) === (next.regionId ?? null);
+    && old.address === next.address && old.status === next.status && (old.regionId ?? null) === (next.regionId ?? null)
+    && old.available === next.available && old.vehicle === next.vehicle;
   if (same) return;
   mutate((db) => {
     db.users = old ? db.users.map((u) => (u.id === s.id ? next : u)) : [...db.users, next];
@@ -147,13 +148,17 @@ const EMOJI: Record<ProviderType, string> = { restaurant: '🍽️', supermarket
 
 // Owner device: bring pending couriers / providers registered from other devices into the review queues.
 async function syncAdminQueues() {
-  const { users } = await apiListUsers({ status: 'pending' });
-  const haveU = new Set(state.db.users.map((u) => u.id));
-  const newUsers = users.filter((u) => !haveU.has(u.id));
-  if (!newUsers.length) return;
-  mutate((db) => {
-    db.users = [...db.users, ...newUsers.map((u) => fromServer(u))];
-  });
+  const { users } = await apiListUsers({});
+  const byId = new Map(state.db.users.map((u) => [u.id, u]));
+  let changed = false;
+  const next = [...state.db.users];
+  for (const su of users) {
+    const old = byId.get(su.id);
+    const nu = fromServer(su, old);
+    if (!old) { next.push(nu); changed = true; }
+    else if (JSON.stringify(old) !== JSON.stringify(nu)) { next[next.indexOf(old)] = nu; changed = true; }
+  }
+  if (changed) mutate((db) => { db.users = next; });
 }
 
 /** Delivery price for the signed-in customer: the price of their area, falling back to the service's own price. */
@@ -185,21 +190,40 @@ const toProduct = (x: any): Product => ({
 
 /** Removes the built-in demo data (sample shops, users, orders). Only central (numeric-id) records survive. */
 function stripDemo(db: DB): DB {
-  const orders = db.orders.filter((o) => isServerId(o.providerId));
-  const orderIds = new Set(orders.map((o) => o.id));
-  const appts = db.appointments.filter((a) => isServerId(a.providerId));
-  const apptIds = new Set(appts.map((a) => a.id));
   return {
     ...db,
     regions: db.regions || [],
+    bookedSlots: db.bookedSlots || [],
     users: db.users.filter((u) => isServerId(u.id)),
     providers: db.providers.filter((p) => isServerId(p.id)),
     products: db.products.filter((p) => isServerId(p.providerId) && isServerId(p.id)),
-    orders,
-    appointments: appts,
-    invoices: db.invoices.filter((i) => (i.appointmentId && apptIds.has(i.appointmentId)) || i.parts.some((p) => orderIds.has(p.orderId))),
-    messages: db.messages.filter((m) => orderIds.has(m.orderId)),
+    orders: db.orders.filter((o) => isServerId(o.id)),
+    appointments: db.appointments.filter((a) => isServerId(a.id)),
+    invoices: db.invoices.filter((i) => isServerId(i.id)),
+    messages: db.messages.filter((m) => isServerId(m.id)),
   };
+}
+
+const upsertById = <T extends { id: string }>(list: T[], items: T[]): T[] => {
+  const ids = new Set(items.map((i) => i.id));
+  return [...list.filter((x) => !ids.has(x.id)), ...items];
+};
+
+/** Orders, invoices, bookings and chat: the server's copy replaces the local one. */
+async function syncOrders() {
+  if (pendingWrites > 0 || !state.userId) return;
+  const x = await apiSync();
+  if (pendingWrites > 0) return;
+  const same = JSON.stringify([x.orders, x.invoices, x.appointments, x.messages, x.bookedSlots])
+    === JSON.stringify([state.db.orders, state.db.invoices, state.db.appointments, state.db.messages, state.db.bookedSlots || []]);
+  if (same) return;
+  mutate((db) => {
+    db.orders = x.orders as Order[];
+    db.invoices = x.invoices as Invoice[];
+    db.appointments = x.appointments as Appointment[];
+    db.messages = x.messages as Message[];
+    db.bookedSlots = x.bookedSlots;
+  });
 }
 
 async function syncCatalog() {
@@ -243,6 +267,7 @@ export async function syncRemote(withCatalog = true) {
         const { user } = await apiMe();
         mirrorUser(user);
         if (user.role === 'admin') await syncAdminQueues();
+        await syncOrders();
       } catch (e) {
         // Token expired / account deleted → sign out. Network failures keep the cached session.
         if (e instanceof ApiError && e.status === 401) {
@@ -347,7 +372,7 @@ export async function register(inp: RegisterInput): Promise<Result<{ user: User 
     return { ok: false, error: 'اكتب اسم النشاط التجاري' };
   try {
     const { user: su } = await apiRegister({
-      name: inp.name.trim(), phone, password: inp.pass, address: inp.address.trim(), role: inp.role, regionId: inp.regionId,
+      name: inp.name.trim(), phone, password: inp.pass, address: inp.address.trim(), role: inp.role, regionId: inp.regionId, vehicle: inp.vehicle,
       provider: inp.role === 'provider' && inp.provider ? { ...inp.provider } : undefined,
     });
     mirrorUser(su);
@@ -420,19 +445,6 @@ function sysMsg(db: DB, orderId: string, text: string) {
   db.messages = [...db.messages, m];
 }
 
-function tryAutoAssign(db: DB, orderId: string) {
-  if (!db.settings.autoAssign) return;
-  const o = db.orders.find((x) => x.id === orderId);
-  if (!o || o.courierId) return;
-  const cands = availableCouriers(db)
-    .map((c) => ({ c, load: db.orders.filter((x) => x.courierId === c.id && ACTIVE.includes(x.status)).length }))
-    .sort((a, b) => a.load - b.load);
-  if (!cands.length) return;
-  const c = cands[0].c;
-  db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, courierId: c.id, courierName: c.name } : x));
-  sysMsg(db, orderId, `تم تعيين المندوب ${c.name} تلقائياً لتوصيل طلبك 🛵`);
-}
-
 const setStatus = (db: DB, id: string, status: OrderStatus, extra: Partial<Order> = {}) => {
   db.orders = db.orders.map((o) =>
     o.id === id ? { ...o, ...extra, status, updatedAt: Date.now(), history: [...o.history, { status, at: Date.now() }] } : o
@@ -457,7 +469,7 @@ export function cartDetails(db: DB, cart: CartLine[]) {
   return { groups: list, delivery, subtotal, total: subtotal + delivery };
 }
 
-export function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string }): Result<{ invoiceId: string }> {
+export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string }): Promise<Result<{ invoiceId: string }>> {
   if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
@@ -465,124 +477,51 @@ export function placeOrder(me: User, info: { name: string; phone: string; addres
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
   const closed = det.groups.find((g) => !g.provider.open || g.provider.status !== 'active');
   if (closed) return { ok: false, error: `${closed.provider.name} مغلق حالياً` };
-  let invId = '';
-  mutate((db) => {
-    const now = Date.now();
-    invId = uid(db, 'inv');
-    const orders: Order[] = det.groups.map((g) => {
-      const num = db.orders.reduce((m, o) => Math.max(m, o.number), 1200) + 1 + 0;
-      return {
-        id: uid(db, 'o'),
-        number: num,
-        groupId: invId,
-        invoiceId: invId,
-        customerId: me.id,
-        customerName: info.name.trim(),
-        phone: normPhone(info.phone),
-        address: info.address.trim(),
-        notes: info.notes.trim(),
-        providerId: g.provider.id,
-        providerName: g.provider.name,
-        providerType: g.provider.type,
-        providerOwnerId: g.provider.ownerId,
-        items: g.items,
-        subtotal: g.subtotal,
-        deliveryFee: g.provider.deliveryFee,
-        total: g.subtotal + g.provider.deliveryFee,
-        status: 'pending' as OrderStatus,
-        createdAt: now,
-        updatedAt: now,
-        history: [{ status: 'pending' as OrderStatus, at: now }],
-      };
+  pendingWrites++;
+  try {
+    const r = await apiCheckout({
+      name: info.name.trim(), phone: normPhone(info.phone), address: info.address.trim(), notes: info.notes.trim(),
+      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })),
     });
-    // unique sequential numbers
-    let base = db.orders.reduce((m, o) => Math.max(m, o.number), 1200);
-    orders.forEach((o) => (o.number = ++base));
-    db.orders = [...db.orders, ...orders];
-    const inv: Invoice = {
-      id: invId,
-      number: `INV-${orders[0].number}`,
-      kind: 'delivery',
-      customerId: me.id,
-      customerName: info.name.trim(),
-      phone: normPhone(info.phone),
-      address: info.address.trim(),
-      createdAt: now,
-      total: det.total,
-      parts: orders.map((o) => ({
-        orderId: o.id,
-        providerId: o.providerId,
-        providerName: o.providerName,
-        providerType: o.providerType,
-        items: o.items,
-        subtotal: o.subtotal,
-        deliveryFee: o.deliveryFee,
-      })),
-    };
-    db.invoices = [...db.invoices, inv];
-    if (info.address !== me.address) db.users = db.users.map((u) => (u.id === me.id ? { ...u, address: info.address.trim() } : u));
-  });
-  saveCart([]);
-  return { ok: true, invoiceId: invId };
+    mutate((db) => {
+      db.orders = upsertById(db.orders, r.orders as Order[]);
+      db.invoices = upsertById(db.invoices, [r.invoice as Invoice]);
+      db.users = db.users.map((u) => (u.id === me.id ? { ...u, address: r.address } : u));
+    });
+    saveCart([]);
+    return { ok: true, invoiceId: String(r.invoice.id) };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
 }
 
 export const CUSTOM_FEE = 20;
-export function placeCustomOrder(me: User, info: { text: string; phone: string; address: string }): Result<{ orderId: string }> {
+/** Price of the errand service: the customer's area price (set by the owner), or this fallback. */
+export function customFee(): number {
+  const me = state.db.users.find((u) => u.id === state.userId);
+  const region = me?.regionId ? state.db.regions.find((r) => r.id === me.regionId) : undefined;
+  return region ? region.deliveryFee : CUSTOM_FEE;
+}
+export async function placeCustomOrder(me: User, info: { text: string; phone: string; address: string }): Promise<Result<{ orderId: string }>> {
   if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
   if (info.text.trim().length < 3) return { ok: false, error: 'اكتب ما تريد طلبه' };
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
-  let oid = '';
-  mutate((db) => {
-    const now = Date.now();
-    oid = uid(db, 'o');
-    const invId = uid(db, 'inv');
-    const num = db.orders.reduce((m, o) => Math.max(m, o.number), 1200) + 1;
-    const o: Order = {
-      id: oid,
-      number: num,
-      groupId: invId,
-      invoiceId: invId,
-      customerId: me.id,
-      customerName: me.name,
-      phone: normPhone(info.phone),
-      address: info.address.trim(),
-      notes: '',
-      providerId: 'custom',
-      providerName: 'طلب خاص — اطلب إيه؟',
-      providerType: 'custom',
-      providerOwnerId: '',
-      items: [],
-      customText: info.text.trim(),
-      subtotal: 0,
-      deliveryFee: CUSTOM_FEE,
-      total: CUSTOM_FEE,
-      status: 'accepted',
-      createdAt: now,
-      updatedAt: now,
-      history: [{ status: 'pending', at: now }, { status: 'accepted', at: now }],
-    };
-    db.orders = [...db.orders, o];
-    db.invoices = [
-      ...db.invoices,
-      {
-        id: invId,
-        number: `INV-${num}`,
-        kind: 'delivery',
-        customerId: me.id,
-        customerName: me.name,
-        phone: o.phone,
-        address: o.address,
-        createdAt: now,
-        total: CUSTOM_FEE,
-        parts: [
-          { orderId: oid, providerId: 'custom', providerName: o.providerName, providerType: 'custom', items: [], customText: o.customText, subtotal: 0, deliveryFee: CUSTOM_FEE },
-        ],
-      },
-    ];
-    tryAutoAssign(db, oid);
-  });
-  return { ok: true, orderId: oid };
+  pendingWrites++;
+  try {
+    const r = await apiCustomOrder({ text: info.text.trim(), phone: normPhone(info.phone), address: info.address.trim() });
+    mutate((db) => {
+      db.orders = upsertById(db.orders, r.orders as Order[]);
+      db.invoices = upsertById(db.invoices, [r.invoice as Invoice]);
+    });
+    return { ok: true, orderId: String(r.orders[0].id) };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
 }
 
 export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'deliver';
@@ -590,49 +529,43 @@ export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_ac
 export function orderAction(orderId: string, action: OrderAction, by: User, reason?: string): Result {
   const o = state.db.orders.find((x) => x.id === orderId);
   if (!o) return { ok: false, error: 'الطلب غير موجود' };
-  switch (action) {
-    case 'accept':
-      mutate((db) => {
+  if (action === 'cancel' && ['on_the_way', 'delivered'].includes(o.status)) return { ok: false, error: 'لا يمكن إلغاء الطلب الآن' };
+  if (action === 'courier_accept') {
+    if (!by.available) return { ok: false, error: 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات' };
+    if (o.courierId && o.courierId !== by.id) return { ok: false, error: 'تم قبول الطلب بواسطة مندوب آخر' };
+  }
+  // optimistic: show the result at once; the server then confirms (or corrects) it
+  mutate((db) => {
+    switch (action) {
+      case 'accept':
         setStatus(db, orderId, 'accepted');
         sysMsg(db, orderId, 'تم قبول طلبك وجاري التحضير 👨‍🍳');
-        tryAutoAssign(db, orderId);
-      });
-      break;
-    case 'reject':
-      mutate((db) => setStatus(db, orderId, 'rejected', { rejectReason: reason || 'غير متاح حالياً' }));
-      break;
-    case 'ready':
-      mutate((db) => {
+        break;
+      case 'reject':
+        setStatus(db, orderId, 'rejected', { rejectReason: reason || 'غير متاح حالياً' });
+        break;
+      case 'ready':
         setStatus(db, orderId, 'ready');
         sysMsg(db, orderId, 'الطلب جاهز للاستلام من المندوب ✅');
-      });
-      break;
-    case 'cancel':
-      if (['on_the_way', 'delivered'].includes(o.status)) return { ok: false, error: 'لا يمكن إلغاء الطلب الآن' };
-      mutate((db) => setStatus(db, orderId, 'cancelled', { rejectReason: by.role === 'admin' ? 'ألغاه المدير' : 'ألغاه العميل' }));
-      break;
-    case 'courier_accept': {
-      if (!by.available) return { ok: false, error: 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات' };
-      if (o.courierId && o.courierId !== by.id) return { ok: false, error: 'تم قبول الطلب بواسطة مندوب آخر' };
-      mutate((db) => {
+        break;
+      case 'cancel':
+        setStatus(db, orderId, 'cancelled', { rejectReason: by.role === 'admin' ? 'ألغاه المدير' : by.role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
+        break;
+      case 'courier_accept':
         db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, courierId: by.id, courierName: by.name, updatedAt: Date.now() } : x));
         sysMsg(db, orderId, `المندوب ${by.name} قبل طلبك وسيتولى التوصيل 🛵`);
-      });
-      break;
-    }
-    case 'pickup':
-      mutate((db) => {
+        break;
+      case 'pickup':
         setStatus(db, orderId, 'on_the_way');
         sysMsg(db, orderId, 'استلم المندوب طلبك وهو الآن في الطريق إليك 🚀');
-      });
-      break;
-    case 'deliver':
-      mutate((db) => {
+        break;
+      case 'deliver':
         setStatus(db, orderId, 'delivered');
         sysMsg(db, orderId, 'تم تسليم الطلب بنجاح. بالهناء والشفاء 💚');
-      });
-      break;
-  }
+        break;
+    }
+  });
+  if (isServerId(orderId)) backgroundWrite(async () => { await apiOrderAction(orderId, action, reason); });
   return { ok: true };
 }
 
@@ -645,57 +578,47 @@ export function sendMessage(orderId: string, text: string, by: User) {
       { id: uid(db, 'm'), orderId, senderId: by.id, senderName: by.name, senderRole: by.role, text: t, createdAt: Date.now() },
     ];
   });
+  if (isServerId(orderId)) backgroundWrite(async () => { await apiSendMessage(orderId, t); });
 }
 
 /* ---------- appointments ---------- */
 export function slotTaken(db: DB, doctorId: string, date: string, time: string) {
-  return db.appointments.some(
-    (a) => a.doctorId === doctorId && a.date === date && a.time === time && ['pending', 'confirmed'].includes(a.status)
+  return (
+    db.appointments.some((a) => a.doctorId === doctorId && a.date === date && a.time === time && ['pending', 'confirmed'].includes(a.status))
+    || (db.bookedSlots || []).some((x) => x.doctorId === doctorId && x.date === date && x.time === time)
   );
 }
 
-export function bookAppointment(
+export async function bookAppointment(
   me: User,
   info: { doctor: Product; date: string; time: string; patientName: string; phone: string; notes: string }
-): Result<{ id: string }> {
+): Promise<Result<{ id: string }>> {
   if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
   const prov = state.db.providers.find((p) => p.id === info.doctor.providerId);
   if (!prov || prov.status !== 'active' || !prov.open) return { ok: false, error: 'العيادة لا تستقبل حجوزات حالياً' };
   if (info.patientName.trim().length < 3) return { ok: false, error: 'اكتب اسم المريض' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
   if (slotTaken(state.db, info.doctor.id, info.date, info.time)) return { ok: false, error: 'هذا الموعد محجوز، اختر موعداً آخر' };
-  let id = '';
-  mutate((db) => {
-    const now = Date.now();
-    id = uid(db, 'a');
-    const num = db.appointments.reduce((m, a) => Math.max(m, a.number), 500) + 1;
-    const a: Appointment = {
-      id,
-      number: num,
-      customerId: me.id,
-      patientName: info.patientName.trim(),
-      phone: normPhone(info.phone),
-      providerId: prov.id,
-      clinicName: prov.name,
-      clinicOwnerId: prov.ownerId,
-      clinicAddress: prov.address,
-      doctorId: info.doctor.id,
-      doctorName: info.doctor.name,
-      specialty: info.doctor.category,
-      date: info.date,
-      time: info.time,
-      fee: info.doctor.price,
-      notes: info.notes.trim(),
-      status: 'pending',
-      createdAt: now,
-      updatedAt: now,
-    };
-    db.appointments = [...db.appointments, a];
-  });
-  return { ok: true, id };
+  pendingWrites++;
+  try {
+    const { appointment } = await apiBookAppointment({
+      doctorId: info.doctor.id, date: info.date, time: info.time, patientName: info.patientName.trim(), phone: normPhone(info.phone), notes: info.notes.trim(),
+    });
+    mutate((db) => {
+      db.appointments = upsertById(db.appointments, [appointment as Appointment]);
+      db.bookedSlots = [...(db.bookedSlots || []), { doctorId: info.doctor.id, date: info.date, time: info.time }];
+    });
+    return { ok: true, id: String(appointment.id) };
+  } catch (e) {
+    syncOrders().catch(() => {});
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
 }
 
 export function apptAction(id: string, action: 'confirm' | 'reject' | 'complete' | 'cancel') {
+  if (isServerId(id)) backgroundWrite(async () => { await apiApptAction(id, action); });
   mutate((db) => {
     const a = db.appointments.find((x) => x.id === id);
     if (!a) return;
@@ -745,6 +668,7 @@ async function backgroundWrite(job: () => Promise<void>) {
   } finally {
     pendingWrites--;
     syncCatalog().catch(() => {});
+    syncOrders().catch(() => {});
   }
 }
 
@@ -790,6 +714,16 @@ export function updateProvider(id: string, patch: Partial<Provider>) {
 /* ---------- courier ---------- */
 export function setAvailable(userId: string, available: boolean) {
   updateUser(userId, { available, availableSince: available ? Date.now() : undefined });
+  if (!isServerId(userId)) return;
+  backgroundWrite(async () => {
+    try {
+      const { user } = await apiUpdateProfile({ available });
+      mirrorUser(user);
+    } catch (e) {
+      syncRemote(false).catch(() => {});
+      throw e;
+    }
+  });
 }
 
 /* ---------- admin ---------- */

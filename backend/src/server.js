@@ -35,7 +35,7 @@ async function maintenanceState() {
   return { enabled: r.rows[0].app_enabled, message: r.rows[0].maintenance_message || 'التطبيق متوقف مؤقتًا للصيانة' };
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null });
+const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined });
 const positiveId = value => {
   const n = Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
@@ -119,7 +119,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
 }));
 
 app.post('/api/auth/register', asyncRoute(async (req, res) => {
-  const { name, phone, password, address = '', role = 'customer', provider, regionId } = req.body || {};
+  const { name, phone, password, address = '', role = 'customer', provider, regionId, vehicle } = req.body || {};
   const mt = await maintenanceState();
   if (!mt.enabled) return res.status(503).json({ error: mt.message });
   const normalizedPhone = String(phone || '').replace(/\s+/g, '');
@@ -141,7 +141,7 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     await client.query('BEGIN');
     const hash = await bcrypt.hash(password, 12);
     const status = role === 'customer' ? 'active' : 'pending';
-    const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status,region_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status, region]);
+    const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status,region_id,vehicle) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status, region, role === 'courier' ? String(vehicle || 'موتوسيكل').slice(0, 30) : '']);
     const user = result.rows[0];
     if (role === 'provider') {
       await client.query('INSERT INTO providers(owner_user_id,type,name,description,address,phone,delivery_fee,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,\'pending\',$8)', [user.id, provider.type || 'other', String(provider.name).trim(), String(provider.desc || ''), String(address).trim(), normalizedPhone, Math.max(0, Number(provider.deliveryFee) || 0), JSON.stringify({ specialty: provider.specialty || '' })]);
@@ -198,7 +198,12 @@ app.patch('/api/me', auth, asyncRoute(async (req, res) => {
       region = rid;
     }
   }
-  const r = await pool.query('UPDATE users SET name=COALESCE($1,name), address=COALESCE($2,address), region_id=CASE WHEN $3 THEN $4::bigint ELSE region_id END WHERE id=$5 RETURNING *', [name, address, regionSet, region, Number(req.auth.sub)]);
+  const availSet = typeof b.available === 'boolean' && req.auth.role === 'courier';
+  if (availSet && !b.available) {
+    const open = await pool.query("SELECT 1 FROM orders WHERE courier_user_id=$1 AND status IN ('accepted','ready','on_the_way') LIMIT 1", [Number(req.auth.sub)]);
+    if (open.rowCount) return res.status(409).json({ error: 'أكمل طلباتك الحالية قبل إيقاف الاستقبال' });
+  }
+  const r = await pool.query('UPDATE users SET name=COALESCE($1,name), address=COALESCE($2,address), region_id=CASE WHEN $3 THEN $4::bigint ELSE region_id END, available=CASE WHEN $6 THEN $7::boolean ELSE available END, available_since=CASE WHEN $6 AND $7::boolean AND NOT available THEN NOW() WHEN $6 AND NOT $7::boolean THEN NULL ELSE available_since END WHERE id=$5 RETURNING *', [name, address, regionSet, region, Number(req.auth.sub), availSet, availSet ? b.available : false]);
   res.json({ user: cleanUser(r.rows[0]) });
 }));
 app.patch('/api/me/password', auth, asyncRoute(async (req, res) => {
@@ -316,48 +321,6 @@ app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, re
 }));
 
 // Appointment records are server-owned and visible only to the customer, clinic owner, or admin.
-app.post('/api/appointments', auth, roles('customer'), asyncRoute(async (req, res) => {
-  const appState = await pool.query('SELECT app_enabled,maintenance_message FROM app_settings WHERE id=1');
-  if (appState.rowCount && !appState.rows[0].app_enabled) return res.status(503).json({ error: appState.rows[0].maintenance_message || 'التطبيق متوقف مؤقتًا' });
-  const b = req.body || {}; const providerId = positiveId(b.providerId);
-  const date = String(b.date || ''); const time = String(b.time || '').trim();
-  const fee = Number(b.fee || 0); const data = b.data === undefined ? {} : b.data;
-  if (!providerId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !time || time.length > 40 || !Number.isFinite(fee) || fee < 0 || !isRecord(data)) return res.status(400).json({ error:'بيانات الموعد غير صالحة' });
-  const p = await pool.query("SELECT id FROM providers WHERE id=$1 AND type='clinic' AND status='active'",[providerId]);
-  if (!p.rowCount) return res.status(400).json({ error:'العيادة غير متاحة' });
-  const dup = await pool.query("SELECT id FROM appointments WHERE provider_id=$1 AND appointment_date=$2 AND appointment_time=$3 AND status IN ('pending','confirmed')",[providerId,date,time]);
-  if (dup.rowCount) return res.status(409).json({ error:'هذا الموعد محجوز بالفعل' });
-  const r = await pool.query('INSERT INTO appointments(customer_user_id,provider_id,doctor_product_id,appointment_date,appointment_time,fee,data) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[Number(req.auth.sub),providerId,positiveId(b.doctorId),date,time,fee,JSON.stringify(data)]);
-  const a=r.rows[0]; res.status(201).json({ appointment:{ id:String(a.id),customerId:String(a.customer_user_id),providerId:String(a.provider_id),doctorId:a.doctor_product_id?String(a.doctor_product_id):null,date:a.appointment_date.toISOString ? a.appointment_date.toISOString().slice(0,10) : String(a.appointment_date),time:a.appointment_time,status:a.status,fee:Number(a.fee),...a.data,createdAt:a.created_at,updatedAt:a.updated_at } });
-}));
-app.get('/api/appointments', auth, asyncRoute(async (req,res) => {
-  let sql, params=[];
-  if(req.auth.role==='admin') sql='SELECT a.*,p.name AS provider_name,p.owner_user_id FROM appointments a JOIN providers p ON p.id=a.provider_id ORDER BY a.created_at DESC LIMIT 300';
-  else if(req.auth.role==='customer'){sql='SELECT a.*,p.name AS provider_name,p.owner_user_id FROM appointments a JOIN providers p ON p.id=a.provider_id WHERE a.customer_user_id=$1 ORDER BY a.created_at DESC LIMIT 200';params=[Number(req.auth.sub)];}
-  else if(req.auth.role==='provider'){sql='SELECT a.*,p.name AS provider_name,p.owner_user_id FROM appointments a JOIN providers p ON p.id=a.provider_id WHERE p.owner_user_id=$1 ORDER BY a.created_at DESC LIMIT 300';params=[Number(req.auth.sub)];}
-  else return res.json({appointments:[]});
-  const r=await pool.query(sql,params); res.json({appointments:r.rows.map(a=>({...a.data,id:String(a.id),customerId:String(a.customer_user_id),providerId:String(a.provider_id),providerName:a.provider_name,ownerId:String(a.owner_user_id),doctorId:a.doctor_product_id?String(a.doctor_product_id):undefined,date:a.appointment_date.toISOString?a.appointment_date.toISOString().slice(0,10):String(a.appointment_date),time:a.appointment_time,status:a.status,fee:Number(a.fee),createdAt:a.created_at,updatedAt:a.updated_at}))});
-}));
-app.patch('/api/appointments/:id/status', auth, roles('provider','admin'), asyncRoute(async(req,res)=>{
-  const id=positiveId(req.params.id); const status=req.body && req.body.status;
-  if(!id || !['confirmed','rejected','completed','cancelled'].includes(status)) return res.status(400).json({error:'حالة الموعد غير صالحة'});
-  const found=await pool.query('SELECT a.id,p.owner_user_id FROM appointments a JOIN providers p ON p.id=a.provider_id WHERE a.id=$1',[id]);
-  if(!found.rowCount) return res.status(404).json({error:'الموعد غير موجود'});
-  if(req.auth.role==='provider' && String(found.rows[0].owner_user_id)!==req.auth.sub) return res.status(403).json({error:'غير مسموح'});
-  const r=await pool.query('UPDATE appointments SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING *',[status,id]); const a=r.rows[0];
-  res.json({appointment:{...a.data,id:String(a.id),customerId:String(a.customer_user_id),providerId:String(a.provider_id),date:a.appointment_date.toISOString?a.appointment_date.toISOString().slice(0,10):String(a.appointment_date),time:a.appointment_time,status:a.status,fee:Number(a.fee),createdAt:a.created_at,updatedAt:a.updated_at}});
-}));
-app.get('/api/invoices', auth, asyncRoute(async(req,res)=>{
-  let sql,params=[];
-  if(req.auth.role==='admin'){sql='SELECT * FROM invoices ORDER BY created_at DESC LIMIT 500';}
-  else {sql='SELECT * FROM invoices WHERE customer_user_id=$1 ORDER BY created_at DESC LIMIT 200';params=[Number(req.auth.sub)];}
-  const r=await pool.query(sql,params);res.json({invoices:r.rows.map(i=>({...i.data,id:String(i.id),number:String(i.invoice_number),customerId:String(i.customer_user_id),orderId:i.order_id?String(i.order_id):undefined,appointmentId:i.appointment_id?String(i.appointment_id):undefined,kind:i.kind,total:Number(i.total),createdAt:i.created_at}))});
-}));
-app.post('/api/invoices', auth, roles('admin'), asyncRoute(async(req,res)=>{
-  const b=req.body||{}; const orderId=positiveId(b.orderId); const appointmentId=positiveId(b.appointmentId); const customerId=positiveId(b.customerId); const total=Number(b.total); const kind=b.kind; const data=b.data===undefined?{}:b.data;
-  if((!orderId&&!appointmentId)||!customerId||!['delivery','booking'].includes(kind)||!Number.isFinite(total)||total<0||!isRecord(data)) return res.status(400).json({error:'بيانات الفاتورة غير صالحة'});
-  const r=await pool.query('INSERT INTO invoices(customer_user_id,order_id,appointment_id,kind,total,data) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[customerId,orderId,appointmentId,kind,total,JSON.stringify(data)]);const i=r.rows[0];res.status(201).json({invoice:{...i.data,id:String(i.id),number:String(i.invoice_number),customerId:String(i.customer_user_id),orderId:i.order_id?String(i.order_id):undefined,appointmentId:i.appointment_id?String(i.appointment_id):undefined,kind:i.kind,total:Number(i.total),createdAt:i.created_at}});
-}));
 app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(req,res)=>{
   const id=positiveId(req.params.id); const status=req.body&&req.body.status;
   if(!id||!['active','pending','rejected','suspended'].includes(status)) return res.status(400).json({error:'حالة الحساب غير صالحة'});
@@ -452,58 +415,8 @@ app.delete('/api/products/:id', auth, roles('provider','admin'), asyncRoute(asyn
   await pool.query('DELETE FROM products WHERE id=$1', [found.rows[0].id]); res.status(204).end();
 }));
 
-app.post('/api/orders', auth, roles('customer'), asyncRoute(async (req, res) => {
-  const appState = await pool.query('SELECT app_enabled,maintenance_message FROM app_settings WHERE id=1');
-  if (appState.rowCount && !appState.rows[0].app_enabled) return res.status(503).json({ error: appState.rows[0].maintenance_message || 'التطبيق متوقف مؤقتًا' });
-  const { providerId = null, total = 0, data = {} } = req.body || {};
-  const validProviderId = providerId === null ? null : positiveId(providerId);
-  if ((providerId !== null && !validProviderId) || !Number.isFinite(Number(total)) || Number(total) < 0 || !isRecord(data)) return res.status(400).json({ error: 'بيانات الطلب غير صالحة' });
-  if (validProviderId !== null) { const p = await pool.query("SELECT id FROM providers WHERE id=$1 AND status='active'", [validProviderId]); if (!p.rowCount) return res.status(400).json({ error: 'مقدم الخدمة غير متاح' }); }
-  const r = await pool.query('INSERT INTO orders(customer_user_id,provider_id,total,data) VALUES($1,$2,$3,$4) RETURNING *', [Number(req.auth.sub), validProviderId, Number(total), JSON.stringify(data)]);
-  res.status(201).json({ order: { id: String(r.rows[0].id), number: Number(r.rows[0].order_number), status: r.rows[0].status, total: Number(r.rows[0].total), ...r.rows[0].data, createdAt: r.rows[0].created_at } });
-}));
-app.get('/api/orders', auth, asyncRoute(async (req, res) => {
-  let sql, params;
-  if (req.auth.role === 'admin') { sql = 'SELECT * FROM orders ORDER BY created_at DESC LIMIT 200'; params = []; }
-  else if (req.auth.role === 'customer') { sql = 'SELECT * FROM orders WHERE customer_user_id=$1 ORDER BY created_at DESC LIMIT 200'; params = [Number(req.auth.sub)]; }
-  else if (req.auth.role === 'provider') { sql = 'SELECT o.* FROM orders o JOIN providers p ON p.id=o.provider_id WHERE p.owner_user_id=$1 ORDER BY o.created_at DESC LIMIT 200'; params = [Number(req.auth.sub)]; }
-  else { sql = 'SELECT * FROM orders WHERE courier_user_id=$1 ORDER BY created_at DESC LIMIT 200'; params = [Number(req.auth.sub)]; }
-  const r = await pool.query(sql, params);
-  res.json({ orders: r.rows.map(o => ({ ...o.data, id: String(o.id), number: Number(o.order_number), customerId: String(o.customer_user_id), providerId: o.provider_id === null ? null : String(o.provider_id), courierId: o.courier_user_id === null ? null : String(o.courier_user_id), status: o.status, total: Number(o.total), createdAt: o.created_at, updatedAt: o.updated_at })) });
-}));
-app.patch('/api/orders/:id/status', auth, roles('provider','courier','admin'), asyncRoute(async (req, res) => {
-  const allowed = ['accepted','ready','on_the_way','delivered','rejected','cancelled'];
-  if (!allowed.includes(req.body.status)) return res.status(400).json({ error: 'حالة الطلب غير صالحة' });
-  const found = await pool.query('SELECT o.*,p.owner_user_id FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1', [Number(req.params.id)]);
-  if (!found.rowCount) return res.status(404).json({ error: 'الطلب غير موجود' });
-  const o = found.rows[0];
-  if (req.auth.role === 'provider' && String(o.owner_user_id) !== req.auth.sub) return res.status(403).json({ error: 'غير مسموح' });
-  if (req.auth.role === 'courier' && o.courier_user_id !== null && String(o.courier_user_id) !== req.auth.sub) return res.status(403).json({ error: 'الطلب ليس مسندًا إليك' });
-  const r = await pool.query('UPDATE orders SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING *', [req.body.status, o.id]);
-  res.json({ order: { id: String(r.rows[0].id), number: Number(r.rows[0].order_number), status: r.rows[0].status, total: Number(r.rows[0].total), ...r.rows[0].data, updatedAt: r.rows[0].updated_at } });
-}));
-
-app.get('/api/orders/:id/messages', auth, asyncRoute(async (req, res) => {
-  const order = await pool.query('SELECT o.*,p.owner_user_id FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1', [Number(req.params.id)]);
-  if (!order.rowCount) return res.status(404).json({ error: 'الطلب غير موجود' });
-  const o = order.rows[0];
-  const allowed = req.auth.role === 'admin' || String(o.customer_user_id) === req.auth.sub || String(o.owner_user_id) === req.auth.sub || String(o.courier_user_id || '') === req.auth.sub;
-  if (!allowed) return res.status(403).json({ error: 'غير مسموح بالاطلاع على المحادثة' });
-  const r = await pool.query('SELECT m.id,m.order_id,m.sender_user_id,m.body,m.created_at,u.name,u.role FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.order_id=$1 ORDER BY m.created_at ASC LIMIT 500', [o.id]);
-  res.json({ messages: r.rows.map(m => ({ id: String(m.id), orderId: String(m.order_id), senderId: String(m.sender_user_id), senderName: m.name, senderRole: m.role, text: m.body, createdAt: m.created_at })) });
-}));
-app.post('/api/orders/:id/messages', auth, asyncRoute(async (req, res) => {
-  const body = String(req.body.text || '').trim();
-  if (!body || body.length > 2000) return res.status(400).json({ error: 'الرسالة فارغة أو طويلة جدًا' });
-  const order = await pool.query('SELECT o.*,p.owner_user_id FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1', [Number(req.params.id)]);
-  if (!order.rowCount) return res.status(404).json({ error: 'الطلب غير موجود' });
-  const o = order.rows[0];
-  const allowed = req.auth.role === 'admin' || String(o.customer_user_id) === req.auth.sub || String(o.owner_user_id) === req.auth.sub || String(o.courier_user_id || '') === req.auth.sub;
-  if (!allowed) return res.status(403).json({ error: 'غير مسموح بإرسال رسالة في هذه المحادثة' });
-  const r = await pool.query('INSERT INTO messages(order_id,sender_user_id,body) VALUES($1,$2,$3) RETURNING *', [o.id, Number(req.auth.sub), body]);
-  const u = await pool.query('SELECT name,role FROM users WHERE id=$1', [Number(req.auth.sub)]);
-  res.status(201).json({ message: { id: String(r.rows[0].id), orderId: String(r.rows[0].order_id), senderId: String(req.auth.sub), senderName: u.rows[0].name, senderRole: u.rows[0].role, text: body, createdAt: r.rows[0].created_at } });
-}));
+// Orders, invoices, bookings and chat live in orders.js
+require('./orders')(app, { pool, auth, roles, asyncRoute, positiveId, maintenanceState });
 
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {
   const r = await pool.query("SELECT p.*,u.name AS owner_name FROM providers p JOIN users u ON u.id=p.owner_user_id WHERE p.status='pending' AND p.deleted_at IS NULL ORDER BY p.created_at ASC");

@@ -61,6 +61,9 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
       <T size={12.5} color={C.sub} numberOfLines={2}>
         {o.customText ? `🎁 ${o.customText}` : o.items.map((i) => `${i.qty}× ${i.name}`).join('، ')}
       </T>
+      {o.regionName && perspective !== 'customer' && (
+        <View style={{ flexDirection: 'row' }}><Pill label={`المنطقة: ${o.regionName}`} color={C.goldDeep} soft={C.goldSoft} icon="map" /></View>
+      )}
       {(perspective === 'courier' || perspective === 'admin') && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Icon name="location" size={14} color={C.goldDeep} />

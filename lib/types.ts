@@ -64,7 +64,9 @@ export type OrderStatus =
   | 'on_the_way'
   | 'delivered'
   | 'rejected'
-  | 'cancelled';
+  | 'cancelled'
+  | 'quoted'
+  | 'unavailable';
 
 export interface OrderItem {
   productId: string;
@@ -90,6 +92,9 @@ export interface Order {
   providerOwnerId: string;
   items: OrderItem[];
   customText?: string;
+  request?: { text: string; image?: string };
+  regionId?: string;
+  regionName?: string;
   subtotal: number;
   deliveryFee: number;
   total: number;
@@ -186,6 +191,7 @@ export interface DB {
   providers: Provider[];
   products: Product[];
   regions: Region[];
+  bookedSlots: { doctorId: string; date: string; time: string }[];
   orders: Order[];
   appointments: Appointment[];
   invoices: Invoice[];
