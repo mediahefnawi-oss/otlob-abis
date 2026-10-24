@@ -10,8 +10,7 @@ import {
 } from '../components/ui';
 import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
 import {
-  useStore, useMe, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, CUSTOM_FEE,
-} from '../lib/store';
+  useStore, useMe, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, CUSTOM_FEE, feeFor } from '../lib/store';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS } from '../lib/format';
 import { ProviderType, Provider } from '../lib/types';
 
@@ -286,7 +285,7 @@ export function ProviderScreen({ navigation, route }: any) {
             <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}</T></View>
               {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
-              {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {p.deliveryFee} ج.م</T></View>}
+              {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {feeFor(p)} ج.م</T></View>}
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{p.address}</T></View>
             </View>
           </View>

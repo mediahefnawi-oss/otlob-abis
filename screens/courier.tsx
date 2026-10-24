@@ -7,7 +7,8 @@ import { T, Icon, Card, Btn, Header, Empty, Segmented, Appear, Stat, confirmDial
 import { OrderCard } from '../components/Cards';
 import { useRC } from './customer';
 import { ProfileScreen } from './shared';
-import { useStore, useMe, setAvailable, orderAction } from '../lib/store';
+import { useStore, useMe, setAvailable, orderAction, updateProfile } from '../lib/store';
+import { RegionPicker } from '../components/Regions';
 import { money, isToday, fmtTime } from '../lib/format';
 
 export function CourierWorkScreen({ navigation }: any) {
@@ -58,6 +59,9 @@ export function CourierWorkScreen({ navigation }: any) {
           <Stat icon="checkmark-done" label="تم تسليمها اليوم" value={doneToday.length} />
           <Stat icon="bicycle" label="جارية الآن" value={mine.length} color={C.orange} soft={C.orangeSoft} />
         </View>
+        <Card style={{ marginHorizontal: 16, marginTop: 12, gap: 8 }}>
+          <RegionPicker value={me.regionId} onChange={async (id) => { const r = await updateProfile({ regionId: id }); if (!r.ok) toast(r.error, 'err'); else toast('تم تحديد منطقتك'); }} label="أنا الآن في منطقة" />
+        </Card>
         <Segmented value={seg} onChange={setSeg} options={[{ key: 'offers', label: 'طلبات متاحة', count: on ? offers.length : 0 }, { key: 'mine', label: 'طلباتي الحالية', count: mine.length }]} />
       </View>
       {seg === 'offers' ? (

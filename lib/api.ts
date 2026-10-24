@@ -57,7 +57,7 @@ export async function apiLogin(input: { phone?: string; password: string; userna
   return result;
 }
 
-export async function apiRegister(input: { name: string; phone: string; password: string; address?: string; role?: string; provider?: Record<string, unknown> }) {
+export async function apiRegister(input: { name: string; phone: string; password: string; address?: string; role?: string; regionId?: string; provider?: Record<string, unknown> }) {
   const result = await apiRequest<{ token: string; user: { id: string; name: string; phone: string; role: string; address: string; status: string } }>(
     '/api/auth/register', { method: 'POST', body: JSON.stringify(input) }, false,
   );
@@ -200,12 +200,12 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string };
+export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');
 }
-export async function apiUpdateProfile(patch: { name?: string; address?: string }) {
+export async function apiUpdateProfile(patch: { name?: string; address?: string; regionId?: string | null }) {
   return apiRequest<{ user: ServerUser }>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
 }
 export async function apiChangePassword(oldPassword: string, newPassword: string) {
@@ -239,4 +239,19 @@ export async function apiUpdateProvider(id: string | number, patch: {
 }
 export async function apiAdminDeleteProvider(id: string | number) {
   return apiRequest<{ ok: boolean }>(`/api/admin/providers/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+}
+
+/** Phase 4: delivery areas. */
+export type ServerRegion = { id: string; name: string; deliveryFee: number; active: boolean };
+export async function apiListRegions() {
+  return apiRequest<{ regions: ServerRegion[] }>('/api/regions', {}, true);
+}
+export async function apiAdminCreateRegion(input: { name: string; deliveryFee: number }) {
+  return apiRequest<{ region: ServerRegion }>('/api/admin/regions', { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiAdminUpdateRegion(id: string | number, patch: { name?: string; deliveryFee?: number; active?: boolean }) {
+  return apiRequest<{ region: ServerRegion }>(`/api/admin/regions/${encodeURIComponent(String(id))}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+export async function apiAdminDeleteRegion(id: string | number) {
+  return apiRequest<{ ok: boolean }>(`/api/admin/regions/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
 }

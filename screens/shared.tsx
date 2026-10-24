@@ -11,6 +11,7 @@ import {
 } from '../components/ui';
 import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable } from '../lib/store';
 import { ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI } from '../lib/format';
+import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
 
 /* ---------------- Order detail (all roles) ---------------- */
@@ -506,6 +507,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
   const [pw, setPw] = useState(false);
   const [name, setName] = useState(me.name);
   const [address, setAddress] = useState(me.address);
+  const [regionId, setRegionId] = useState(me.regionId || '');
   const [o, setO] = useState('');
   const [n, setN] = useState('');
   const roleLabel = { customer: 'عميل', provider: 'مقدم خدمة', courier: 'مندوب توصيل', admin: 'مدير التطبيق' }[me.role];
@@ -538,7 +540,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
         {extra}
         <Card style={{ paddingVertical: 4 }}>
-          <Item icon="create" label="تعديل البيانات الشخصية" sub={me.address || 'أضف عنوانك'} onPress={() => { setName(me.name); setAddress(me.address); setEdit(true); }} />
+          <Item icon="create" label="تعديل البيانات الشخصية" sub={me.address || 'أضف عنوانك'} onPress={() => { setName(me.name); setAddress(me.address); setRegionId(me.regionId || ''); setEdit(true); }} />
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Item icon="key" label="تغيير كلمة المرور" onPress={() => setPw(true)} />
           <View style={{ height: 1, backgroundColor: C.line }} />
@@ -554,10 +556,11 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
 
       <Sheet visible={edit} onClose={() => setEdit(false)} title="تعديل البيانات">
         <Field label="الاسم" icon="person" value={name} onChangeText={setName} />
-        <Field label="العنوان" icon="location" value={address} onChangeText={setAddress} multiline />
+        {me.role === 'customer' && <RegionPicker value={regionId} onChange={setRegionId} label="اسم المنطقة" />}
+        <Field label="العنوان التفصيلي" icon="location" value={address} onChangeText={setAddress} multiline />
         <Btn title="حفظ" icon="checkmark" onPress={async () => {
           if (name.trim().length < 3) return toast('اكتب الاسم بالكامل', 'err');
-          const r = await updateProfile({ name: name.trim(), address: address.trim() });
+          const r = await updateProfile({ name: name.trim(), address: address.trim(), ...(me.role === 'customer' && regionId ? { regionId } : {}) });
           if (!r.ok) return toast(r.error, 'err');
           setEdit(false);
           toast('تم حفظ البيانات');

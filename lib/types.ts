@@ -15,6 +15,15 @@ export interface User {
   vehicle?: string;
   available?: boolean;
   availableSince?: number;
+  // delivery area: the customer's area, or the courier's current area
+  regionId?: string | null;
+}
+
+export interface Region {
+  id: string;
+  name: string;
+  deliveryFee: number;
+  active: boolean;
 }
 
 export interface Provider {
@@ -176,6 +185,7 @@ export interface DB {
   users: User[];
   providers: Provider[];
   products: Product[];
+  regions: Region[];
   orders: Order[];
   appointments: Appointment[];
   invoices: Invoice[];

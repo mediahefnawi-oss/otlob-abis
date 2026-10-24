@@ -15,7 +15,7 @@ assert.equal(syntax.status, 0, `Server syntax check failed:\n${syntax.stderr}`);
 for (const table of ['users', 'providers', 'products', 'orders', 'messages', 'appointments', 'invoices', 'app_settings']) {
   assert.match(schema, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`), `Missing SQL table: ${table}`);
 }
-for (const route of ['/api/health', '/api/auth/register', '/api/auth/login', '/api/me', '/api/providers', '/api/products', '/api/orders', '/api/settings', '/api/admin/settings', '/api/appointments', '/api/invoices', '/api/admin/users/:id/status', '/api/me/password', '/api/admin/users', '/api/admin/users/:id/password', '/api/admin/providers', '/api/providers/:id', '/api/admin/providers/:id']) {
+for (const route of ['/api/health', '/api/auth/register', '/api/auth/login', '/api/me', '/api/providers', '/api/products', '/api/orders', '/api/settings', '/api/admin/settings', '/api/appointments', '/api/invoices', '/api/admin/users/:id/status', '/api/me/password', '/api/admin/users', '/api/admin/users/:id/password', '/api/admin/providers', '/api/providers/:id', '/api/admin/providers/:id', '/api/regions', '/api/admin/regions', '/api/admin/regions/:id']) {
   assert.ok(source.includes(`'${route}'`) || source.includes(`"${route}"`), `Missing expected API route: ${route}`);
 }
 assert.match(source, /jwt\.verify\(/, 'JWT verification must remain enabled');
@@ -23,7 +23,7 @@ assert.match(source, /SELECT id, role, status FROM users WHERE id=\$1/, 'Protect
 assert.match(source, /roles\('admin'\)/, 'Admin-only route guards must remain enabled');
 assert.match(source, /positiveId\s*=\s*value\s*=>/, 'Positive integer ID validation must remain enabled');
 assert.match(source, /appState\.rows\[0\]\.app_enabled/, 'Maintenance mode must block order/appointment creation');
-for (const wrapper of ['apiHealth', 'apiListProviders', 'apiListProducts', 'apiCreateProduct', 'apiUpdateProduct', 'apiDeleteProduct', 'apiListOrders', 'apiCreateOrder', 'apiUpdateOrderStatus', 'apiListOrderMessages', 'apiSendOrderMessage', 'apiListPendingProviders', 'apiDecideProvider', 'apiListAppointments', 'apiCreateAppointment', 'apiListInvoices', 'apiCreateInvoice', 'apiGetSettings', 'apiUpdateSettings', 'apiSetUserStatus', 'apiMe', 'apiUpdateProfile', 'apiChangePassword', 'apiListUsers', 'apiAdminResetPassword', 'apiAdminCreateProvider', 'apiUpdateProvider', 'apiAdminDeleteProvider']) {
+for (const wrapper of ['apiHealth', 'apiListProviders', 'apiListProducts', 'apiCreateProduct', 'apiUpdateProduct', 'apiDeleteProduct', 'apiListOrders', 'apiCreateOrder', 'apiUpdateOrderStatus', 'apiListOrderMessages', 'apiSendOrderMessage', 'apiListPendingProviders', 'apiDecideProvider', 'apiListAppointments', 'apiCreateAppointment', 'apiListInvoices', 'apiCreateInvoice', 'apiGetSettings', 'apiUpdateSettings', 'apiSetUserStatus', 'apiMe', 'apiUpdateProfile', 'apiChangePassword', 'apiListUsers', 'apiAdminResetPassword', 'apiAdminCreateProvider', 'apiUpdateProvider', 'apiAdminDeleteProvider', 'apiListRegions', 'apiAdminCreateRegion', 'apiAdminUpdateRegion', 'apiAdminDeleteRegion']) {
   assert.match(clientApi, new RegExp(`export async function ${wrapper}\\b`), `Missing client API wrapper: ${wrapper}`);
 }
 assert.match(source, /authAny/, '/api/me must answer for pending accounts');

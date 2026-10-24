@@ -102,3 +102,15 @@ INSERT INTO app_settings(id) VALUES(1) ON CONFLICT (id) DO NOTHING;
 
 -- Phase 3: soft-delete so order/invoice history stays intact when the owner removes a service.
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- Phase 4: delivery areas. The owner decides which areas the app serves and the delivery price for each.
+CREATE TABLE IF NOT EXISTS regions (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 10 CHECK (delivery_fee >= 0),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS region_id BIGINT REFERENCES regions(id) ON DELETE SET NULL;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS regions_seeded BOOLEAN NOT NULL DEFAULT FALSE;

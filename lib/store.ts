@@ -7,10 +7,11 @@ import {
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiUpdateProvider, apiAdminDeleteProvider,
+  apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
-  Settings, CartLine, AccountStatus, ProviderType, OrderItem,
+  Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region,
 } from './types';
 import { buildSeed } from './seed';
 import { hash, normPhone } from './format';
@@ -105,6 +106,7 @@ const fromServer = (s: ServerUser, old?: User): User => ({
   role: s.role as Role,
   address: s.address || '',
   status: s.status as AccountStatus,
+  regionId: s.regionId ?? null,
   createdAt: s.createdAt ? Date.parse(s.createdAt) || Date.now() : old?.createdAt ?? Date.now(),
 });
 
@@ -112,7 +114,7 @@ function mirrorUser(s: ServerUser) {
   const old = state.db.users.find((u) => u.id === s.id);
   const next = fromServer(s, old);
   const same = old && old.name === next.name && old.phone === next.phone && old.role === next.role
-    && old.address === next.address && old.status === next.status;
+    && old.address === next.address && old.status === next.status && (old.regionId ?? null) === (next.regionId ?? null);
   if (same) return;
   mutate((db) => {
     db.users = old ? db.users.map((u) => (u.id === s.id ? next : u)) : [...db.users, next];
@@ -154,6 +156,14 @@ async function syncAdminQueues() {
   });
 }
 
+/** Delivery price for the signed-in customer: the price of their area, falling back to the service's own price. */
+export function feeFor(p: Provider): number {
+  if (p.type === 'clinic') return 0;
+  const me = state.db.users.find((u) => u.id === state.userId);
+  const region = me?.regionId ? state.db.regions.find((r) => r.id === me.regionId) : undefined;
+  return region ? region.deliveryFee : p.deliveryFee;
+}
+
 /* ---------- central catalog (providers + products) ---------- */
 let storeErrorHandler: (msg: string) => void = () => {};
 /** The UI registers a toast here so background saves can report a failure. */
@@ -181,6 +191,7 @@ function stripDemo(db: DB): DB {
   const apptIds = new Set(appts.map((a) => a.id));
   return {
     ...db,
+    regions: db.regions || [],
     users: db.users.filter((u) => isServerId(u.id)),
     providers: db.providers.filter((p) => isServerId(p.id)),
     products: db.products.filter((p) => isServerId(p.providerId) && isServerId(p.id)),
@@ -193,11 +204,13 @@ function stripDemo(db: DB): DB {
 
 async function syncCatalog() {
   if (pendingWrites > 0) return;
-  const [{ providers }, { products }] = await Promise.all([apiListProviders<any>(), apiListProducts<any>()]);
+  const [{ providers }, { products }, { regions }] = await Promise.all([apiListProviders<any>(), apiListProducts<any>(), apiListRegions()]);
   if (pendingWrites > 0) return;
   const P = providers.map(toProvider);
   const I = products.map(toProduct);
-  const same = JSON.stringify(P) === JSON.stringify(state.db.providers) && JSON.stringify(I) === JSON.stringify(state.db.products);
+  const R: Region[] = regions.map((r) => ({ id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active }));
+  const same = JSON.stringify(P) === JSON.stringify(state.db.providers) && JSON.stringify(I) === JSON.stringify(state.db.products)
+    && JSON.stringify(R) === JSON.stringify(state.db.regions);
   if (same) return;
   mutate((db) => {
     const clean = stripDemo(db);
@@ -205,6 +218,7 @@ async function syncCatalog() {
     db.invoices = clean.invoices; db.messages = clean.messages;
     db.providers = P;
     db.products = I;
+    db.regions = R;
   });
   const ids = new Set(I.map((p) => p.id));
   if (state.cart.some((l) => !ids.has(l.productId))) saveCart(state.cart.filter((l) => ids.has(l.productId)));
@@ -320,6 +334,7 @@ export interface RegisterInput {
   address: string;
   vehicle?: string;
   provider?: { type: ProviderType; name: string; desc: string; specialty?: string; deliveryFee: number };
+  regionId?: string;
 }
 
 export async function register(inp: RegisterInput): Promise<Result<{ user: User }>> {
@@ -327,11 +342,12 @@ export async function register(inp: RegisterInput): Promise<Result<{ user: User 
   if (inp.name.trim().length < 3) return { ok: false, error: 'اكتب الاسم بالكامل' };
   if (!/^01[0-9]{9}$/.test(phone)) return { ok: false, error: 'رقم الهاتف غير صحيح (مثال: 01012345678)' };
   if (inp.pass.length < 8) return { ok: false, error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' };
+  if (inp.role === 'customer' && !inp.regionId) return { ok: false, error: 'اختر منطقتك' };
   if (inp.role === 'provider' && (!inp.provider || inp.provider.name.trim().length < 2))
     return { ok: false, error: 'اكتب اسم النشاط التجاري' };
   try {
     const { user: su } = await apiRegister({
-      name: inp.name.trim(), phone, password: inp.pass, address: inp.address.trim(), role: inp.role,
+      name: inp.name.trim(), phone, password: inp.pass, address: inp.address.trim(), role: inp.role, regionId: inp.regionId,
       provider: inp.role === 'provider' && inp.provider ? { ...inp.provider } : undefined,
     });
     mirrorUser(su);
@@ -356,7 +372,7 @@ export function updateUser(id: string, patch: Partial<User>) {
   });
 }
 
-export async function updateProfile(patch: { name?: string; address?: string }): Promise<Result> {
+export async function updateProfile(patch: { name?: string; address?: string; regionId?: string | null }): Promise<Result> {
   try {
     const { user } = await apiUpdateProfile(patch);
     mirrorUser(user);
@@ -431,7 +447,7 @@ export function cartDetails(db: DB, cart: CartLine[]) {
     if (!p) return;
     const prov = db.providers.find((x) => x.id === p.providerId);
     if (!prov) return;
-    if (!groups[prov.id]) groups[prov.id] = { provider: prov, items: [], subtotal: 0 };
+    if (!groups[prov.id]) groups[prov.id] = { provider: { ...prov, deliveryFee: feeFor(prov) }, items: [], subtotal: 0 };
     groups[prov.id].items.push({ productId: p.id, name: p.name, price: p.price, qty: l.qty, emoji: p.emoji });
     groups[prov.id].subtotal += p.price * l.qty;
   });
@@ -915,4 +931,29 @@ export async function adminResetPassword(userId: string, newPass: string): Promi
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   }
+}
+
+/* ---------- delivery areas (owner) ---------- */
+const toRegion = (r: { id: string; name: string; deliveryFee: number; active: boolean }): Region => ({ id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active });
+
+export async function addRegion(name: string, deliveryFee: number): Promise<Result> {
+  try {
+    const { region } = await apiAdminCreateRegion({ name: name.trim(), deliveryFee });
+    mutate((db) => { db.regions = [...db.regions, toRegion(region)]; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function updateRegion(id: string, patch: { name?: string; deliveryFee?: number; active?: boolean }): Promise<Result> {
+  try {
+    const { region } = await apiAdminUpdateRegion(id, patch);
+    mutate((db) => { db.regions = db.regions.map((r) => (r.id === id ? toRegion(region) : r)); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function deleteRegion(id: string): Promise<Result> {
+  try {
+    await apiAdminDeleteRegion(id);
+    mutate((db) => { db.regions = db.regions.filter((r) => r.id !== id); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
 }

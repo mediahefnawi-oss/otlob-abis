@@ -35,7 +35,7 @@ async function maintenanceState() {
   return { enabled: r.rows[0].app_enabled, message: r.rows[0].maintenance_message || 'التطبيق متوقف مؤقتًا للصيانة' };
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at });
+const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null });
 const positiveId = value => {
   const n = Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
@@ -96,6 +96,13 @@ async function ensureSchema() {
     await pool.query("INSERT INTO users(name, phone, password_hash, role, address, status) VALUES($1,$2,$3,'admin','إدارة التطبيق','active')", [username, phone, passwordHash]);
     console.log('Initial owner account created from environment settings.');
   }
+  // First boot only: the areas the app works in (the owner edits names and prices from the control panel).
+  const flag = await pool.query('SELECT regions_seeded FROM app_settings WHERE id=1');
+  if (flag.rowCount && !flag.rows[0].regions_seeded) {
+    const names = ['ابيس التمنيات', 'ابيس 7/8', 'ابيس 8/8', 'ابيس 4/8', 'التحرير', 'السلام', 'ابيس 5/8', 'ابيس 6/8', 'ابيس 10/8', 'ابيس 12/8', 'ابيس 9/8', 'باب الاحرار', 'هربط', 'القومية', 'ابيس محمود سليم', 'ابيس 2/7', 'السبعات الرئيسية', 'الرابعة'];
+    for (let i = 0; i < names.length; i++) await pool.query('INSERT INTO regions(name, sort_order) VALUES($1,$2) ON CONFLICT (name) DO NOTHING', [names[i], i]);
+    await pool.query('UPDATE app_settings SET regions_seeded=TRUE WHERE id=1');
+  }
 }
 
 // Serverless hosting (Vercel) has no long-running boot step, so prepare the schema once per instance.
@@ -112,7 +119,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
 }));
 
 app.post('/api/auth/register', asyncRoute(async (req, res) => {
-  const { name, phone, password, address = '', role = 'customer', provider } = req.body || {};
+  const { name, phone, password, address = '', role = 'customer', provider, regionId } = req.body || {};
   const mt = await maintenanceState();
   if (!mt.enabled) return res.status(503).json({ error: mt.message });
   const normalizedPhone = String(phone || '').replace(/\s+/g, '');
@@ -121,12 +128,20 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
   if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' });
   if (!['customer','provider','courier'].includes(role)) return res.status(400).json({ error: 'نوع الحساب غير صالح' });
   if (role === 'provider' && (!provider || !String(provider.name || '').trim())) return res.status(400).json({ error: 'بيانات مقدم الخدمة مطلوبة' });
+  let region = null;
+  if (regionId !== undefined && regionId !== null && regionId !== '') {
+    const rid = positiveId(regionId);
+    const rr = rid ? await pool.query('SELECT id FROM regions WHERE id=$1 AND active=TRUE', [rid]) : { rowCount: 0 };
+    if (!rr.rowCount) return res.status(400).json({ error: 'المنطقة غير متاحة' });
+    region = rid;
+  }
+  if (role === 'customer' && !region) return res.status(400).json({ error: 'اختر منطقتك' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const hash = await bcrypt.hash(password, 12);
     const status = role === 'customer' ? 'active' : 'pending';
-    const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status) VALUES($1,$2,$3,$4,$5,$6) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status]);
+    const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status,region_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status, region]);
     const user = result.rows[0];
     if (role === 'provider') {
       await client.query('INSERT INTO providers(owner_user_id,type,name,description,address,phone,delivery_fee,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,\'pending\',$8)', [user.id, provider.type || 'other', String(provider.name).trim(), String(provider.desc || ''), String(address).trim(), normalizedPhone, Math.max(0, Number(provider.deliveryFee) || 0), JSON.stringify({ specialty: provider.specialty || '' })]);
@@ -173,7 +188,17 @@ app.patch('/api/me', auth, asyncRoute(async (req, res) => {
   const name = typeof b.name === 'string' ? b.name.trim() : null;
   const address = typeof b.address === 'string' ? b.address.trim().slice(0, 300) : null;
   if (name !== null && name.length < 3) return res.status(400).json({ error: 'اكتب الاسم بالكامل' });
-  const r = await pool.query('UPDATE users SET name=COALESCE($1,name), address=COALESCE($2,address) WHERE id=$3 RETURNING *', [name, address, Number(req.auth.sub)]);
+  let regionSet = false; let region = null;
+  if ('regionId' in b) {
+    regionSet = true;
+    if (b.regionId !== null && b.regionId !== '') {
+      const rid = positiveId(b.regionId);
+      const rr = rid ? await pool.query('SELECT id FROM regions WHERE id=$1 AND active=TRUE', [rid]) : { rowCount: 0 };
+      if (!rr.rowCount) return res.status(400).json({ error: 'المنطقة غير متاحة' });
+      region = rid;
+    }
+  }
+  const r = await pool.query('UPDATE users SET name=COALESCE($1,name), address=COALESCE($2,address), region_id=CASE WHEN $3 THEN $4::bigint ELSE region_id END WHERE id=$5 RETURNING *', [name, address, regionSet, region, Number(req.auth.sub)]);
   res.json({ user: cleanUser(r.rows[0]) });
 }));
 app.patch('/api/me/password', auth, asyncRoute(async (req, res) => {
@@ -222,6 +247,53 @@ app.post('/api/admin/providers', auth, roles('admin'), asyncRoute(async (req, re
     if (e.code === '23505') return res.status(409).json({ error: 'رقم هاتف المسؤول مسجل بالفعل' });
     throw e;
   } finally { client.release(); }
+}));
+
+// Delivery areas: everyone reads the active list; only the owner edits it.
+const regionJson = r => ({ id: String(r.id), name: r.name, deliveryFee: Number(r.delivery_fee), active: r.active });
+app.get('/api/regions', optionalAuth, asyncRoute(async (req, res) => {
+  const all = req.viewer && req.viewer.role === 'admin';
+  const r = await pool.query(`SELECT * FROM regions ${all ? '' : 'WHERE active=TRUE'} ORDER BY sort_order, id`);
+  res.json({ regions: r.rows.map(regionJson) });
+}));
+app.post('/api/admin/regions', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const name = String((req.body || {}).name || '').trim();
+  const fee = Number((req.body || {}).deliveryFee);
+  if (name.length < 2) return res.status(400).json({ error: 'اكتب اسم المنطقة' });
+  if (!Number.isFinite(fee) || fee < 0) return res.status(400).json({ error: 'سعر التوصيل غير صالح' });
+  try {
+    const next = await pool.query('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM regions');
+    const r = await pool.query('INSERT INTO regions(name, delivery_fee, sort_order) VALUES($1,$2,$3) RETURNING *', [name.slice(0, 80), fee, next.rows[0].n]);
+    res.status(201).json({ region: regionJson(r.rows[0]) });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'المنطقة موجودة بالفعل' });
+    throw e;
+  }
+}));
+app.patch('/api/admin/regions/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف المنطقة غير صالح' });
+  const b = req.body || {};
+  const old = await pool.query('SELECT * FROM regions WHERE id=$1', [id]);
+  if (!old.rowCount) return res.status(404).json({ error: 'المنطقة غير موجودة' });
+  const name = b.name === undefined ? old.rows[0].name : String(b.name).trim().slice(0, 80);
+  const fee = b.deliveryFee === undefined ? Number(old.rows[0].delivery_fee) : Number(b.deliveryFee);
+  if (name.length < 2) return res.status(400).json({ error: 'اكتب اسم المنطقة' });
+  if (!Number.isFinite(fee) || fee < 0) return res.status(400).json({ error: 'سعر التوصيل غير صالح' });
+  try {
+    const r = await pool.query('UPDATE regions SET name=$1, delivery_fee=$2, active=$3 WHERE id=$4 RETURNING *', [name, fee, b.active === undefined ? old.rows[0].active : Boolean(b.active), id]);
+    res.json({ region: regionJson(r.rows[0]) });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'المنطقة موجودة بالفعل' });
+    throw e;
+  }
+}));
+app.delete('/api/admin/regions/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف المنطقة غير صالح' });
+  const r = await pool.query('DELETE FROM regions WHERE id=$1 RETURNING id', [id]);
+  if (!r.rowCount) return res.status(404).json({ error: 'المنطقة غير موجودة' });
+  res.json({ ok: true });
 }));
 
 // Public runtime settings are read from PostgreSQL, so maintenance mode and announcements

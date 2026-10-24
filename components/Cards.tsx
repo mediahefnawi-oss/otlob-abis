@@ -1,3 +1,4 @@
+import { feeFor } from '../lib/store';
 import React from 'react';
 import { View } from 'react-native';
 import { Provider, Order, Appointment, Invoice } from '../lib/types';
@@ -32,7 +33,7 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                 <Icon name="bicycle" size={14} color={C.sub} />
-                <T size={12} color={C.sub}>{p.deliveryFee} ج.م</T>
+                <T size={12} color={C.sub}>{feeFor(p)} ج.م</T>
               </View>
             </>
           )}

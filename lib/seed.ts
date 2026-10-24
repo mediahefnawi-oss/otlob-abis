@@ -325,6 +325,7 @@ export function buildSeed(): DB {
     users,
     providers,
     products,
+    regions: [],
     orders,
     appointments,
     invoices,

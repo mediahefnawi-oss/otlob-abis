@@ -10,6 +10,8 @@ import { login, register, logout, useStore, useMe } from '../lib/store';
 import { TYPES, SPECIALTIES } from '../lib/format';
 import { ProviderType } from '../lib/types';
 
+import { RegionPicker } from '../components/Regions';
+
 export function WelcomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   return (
@@ -116,6 +118,7 @@ export function RegisterScreen({ navigation, route }: any) {
   const [phone, setPhone] = useState('');
   const [pass, setPass] = useState('');
   const [address, setAddress] = useState('');
+  const [regionId, setRegionId] = useState('');
   const [vehicle, setVehicle] = useState('موتوسيكل');
   const [ptype, setPtype] = useState<ProviderType>('restaurant');
   const [pname, setPname] = useState('');
@@ -135,7 +138,7 @@ export function RegisterScreen({ navigation, route }: any) {
     setBusy(true);
     setErr('');
     const r = await register({
-      name, phone, pass, role, address, vehicle,
+      name, phone, pass, role, address, vehicle, regionId: regionId || undefined,
       provider: role === 'provider' ? { type: ptype, name: pname, desc: pdesc, specialty: ptype === 'clinic' ? spec : undefined, deliveryFee: Number(fee) || 0 } : undefined,
     });
     setBusy(false);
@@ -172,7 +175,8 @@ export function RegisterScreen({ navigation, route }: any) {
           <Field label={role === 'provider' ? 'اسم المسؤول' : 'الاسم بالكامل'} icon="person" value={name} onChangeText={setName} placeholder="الاسم" />
           <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="01xxxxxxxxx" />
           <Field label="كلمة المرور" icon="lock-closed" value={pass} onChangeText={setPass} secureTextEntry placeholder="8 أحرف على الأقل" />
-          <Field label={role === 'provider' ? 'عنوان النشاط' : 'العنوان'} icon="location" value={address} onChangeText={setAddress} placeholder="الحي، الشارع، علامة مميزة" />
+          {role === 'customer' && <RegionPicker value={regionId} onChange={setRegionId} label="اسم المنطقة" />}
+          <Field label={role === 'provider' ? 'عنوان النشاط' : 'العنوان التفصيلي'} icon="location" value={address} onChangeText={setAddress} placeholder="رقم العمارة، الشارع، علامة مميزة" />
           {role === 'courier' && (
             <View style={{ gap: 6 }}>
               <T w="semi" size={13} color={C.dark3}>وسيلة التوصيل</T>
