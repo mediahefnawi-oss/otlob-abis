@@ -18,6 +18,12 @@ import { Order, OrderStatus } from '../lib/types';
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
 const STEP_LABEL: Record<string, string> = { pending: 'تم الطلب', accepted: 'التحضير', ready: 'جاهز', picked_up: 'استلام', on_the_way: 'في الطريق', arrived: 'وصل', delivered: 'تسليم' };
 
+// when a step happened, e.g. "6:04 م" (from the order's history on the server)
+const stepTime = (o: { history?: { status: string; at: number }[]; createdAt: number }, s: string) => {
+  const at = s === 'pending' ? o.createdAt : o.history?.find((h) => h.status === s)?.at;
+  return at ? new Date(at).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' }) : '';
+};
+
 export function OrderDetailScreen({ navigation, route }: any) {
   const { db } = useStore();
   const me = useMe()!;
@@ -77,6 +83,7 @@ export function OrderDetailScreen({ navigation, route }: any) {
                         <View style={{ flex: 1, height: 3, backgroundColor: i === arr.length - 1 ? 'transparent' : STEPS.indexOf(arr[i + 1]) <= idx ? C.green : C.line }} />
                       </View>
                       <T size={10.5} w={done ? 'bold' : 'regular'} color={done ? C.dark : C.sub} align="center" style={{ marginTop: 4 }}>{STEP_LABEL[s]}</T>
+                      {done && stepTime(o, s) ? <T size={9.5} color={C.sub} align="center">{stepTime(o, s)}</T> : null}
                     </View>
                   );
                 })}
@@ -86,15 +93,15 @@ export function OrderDetailScreen({ navigation, route }: any) {
         </Animated.View>
 
         {/* courier */}
-        {courier && (
+        {!!o.courierId && (
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <IconBubble icon="bicycle" color={C.orange} bg={C.orangeSoft} />
             <View style={{ flex: 1 }}>
               <T size={11.5} color={C.sub}>المندوب</T>
-              <T w="bold" size={15}>{courier.name}</T>
-              <T size={12} color={C.sub}>{courier.vehicle}</T>
+              <T w="bold" size={15}>{courier?.name || o.courierName}</T>
+              <T size={12} color={C.sub}>{courier?.vehicle || o.courierVehicle || ''}</T>
             </View>
-            {me.role !== 'courier' && <IconBtn icon="call" bg={C.greenSoft} color={C.green} onPress={() => callPhone(courier.phone)} />}
+            {me.role !== 'courier' && !!(courier?.phone || o.courierPhone) && <IconBtn icon="call" bg={C.greenSoft} color={C.green} onPress={() => callPhone((courier?.phone || o.courierPhone)!)} />}
           </Card>
         )}
 

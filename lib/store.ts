@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storage } from './storage';
 import * as SecureStore from 'expo-secure-store';
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
@@ -28,20 +28,20 @@ const secure = {
       const v = await SecureStore.getItemAsync(k);
       if (v !== null && v !== undefined) return v;
     } catch {}
-    return AsyncStorage.getItem(k);
+    return storage.getItem(k);
   },
   async set(k: string, v: string) {
     try {
       await SecureStore.setItemAsync(k, v);
       return;
     } catch {}
-    await AsyncStorage.setItem(k, v).catch(() => {});
+    await storage.setItem(k, v).catch(() => {});
   },
   async del(k: string) {
     try {
       await SecureStore.deleteItemAsync(k);
     } catch {}
-    await AsyncStorage.removeItem(k).catch(() => {});
+    await storage.removeItem(k).catch(() => {});
   },
 };
 
@@ -78,7 +78,7 @@ let writeTimer: any = null;
 const persist = () => {
   if (writeTimer) clearTimeout(writeTimer);
   writeTimer = setTimeout(() => {
-    AsyncStorage.setItem(DB_KEY, JSON.stringify(state.db)).catch(() => {});
+    storage.setItem(DB_KEY, JSON.stringify(state.db)).catch(() => {});
   }, 60);
 };
 
@@ -284,13 +284,13 @@ export async function syncRemote(withCatalog = true) {
 
 export async function initStore() {
   try {
-    const raw = await AsyncStorage.getItem(DB_KEY);
+    const raw = await storage.getItem(DB_KEY);
     let db: DB = raw ? JSON.parse(raw) : buildSeed();
     // Owner/admin accounts only exist on the server now; drop any locally-stored admin from older builds.
     db = stripDemo(db);
-    if (!raw) await AsyncStorage.setItem(DB_KEY, JSON.stringify(db));
+    if (!raw) await storage.setItem(DB_KEY, JSON.stringify(db));
     const sid = await secure.get(SESSION_KEY);
-    const cartRaw = await AsyncStorage.getItem(CART_KEY);
+    const cartRaw = await storage.getItem(CART_KEY);
     const hasToken = await hasApiToken();
     const cached = sid && hasToken ? db.users.find((u) => u.id === sid) : undefined;
     setState({ db, userId: cached ? cached.id : null, cart: cartRaw ? JSON.parse(cartRaw) : [] });
@@ -314,17 +314,9 @@ export async function initStore() {
   setState({ ready: true });
 
   // Live sync: central settings + account status every 10s and whenever the app returns to the foreground
-  setInterval(() => { syncRemote(++syncTick % 2 === 0); }, 10000);
+  // orders move fast (courier steps), so poll every 6s; the catalog changes slowly (every ~18s)
+  setInterval(() => { syncRemote(++syncTick % 3 === 0); }, 6000);
   AppState.addEventListener('change', (st) => { if (st === 'active') syncRemote(); });
-  // Same-device multi-tab sync of local data (orders/products stay local until they are migrated)
-  setInterval(async () => {
-    try {
-      const raw = await AsyncStorage.getItem(DB_KEY);
-      if (!raw) return;
-      const parsed: DB = JSON.parse(raw);
-      if (parsed.rev > state.db.rev) setState({ db: parsed });
-    } catch {}
-  }, 2000);
 }
 
 /* ---------- session (server-authoritative) ---------- */
@@ -420,7 +412,7 @@ export async function changePassword(_id: string, oldP: string, newP: string): P
 /* ---------- cart ---------- */
 const saveCart = (cart: CartLine[]) => {
   setState({ cart });
-  AsyncStorage.setItem(CART_KEY, JSON.stringify(cart)).catch(() => {});
+  storage.setItem(CART_KEY, JSON.stringify(cart)).catch(() => {});
 };
 export function cartAdd(productId: string, delta: number) {
   const cur = state.cart.find((l) => l.productId === productId);
@@ -552,7 +544,7 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
         setStatus(db, orderId, 'cancelled', { rejectReason: by.role === 'admin' ? 'ألغاه المدير' : by.role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
         break;
       case 'courier_accept':
-        db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, courierId: by.id, courierName: by.name, updatedAt: Date.now() } : x));
+        db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, courierId: by.id, courierName: by.name, courierPhone: by.phone, courierVehicle: by.vehicle, updatedAt: Date.now() } : x));
         sysMsg(db, orderId, `المندوب ${by.name} قبل طلبك وسيتولى التوصيل 🛵`);
         break;
       case 'pickup':
@@ -777,14 +769,14 @@ export async function resetAll() {
   db.settings = state.db.settings; // maintenance/announcement belong to the server, not the demo data
   setState({ db, userId: null, cart: [] });
   logout();
-  AsyncStorage.removeItem(CART_KEY).catch(() => {});
-  AsyncStorage.setItem(DB_KEY, JSON.stringify(db)).catch(() => {});
+  storage.removeItem(CART_KEY).catch(() => {});
+  storage.setItem(DB_KEY, JSON.stringify(db)).catch(() => {});
 }
 
 export async function refresh() {
   await syncRemote();
   try {
-    const raw = await AsyncStorage.getItem(DB_KEY);
+    const raw = await storage.getItem(DB_KEY);
     if (!raw) return;
     const parsed: DB = JSON.parse(raw);
     if (parsed.rev > state.db.rev) setState({ db: parsed });

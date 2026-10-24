@@ -22,7 +22,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
       request: d.request || undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
-      courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, rejectReason: d.rejectReason || undefined,
+      courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined,
       createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [],
     };
@@ -61,7 +61,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
     const d = { ...(row.data || {}), ...dataPatch };
     if (status !== row.status) d.history = [...(d.history || []), { status, at: Date.now() }];
     const cid = courier === undefined ? row.courier_user_id : courier ? courier.id : null;
-    if (courier !== undefined) d.courierName = courier ? courier.name : undefined;
+    if (courier !== undefined) {
+      d.courierName = courier ? courier.name : undefined;
+      d.courierPhone = courier ? courier.phone : undefined;
+      d.courierVehicle = courier ? courier.vehicle : undefined;
+    }
     const r = await db.query('UPDATE orders SET status=$1, data=$2, courier_user_id=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [status, JSON.stringify(d), cid, row.id]);
     return r.rows[0];
   }
@@ -71,11 +75,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
     const s = await db.query('SELECT auto_assign FROM app_settings WHERE id=1');
     if (!s.rowCount || !s.rows[0].auto_assign) return row;
     const c = await db.query(
-      `SELECT u.id, u.name FROM users u WHERE u.role='courier' AND u.status='active' AND u.available=TRUE
+      `SELECT u.id, u.name, u.phone, u.vehicle FROM users u WHERE u.role='courier' AND u.status='active' AND u.available=TRUE
        ORDER BY (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1)) ASC,
                 (u.region_id IS NOT DISTINCT FROM $2::bigint) DESC, u.available_since ASC NULLS LAST LIMIT 1`, [BUSY, row.region_id]);
     if (!c.rowCount) return row;
-    const updated = await moveOrder(db, row, row.status, {}, { id: c.rows[0].id, name: c.rows[0].name });
+    const updated = await moveOrder(db, row, row.status, {}, { id: c.rows[0].id, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
     await sysMsg(db, row.id, `تم تعيين المندوب ${c.rows[0].name} تلقائياً لتوصيل طلبك 🛵`);
     return updated;
   }
@@ -284,10 +288,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
         case 'courier_accept': {
           need(role === 'courier', 'للمناديب فقط'); state('accepted', 'ready');
           if (row.courier_user_id) throw fail(409, 'تم قبول الطلب بواسطة مندوب آخر');
-          const c = await db.query("SELECT name, available FROM users WHERE id=$1 AND role='courier' AND status='active'", [me]);
+          const c = await db.query("SELECT name, phone, vehicle, available FROM users WHERE id=$1 AND role='courier' AND status='active'", [me]);
           if (!c.rowCount) throw fail(403, 'حساب المندوب غير مفعّل');
           if (!c.rows[0].available) throw fail(409, 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات');
-          next = await moveOrder(db, row, row.status, {}, { id: me, name: c.rows[0].name });
+          next = await moveOrder(db, row, row.status, {}, { id: me, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
           await sysMsg(db, id, `المندوب ${c.rows[0].name} قبل طلبك وسيتولى التوصيل 🛵`);
           break;
         }

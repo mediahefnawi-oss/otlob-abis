@@ -35,7 +35,7 @@ export const TYPES: Record<
   clinic: { label: 'حجز العيادات', single: 'عيادة', icon: 'pulse', emoji: '🩺', color: '#8A5CD1', soft: '#EFE6FB' },
 };
 
-export const ORDER_STATUS: Record<OrderStatus, { label: string; color: string; soft: string; icon: string }> = {
+const RAW_ORDER_STATUS: Record<OrderStatus, { label: string; color: string; soft: string; icon: string }> = {
   pending: { label: 'بانتظار المتجر', color: C.goldDeep, soft: C.goldSoft, icon: 'time' },
   accepted: { label: 'قيد التحضير', color: C.blue, soft: C.blueSoft, icon: 'flame' },
   ready: { label: 'جاهز للاستلام', color: '#8A5CD1', soft: '#EFE6FB', icon: 'bag-check' },
@@ -48,6 +48,10 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; color: string; s
   quoted: { label: 'بانتظار موافقتك على الفاتورة', color: C.goldDeep, soft: C.goldSoft, icon: 'receipt' },
   unavailable: { label: 'الأصناف غير متوفرة', color: C.red, soft: C.redSoft, icon: 'alert-circle' },
 };
+// An unknown status (e.g. from a newer server) must never crash a screen: show it plainly instead.
+export const ORDER_STATUS = new Proxy(RAW_ORDER_STATUS, {
+  get: (t, k: string) => t[k as keyof typeof t] ?? { label: 'قيد المتابعة', color: C.sub, soft: C.line, icon: 'time' },
+}) as typeof RAW_ORDER_STATUS;
 
 export const APPT_STATUS: Record<ApptStatus, { label: string; color: string; soft: string }> = {
   pending: { label: 'بانتظار تأكيد العيادة', color: C.goldDeep, soft: C.goldSoft },

@@ -103,6 +103,8 @@ export interface Order {
   status: OrderStatus;
   courierId?: string;
   courierName?: string;
+  courierPhone?: string;
+  courierVehicle?: string;
   rejectReason?: string;
   createdAt: number;
   updatedAt: number;
