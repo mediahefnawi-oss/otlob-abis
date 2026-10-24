@@ -132,3 +132,12 @@ END $$;
 -- Two customers can never hold the same doctor slot.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_appt_slot ON appointments(doctor_product_id, appointment_date, appointment_time) WHERE status IN ('pending','confirmed');
 CREATE INDEX IF NOT EXISTS idx_orders_courier ON orders(courier_user_id, status);
+
+-- Courier steps: picked up -> on the way -> arrived -> delivered.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orders_status_v3') THEN
+    ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_v2;
+    ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;
+    ALTER TABLE orders ADD CONSTRAINT orders_status_v3 CHECK (status IN ('pending','accepted','ready','picked_up','on_the_way','arrived','delivered','rejected','cancelled','quoted','unavailable'));
+  END IF;
+END $$;

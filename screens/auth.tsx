@@ -139,7 +139,7 @@ export function RegisterScreen({ navigation, route }: any) {
     setErr('');
     const r = await register({
       name, phone, pass, role, address, vehicle, regionId: regionId || undefined,
-      provider: role === 'provider' ? { type: ptype, name: pname, desc: pdesc, specialty: ptype === 'clinic' ? spec : undefined, deliveryFee: Number(fee) || 0 } : undefined,
+      provider: role === 'provider' ? { type: ptype, name: pname, desc: pdesc, specialty: ptype === 'clinic' ? spec : undefined, deliveryFee: 0 } : undefined,
     });
     setBusy(false);
     if (!r.ok) setErr(r.error);
@@ -202,9 +202,7 @@ export function RegisterScreen({ navigation, route }: any) {
                     {SPECIALTIES.map((s) => <Chip key={s} label={s} active={spec === s} onPress={() => setSpec(s)} />)}
                   </View>
                 </View>
-              ) : (
-                <Field label="رسوم التوصيل (ج.م)" icon="bicycle" value={fee} onChangeText={setFee} keyboardType="numeric" />
-              )}
+              ) : null}
             </>
           )}
           {!!err && (

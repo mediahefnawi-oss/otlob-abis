@@ -30,7 +30,7 @@ export function ProviderOrdersScreen({ navigation }: any) {
 
   const groups: Record<string, (o: any) => boolean> = {
     new: (o) => o.status === 'pending',
-    active: (o) => ['accepted', 'ready', 'on_the_way'].includes(o.status),
+    active: (o) => ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status),
     done: (o) => o.status === 'delivered',
     dead: (o) => ['rejected', 'cancelled'].includes(o.status),
   };
@@ -323,7 +323,6 @@ export function ProviderProfileScreen({ navigation }: any) {
         </View>
         <T size={12.5} color={C.sub}>{prov.desc}</T>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Icon name="location" size={15} color={C.goldDeep} /><T size={12.5}>{prov.address}</T></View>
-        {prov.type !== 'clinic' && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Icon name="bicycle" size={15} color={C.goldDeep} /><T size={12.5}>رسوم التوصيل {money(prov.deliveryFee)}</T></View>}
         <View style={{ height: 1, backgroundColor: C.line }} />
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ flex: 1 }}>
@@ -341,10 +340,9 @@ export function ProviderProfileScreen({ navigation }: any) {
         <Field label="اسم النشاط" value={name} onChangeText={setName} icon="storefront" />
         <Field label="الوصف" value={desc} onChangeText={setDesc} icon="document-text" />
         <Field label="العنوان" value={address} onChangeText={setAddress} icon="location" />
-        {prov.type !== 'clinic' && <Field label="رسوم التوصيل (ج.م)" value={fee} onChangeText={setFee} keyboardType="numeric" icon="bicycle" />}
         <Btn title="حفظ" icon="checkmark" onPress={() => {
           if (name.trim().length < 2) return toast('اكتب الاسم', 'err');
-          updateProvider(prov.id, { name: name.trim(), desc: desc.trim(), address: address.trim(), deliveryFee: Number(fee) || 0 });
+          updateProvider(prov.id, { name: name.trim(), desc: desc.trim(), address: address.trim() });
           setSheet(false);
           toast('تم حفظ بيانات النشاط');
         }} />

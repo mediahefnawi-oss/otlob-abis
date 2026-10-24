@@ -15,8 +15,8 @@ import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
 
 /* ---------------- Order detail (all roles) ---------------- */
-const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'on_the_way', 'delivered'];
-const STEP_LABEL: Record<string, string> = { pending: 'تم الطلب', accepted: 'التحضير', ready: 'جاهز', on_the_way: 'في الطريق', delivered: 'تم التسليم' };
+const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
+const STEP_LABEL: Record<string, string> = { pending: 'تم الطلب', accepted: 'التحضير', ready: 'جاهز', picked_up: 'استلام', on_the_way: 'في الطريق', arrived: 'وصل', delivered: 'تسليم' };
 
 export function OrderDetailScreen({ navigation, route }: any) {
   const { db } = useStore();
@@ -55,7 +55,9 @@ export function OrderDetailScreen({ navigation, route }: any) {
                   {o.status === 'pending' && 'في انتظار موافقة مقدم الخدمة'}
                   {o.status === 'accepted' && (o.courierId ? `المندوب ${o.courierName} في الطريق للتجهيز` : 'جاري البحث عن مندوب متاح...')}
                   {o.status === 'ready' && (o.courierId ? 'المندوب سيستلم الطلب الآن' : 'في انتظار مندوب لاستلام الطلب')}
+                  {o.status === 'picked_up' && 'المندوب استلم طلبك'}
                   {o.status === 'on_the_way' && 'طلبك في الطريق إليك'}
+                  {o.status === 'arrived' && 'المندوب وصل إلى مكانك'}
                   {o.status === 'delivered' && `تم التسليم ${fmtDateTime(o.updatedAt)}`}
                   {dead && (o.rejectReason || '')}
                 </T>
@@ -156,9 +158,10 @@ export function OrderDetailScreen({ navigation, route }: any) {
           {iAmCourier && !o.courierId && ['accepted', 'ready'].includes(o.status) && <Btn title="قبول التوصيل" icon="bicycle" onPress={() => act('courier_accept')} />}
           {iAmCourier && mine && (
             <>
-              {(o.status === 'ready' || (isCustom && o.status === 'accepted')) && <Btn title={isCustom ? 'تم شراء الطلب — في الطريق للعميل' : 'استلمت الطلب من المتجر'} icon="bag-handle" onPress={() => act('pickup')} />}
-              {!isCustom && o.status === 'accepted' && <Btn title="بانتظار تجهيز الطلب من المتجر" icon="hourglass" variant="soft" disabled />}
-              {o.status === 'on_the_way' && <Btn title="تم تسليم الطلب للعميل" icon="checkmark-done" variant="green" onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(o.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => act('deliver') })} />}
+              {['accepted', 'ready'].includes(o.status) && <Btn title={isCustom ? 'تم شراء الطلب' : 'استلمت الطلب'} icon="bag-handle" onPress={() => act('pickup')} />}
+              {o.status === 'picked_up' && <Btn title="أنا في الطريق" icon="bicycle" onPress={() => act('go')} />}
+              {o.status === 'on_the_way' && <Btn title="وصلت المكان" icon="location" variant="dark" onPress={() => act('arrive')} />}
+              {o.status === 'arrived' && <Btn title="تم تسليم الطلب للعميل" icon="checkmark-done" variant="green" onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(o.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => act('deliver') })} />}
             </>
           )}
           {canChat && <Btn title={me.role === 'customer' ? 'محادثة المندوب' : me.role === 'courier' ? 'محادثة العميل' : 'عرض المحادثة'} icon="chatbubbles" variant="dark" onPress={() => navigation.navigate('Chat', { orderId: o.id })} />}

@@ -16,7 +16,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
   const [desc, setDesc] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
-  const [fee, setFee] = useState('15');
+  const [fee, setFee] = useState('0');
   const [spec, setSpec] = useState('باطنة');
   const [mName, setMName] = useState('');
   const [mPhone, setMPhone] = useState('');
@@ -29,7 +29,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
     setDesc(provider?.desc || '');
     setAddress(provider?.address || '');
     setPhone(provider?.phone || '');
-    setFee(String(provider?.deliveryFee ?? 15));
+    setFee(String(provider?.deliveryFee ?? 0));
     setSpec(provider?.specialty || 'باطنة');
     setMName(''); setMPhone(''); setMPass('');
   }, [visible, provider?.id]);
@@ -74,9 +74,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
             {SPECIALTIES.map((s) => <Chip key={s} label={s} active={spec === s} onPress={() => setSpec(s)} />)}
           </View>
         </View>
-      ) : (
-        <Field label="رسوم التوصيل (ج.م)" icon="bicycle" value={fee} onChangeText={setFee} keyboardType="numeric" />
-      )}
+      ) : null}
       {!provider && (
         <View style={{ gap: 10, backgroundColor: '#F6F7F3', borderRadius: 16, padding: 12 }}>
           <T w="bold" size={13} color={C.goldDeep}>حساب دخول لمسؤول الخدمة (اختياري)</T>

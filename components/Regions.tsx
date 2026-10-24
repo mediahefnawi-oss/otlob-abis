@@ -1,25 +1,47 @@
 import React, { useState } from 'react';
-import { View, Pressable } from 'react-native';
+import { View, Pressable, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Sheet, Field, Chip, SectionTitle, Toggle, toast, confirmDialog } from './ui';
 import { useStore, addRegion, updateRegion, deleteRegion } from '../lib/store';
 import { money } from '../lib/format';
 import { Region } from '../lib/types';
 
-/** Pick one of the delivery areas the owner enabled. */
+/** A field that shows the chosen area and opens the list of areas the owner enabled. */
 export function RegionPicker({ value, onChange, label = 'المنطقة' }: { value?: string | null; onChange: (id: string) => void; label?: string }) {
   const { db } = useStore();
+  const [open, setOpen] = useState(false);
   const list = db.regions.filter((r) => r.active);
+  const cur = db.regions.find((r) => r.id === value);
   return (
     <View style={{ gap: 6 }}>
       <T w="semi" size={13} color={C.dark3}>{label}</T>
-      {list.length === 0 ? (
-        <T size={12.5} color={C.sub}>جاري تحميل المناطق… تأكد من اتصالك بالإنترنت.</T>
-      ) : (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {list.map((r) => <Chip key={r.id} label={r.name} icon="location" active={value === r.id} onPress={() => onChange(r.id)} />)}
-        </View>
-      )}
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1.5, borderColor: C.line, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 14, backgroundColor: '#fff' }}
+      >
+        <Icon name="location" size={19} color={C.goldDeep} />
+        <T w={cur ? 'bold' : 'regular'} size={14.5} color={cur ? C.text : C.sub} style={{ flex: 1 }}>{cur ? cur.name : 'اضغط لاختيار المنطقة'}</T>
+        <Icon name="chevron-down" size={18} color={C.sub} />
+      </Pressable>
+      <Sheet visible={open} onClose={() => setOpen(false)} title="اختر المنطقة">
+        {list.length === 0 ? (
+          <T size={13} color={C.sub}>جاري تحميل المناطق… تأكد من اتصالك بالإنترنت.</T>
+        ) : (
+          <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: 4 }}>
+            {list.map((r) => (
+              <Pressable
+                key={r.id}
+                onPress={() => { onChange(r.id); setOpen(false); }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: C.line }}
+              >
+                <Icon name="location" size={18} color={value === r.id ? C.goldDeep : C.sub} />
+                <T w={value === r.id ? 'black' : 'regular'} size={14.5} style={{ flex: 1 }}>{r.name}</T>
+                {value === r.id && <Icon name="checkmark-circle" size={20} color={C.green} />}
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+      </Sheet>
     </View>
   );
 }

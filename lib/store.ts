@@ -438,7 +438,7 @@ export const cartClear = () => saveCart([]);
 export const availableCouriers = (db: DB) =>
   db.users.filter((u) => u.role === 'courier' && u.status === 'active' && u.available);
 
-const ACTIVE: OrderStatus[] = ['accepted', 'ready', 'on_the_way'];
+const ACTIVE: OrderStatus[] = ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'];
 
 function sysMsg(db: DB, orderId: string, text: string) {
   const m: Message = { id: uid(db, 'm'), orderId, senderId: 'system', senderName: 'النظام', senderRole: 'system', text, createdAt: Date.now() };
@@ -524,12 +524,12 @@ export async function placeCustomOrder(me: User, info: { text: string; phone: st
   }
 }
 
-export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'deliver';
+export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver';
 
 export function orderAction(orderId: string, action: OrderAction, by: User, reason?: string): Result {
   const o = state.db.orders.find((x) => x.id === orderId);
   if (!o) return { ok: false, error: 'الطلب غير موجود' };
-  if (action === 'cancel' && ['on_the_way', 'delivered'].includes(o.status)) return { ok: false, error: 'لا يمكن إلغاء الطلب الآن' };
+  if (action === 'cancel' && ['picked_up', 'on_the_way', 'arrived', 'delivered'].includes(o.status)) return { ok: false, error: 'لا يمكن إلغاء الطلب الآن' };
   if (action === 'courier_accept') {
     if (!by.available) return { ok: false, error: 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات' };
     if (o.courierId && o.courierId !== by.id) return { ok: false, error: 'تم قبول الطلب بواسطة مندوب آخر' };
@@ -556,8 +556,16 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
         sysMsg(db, orderId, `المندوب ${by.name} قبل طلبك وسيتولى التوصيل 🛵`);
         break;
       case 'pickup':
+        setStatus(db, orderId, 'picked_up');
+        sysMsg(db, orderId, 'استلم المندوب طلبك 📦');
+        break;
+      case 'go':
         setStatus(db, orderId, 'on_the_way');
-        sysMsg(db, orderId, 'استلم المندوب طلبك وهو الآن في الطريق إليك 🚀');
+        sysMsg(db, orderId, 'المندوب في الطريق إليك الآن 🚀');
+        break;
+      case 'arrive':
+        setStatus(db, orderId, 'arrived');
+        sysMsg(db, orderId, 'وصل المندوب إلى مكانك 📍');
         break;
       case 'deliver':
         setStatus(db, orderId, 'delivered');

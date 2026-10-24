@@ -17,7 +17,7 @@ export function CourierWorkScreen({ navigation }: any) {
   const me = useMe()!;
   const [seg, setSeg] = useState('offers');
   const offers = db.orders.filter((o) => !o.courierId && ['accepted', 'ready'].includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
-  const mine = db.orders.filter((o) => o.courierId === me.id && ['accepted', 'ready', 'on_the_way'].includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
+  const mine = db.orders.filter((o) => o.courierId === me.id && ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
   const doneToday = db.orders.filter((o) => o.courierId === me.id && o.status === 'delivered' && isToday(o.updatedAt));
   const earn = doneToday.reduce((s, o) => s + o.deliveryFee, 0);
   const on = !!me.available;
@@ -95,9 +95,10 @@ export function CourierWorkScreen({ navigation }: any) {
                 <OrderCard o={item} perspective="courier" onPress={() => navigation.navigate('OrderDetail', { id: item.id })}>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="dark" icon="chatbubbles" title="شات العميل" style={{ flex: 1 }} onPress={() => navigation.navigate('Chat', { orderId: item.id })} />
-                    {item.status === 'accepted' && !isCustom && <Btn small variant="soft" icon="hourglass" title="بانتظار التجهيز" style={{ flex: 1.3 }} disabled />}
-                    {(item.status === 'ready' || (isCustom && item.status === 'accepted')) && <Btn small icon="bag-handle" title={isCustom ? 'تم الشراء — في الطريق' : 'استلمت الطلب'} style={{ flex: 1.3 }} onPress={() => { orderAction(item.id, 'pickup', me); toast('الطلب في الطريق للعميل 🚀'); }} />}
-                    {item.status === 'on_the_way' && <Btn small variant="green" icon="checkmark-done" title="تم التسليم" style={{ flex: 1.3 }} onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(item.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => { orderAction(item.id, 'deliver', me); toast('تم تسليم الطلب 💚'); } })} />}
+                    {['accepted', 'ready'].includes(item.status) && <Btn small icon="bag-handle" title={isCustom ? 'تم الشراء' : 'استلمت الطلب'} style={{ flex: 1.3 }} onPress={() => { orderAction(item.id, 'pickup', me); toast('تم تسجيل الاستلام ✅'); }} />}
+                    {item.status === 'picked_up' && <Btn small icon="bicycle" title="أنا في الطريق" style={{ flex: 1.3 }} onPress={() => { orderAction(item.id, 'go', me); toast('العميل عرف إنك في الطريق 🚀'); }} />}
+                    {item.status === 'on_the_way' && <Btn small variant="dark" icon="location" title="وصلت المكان" style={{ flex: 1.3 }} onPress={() => { orderAction(item.id, 'arrive', me); toast('تم إبلاغ العميل بوصولك 📍'); }} />}
+                    {item.status === 'arrived' && <Btn small variant="green" icon="checkmark-done" title="تم التسليم" style={{ flex: 1.3 }} onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(item.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => { orderAction(item.id, 'deliver', me); toast('اكتمل الطلب 💚'); } })} />}
                   </View>
                 </OrderCard>
               </Appear>

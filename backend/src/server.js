@@ -200,7 +200,7 @@ app.patch('/api/me', auth, asyncRoute(async (req, res) => {
   }
   const availSet = typeof b.available === 'boolean' && req.auth.role === 'courier';
   if (availSet && !b.available) {
-    const open = await pool.query("SELECT 1 FROM orders WHERE courier_user_id=$1 AND status IN ('accepted','ready','on_the_way') LIMIT 1", [Number(req.auth.sub)]);
+    const open = await pool.query("SELECT 1 FROM orders WHERE courier_user_id=$1 AND status IN ('accepted','ready','picked_up','on_the_way','arrived') LIMIT 1", [Number(req.auth.sub)]);
     if (open.rowCount) return res.status(409).json({ error: 'أكمل طلباتك الحالية قبل إيقاف الاستقبال' });
   }
   const r = await pool.query('UPDATE users SET name=COALESCE($1,name), address=COALESCE($2,address), region_id=CASE WHEN $3 THEN $4::bigint ELSE region_id END, available=CASE WHEN $6 THEN $7::boolean ELSE available END, available_since=CASE WHEN $6 AND $7::boolean AND NOT available THEN NOW() WHEN $6 AND NOT $7::boolean THEN NULL ELSE available_since END WHERE id=$5 RETURNING *', [name, address, regionSet, region, Number(req.auth.sub), availSet, availSet ? b.available : false]);

@@ -38,7 +38,7 @@ export function HomeScreen({ navigation }: any) {
   const [q, setQ] = useState('');
   const insets = useSafeAreaInsets();
   const provs = db.providers.filter((p) => p.status === 'active');
-  const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'accepted', 'ready', 'on_the_way'].includes(o.status));
+  const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
   const cartCount = cart.reduce((s, l) => s + l.qty, 0);
 
   const results = useMemo(() => {

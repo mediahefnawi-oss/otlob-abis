@@ -9,7 +9,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
   const ms = d => new Date(d).getTime();
   const PHONE = /^01[0-9]{9}$/;
   const normPhone = v => String(v || '').replace(/\s+/g, '');
-  const BUSY = ['accepted', 'ready', 'on_the_way'];
+  const BUSY = ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'];
   const CUSTOM_NAME = 'طلب خاص — اطلب إيه؟';
   const FALLBACK_CUSTOM_FEE = 20;
 
@@ -278,7 +278,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
           break;
         case 'cancel':
           need(isCustomer || isShop);
-          if (['on_the_way', 'delivered', 'rejected', 'cancelled'].includes(row.status)) throw fail(409, 'لا يمكن إلغاء الطلب الآن');
+          if (['picked_up', 'on_the_way', 'arrived', 'delivered', 'rejected', 'cancelled'].includes(row.status)) throw fail(409, 'لا يمكن إلغاء الطلب الآن');
           next = await moveOrder(db, row, 'cancelled', { rejectReason: role === 'admin' ? 'ألغاه المدير' : role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
           break;
         case 'courier_accept': {
@@ -291,13 +291,23 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
           await sysMsg(db, id, `المندوب ${c.rows[0].name} قبل طلبك وسيتولى التوصيل 🛵`);
           break;
         }
-        case 'pickup':
+        case 'pickup': // the courier has the order in hand (the shop does not have to tap "ready" first)
           need(isMyDelivery); state('accepted', 'ready');
+          next = await moveOrder(db, row, 'picked_up');
+          await sysMsg(db, id, 'استلم المندوب طلبك 📦');
+          break;
+        case 'go':
+          need(isMyDelivery); state('picked_up');
           next = await moveOrder(db, row, 'on_the_way');
-          await sysMsg(db, id, 'استلم المندوب طلبك وهو الآن في الطريق إليك 🚀');
+          await sysMsg(db, id, 'المندوب في الطريق إليك الآن 🚀');
+          break;
+        case 'arrive':
+          need(isMyDelivery); state('on_the_way');
+          next = await moveOrder(db, row, 'arrived');
+          await sysMsg(db, id, 'وصل المندوب إلى مكانك 📍');
           break;
         case 'deliver':
-          need(isMyDelivery); state('on_the_way');
+          need(isMyDelivery); state('on_the_way', 'arrived');
           next = await moveOrder(db, row, 'delivered');
           await sysMsg(db, id, 'تم تسليم الطلب بنجاح. بالهناء والشفاء 💚');
           break;
