@@ -115,22 +115,23 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   }
 
   /* ---------- who sees what ---------- */
+  // a parameter is added only when the returned SQL really uses it (PostgreSQL rejects extra parameters)
   function orderScope(user, values) {
     if (user.role === 'admin') return 'TRUE';
+    if (!['customer', 'provider', 'courier'].includes(user.role)) return 'FALSE';
     values.push(Number(user.sub));
     const i = values.length;
     if (user.role === 'customer') return `o.customer_user_id=$${i}`;
     if (user.role === 'provider') return `o.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i})`;
-    if (user.role === 'courier') return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('pending','accepted','ready')))`;
-    return 'FALSE';
+    return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('pending','accepted','ready')))`;
   }
   function apptScope(user, values) {
     if (user.role === 'admin') return 'TRUE';
+    if (user.role !== 'customer' && user.role !== 'provider') return 'FALSE'; // couriers have no bookings
     values.push(Number(user.sub));
     const i = values.length;
     if (user.role === 'customer') return `a.customer_user_id=$${i}`;
-    if (user.role === 'provider') return `a.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i})`;
-    return 'FALSE';
+    return `a.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i})`;
   }
 
   /** One request refreshes the whole app: orders, invoices, bookings, chat. */
