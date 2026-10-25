@@ -13,6 +13,7 @@ import { C } from './lib/theme';
 import { initStore, useStore, useMe, availableCouriers, setStoreErrorHandler, setStoreNoticeHandler } from './lib/store';
 import { Overlays, Logo, toast } from './components/ui';
 import { SoundGate } from './components/SoundGate';
+import { SyncBanner } from './components/SyncBanner';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
@@ -20,7 +21,7 @@ import {
 } from './screens/customer';
 import { OrderDetailScreen, ApptDetailScreen, InvoiceScreen, ChatScreen, SupportScreen, ProfileScreen } from './screens/shared';
 import { ProviderOrdersScreen, ProviderCatalogScreen, ProviderInvoicesScreen, ProviderProfileScreen } from './screens/provider';
-import { CourierWorkScreen, CourierHistoryScreen, CourierProfileScreen } from './screens/courier';
+import { CourierWorkScreen, CourierOrdersScreen, CourierProfileScreen } from './screens/courier';
 import {
   AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen,
 } from './screens/admin';
@@ -59,8 +60,8 @@ function Main({ navigation }: any) {
   } else if (me.role === 'courier') {
     const offers = me.available ? db.orders.filter((o) => !o.courierId && ['pending', 'accepted', 'ready'].includes(o.status)).length : 0;
     tabs = [
-      { key: 'work', label: 'العمل', icon: 'bicycle', badge: offers, render: () => <CourierWorkScreen navigation={navigation} /> },
-      { key: 'history', label: 'السجل', icon: 'time', render: () => <CourierHistoryScreen navigation={navigation} /> },
+      { key: 'work', label: 'العمل', icon: 'bicycle', render: (go) => <CourierWorkScreen navigation={navigation} go={go} /> },
+      { key: 'orders', label: 'الطلبات', icon: 'receipt', badge: offers, render: () => <CourierOrdersScreen navigation={navigation} /> },
       { key: 'support', label: 'الدعم', icon: 'headset', render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <CourierProfileScreen navigation={navigation} /> },
     ];
@@ -161,6 +162,7 @@ export default function App() {
       <View style={{ flex: 1, backgroundColor: C.dark, direction: 'rtl' }}>
         <View style={{ flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
           <SoundGate />
+          <SyncBanner />
           <View style={{ flex: 1 }}><Root /></View>
           <Overlays />
         </View>

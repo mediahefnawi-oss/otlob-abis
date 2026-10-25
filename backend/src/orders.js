@@ -146,19 +146,24 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const av = [];
     const appts = (await pool.query(`${APPT_SQL} WHERE ${apptScope(req.auth, av)} ORDER BY a.created_at DESC LIMIT 300`, av)).rows;
     const orderIds = orders.map(o => o.id);
+    const warnings = [];
+    // chat, invoices and slot lists must never hide the orders themselves if one of them fails
+    const soft = async (name, fallback, fn) => { try { return await fn(); } catch (e) { console.error(`sync ${name} failed:`, e.message); warnings.push(name); return fallback; } };
     const messages = orderIds.length
-      ? (await pool.query('SELECT * FROM messages WHERE order_id = ANY($1::bigint[]) ORDER BY created_at DESC LIMIT 1500', [orderIds])).rows.reverse()
+      ? await soft('messages', [], async () => (await pool.query('SELECT * FROM messages WHERE order_id = ANY($1::bigint[]) ORDER BY created_at DESC LIMIT 1500', [orderIds])).rows.reverse())
       : [];
     const invIds = new Set();
     orders.forEach(o => o.data && o.data.invoiceId && invIds.add(Number(o.data.invoiceId)));
     appts.forEach(a => a.data && a.data.invoiceId && invIds.add(Number(a.data.invoiceId)));
-    let invoices = [];
-    if (req.auth.role === 'admin') invoices = (await pool.query('SELECT * FROM invoices ORDER BY created_at DESC LIMIT 300')).rows;
-    else if (invIds.size) invoices = (await pool.query('SELECT * FROM invoices WHERE id = ANY($1::bigint[]) ORDER BY created_at DESC', [[...invIds]])).rows;
-    const slots = await pool.query(
-      "SELECT doctor_product_id, to_char(appointment_date,'YYYY-MM-DD') AS d, appointment_time AS t FROM appointments WHERE status IN ('pending','confirmed') AND appointment_date >= CURRENT_DATE - 1");
+    const invoices = await soft('invoices', [], async () => {
+      if (req.auth.role === 'admin') return (await pool.query('SELECT * FROM invoices ORDER BY created_at DESC LIMIT 300')).rows;
+      return invIds.size ? (await pool.query('SELECT * FROM invoices WHERE id = ANY($1::bigint[]) ORDER BY created_at DESC', [[...invIds]])).rows : [];
+    });
+    const slots = { rows: await soft('slots', [], async () => (await pool.query(
+      "SELECT doctor_product_id, to_char(appointment_date,'YYYY-MM-DD') AS d, appointment_time AS t FROM appointments WHERE status IN ('pending','confirmed') AND appointment_date >= CURRENT_DATE - 1")).rows) };
+    res.set('Cache-Control', 'no-store');
     res.json({
-      settings, user: me,
+      warnings, settings, user: me,
       orders: orders.map(orderJson), invoices: invoices.map(invoiceJson), appointments: appts.map(apptJson), messages: messages.map(messageJson),
       bookedSlots: slots.rows.filter(s => s.doctor_product_id).map(s => ({ doctorId: String(s.doctor_product_id), date: s.d, time: s.t })),
     });

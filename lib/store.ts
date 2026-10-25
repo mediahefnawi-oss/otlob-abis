@@ -50,10 +50,11 @@ export interface State {
   db: DB;
   userId: string | null;
   cart: CartLine[];
+  syncError: string | null; // shown as a banner when the app could not refresh from the server
   ready: boolean;
 }
 
-let state: State = { db: buildSeed(), userId: null, cart: [], ready: false };
+let state: State = { db: buildSeed(), userId: null, cart: [], ready: false, syncError: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const setState = (p: Partial<State>) => {
@@ -297,6 +298,7 @@ async function syncCatalog() {
 let syncing = false;
 let syncTick = 0;
 let adminTick = 0;
+let syncFails = 0;
 /** One request per cycle: settings + my account + orders. The catalog follows on its own, slower, schedule. */
 export async function syncRemote(withCatalog = true) {
   if (syncing) return;
@@ -307,9 +309,16 @@ export async function syncRemote(withCatalog = true) {
         if (pendingWrites === 0) {
           const x = await apiSync();
           applySync(x);
+          syncFails = 0;
+          const warn = x.warnings && x.warnings.length ? `بعض البيانات لم تُحمَّل (${x.warnings.join('، ')})` : null;
+          if (state.syncError !== warn) setState({ syncError: warn });
           if (x.user?.role === 'admin' && adminTick++ % 5 === 0) await syncAdminQueues();
         }
       } catch (e) {
+        if (!(e instanceof ApiError && e.status === 401) && ++syncFails >= 2) {
+          const why = e instanceof ApiError ? (e.status ? `${e.status} — ${e.message}` : e.message) : `خطأ في التطبيق: ${String((e as any)?.message || e)}`;
+          if (state.syncError !== why) setState({ syncError: why });
+        }
         // Token expired / account deleted → sign out. Network failures keep the cached session.
         if (e instanceof ApiError && e.status === 401) {
           await clearApiToken();
@@ -717,17 +726,24 @@ export function apptAction(id: string, action: 'confirm' | 'reject' | 'complete'
 const productData = (p: Partial<Product>) => ({ kind: p.kind, emoji: p.emoji, category: p.category, desc: p.desc, slots: p.slots });
 
 /** Optimistic: the screen updates at once, the server write runs behind it; a failure reverts to the server's truth. */
-async function backgroundWrite(job: () => Promise<void>) {
+let writeChain: Promise<void> = Promise.resolve();
+/** Saves run strictly one after another, so "received" always reaches the server before "on the way". */
+function backgroundWrite(job: () => Promise<void>): Promise<void> {
   pendingWrites++;
-  try {
-    await job();
-  } catch (e) {
-    storeErrorHandler(errMsg(e));
-  } finally {
-    pendingWrites--;
-    syncCatalog().catch(() => {});
-    syncOrders().catch(() => {});
-  }
+  writeChain = writeChain.then(async () => {
+    try {
+      await job();
+    } catch (e) {
+      storeErrorHandler(errMsg(e));
+    } finally {
+      pendingWrites--;
+      if (pendingWrites === 0) {
+        syncCatalog().catch(() => {});
+        syncOrders().catch(() => {});
+      }
+    }
+  });
+  return writeChain;
 }
 
 export function saveProduct(p: Omit<Product, 'id'> & { id?: string }) {

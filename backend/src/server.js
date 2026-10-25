@@ -360,6 +360,7 @@ app.get('/api/products', optionalAuth, asyncRoute(async (req, res) => {
 }));
 // Everything the home screen needs in ONE request (fewer calls = faster app and a lighter server).
 app.get('/api/catalog', optionalAuth, asyncRoute(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   const [providers, products, regions] = await Promise.all([listProviders(req.viewer), listProducts(req.viewer), listRegions(req.viewer)]);
   res.json({ providers, products, regions });
 }));

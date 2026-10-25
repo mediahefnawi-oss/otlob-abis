@@ -41,8 +41,12 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, aut
     if (token) headers.set('Authorization', `Bearer ${token}`);
   }
   let response: Response;
-  try { response = await fetch(`${API_BASE}${path.startsWith('/') ? path : `/${path}`}`, { ...options, headers }); }
+  // a request that never answers must not freeze the whole app (sync and saves wait for each other)
+  const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 20000) : null;
+  try { response = await fetch(`${API_BASE}${path.startsWith('/') ? path : `/${path}`}`, { ...options, headers, signal: ctl?.signal }); }
   catch { throw new ApiError('تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى.', 0); }
+  finally { if (timer) clearTimeout(timer); }
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new ApiError(payload.error || 'حدث خطأ أثناء الاتصال بالخادم', response.status);
@@ -197,7 +201,7 @@ export async function apiAdminDeleteRegion(id: string | number) {
 }
 
 /** Phase 4 (part B): orders, invoices, bookings and chat are central. */
-export type SyncPayload = { settings: CentralSettings; user: ServerUser | null; orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
+export type SyncPayload = { warnings?: string[]; settings: CentralSettings; user: ServerUser | null; orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
 export async function apiSync() {
   return apiRequest<SyncPayload>('/api/sync');
 }
