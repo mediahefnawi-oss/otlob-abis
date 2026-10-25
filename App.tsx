@@ -48,7 +48,7 @@ function Main({ navigation }: any) {
     ];
   } else if (me.role === 'provider') {
     const prov = db.providers.find((p) => p.ownerId === me.id);
-    const pending = prov ? (prov.type === 'clinic' ? db.appointments.filter((a) => a.providerId === prov.id && a.status === 'pending').length : db.orders.filter((o) => o.providerId === prov.id && o.status === 'pending').length) : 0;
+    const pending = prov ? (prov.type === 'clinic' ? db.appointments.filter((a) => a.providerId === prov.id && a.status === 'pending').length : db.orders.filter((o) => o.providerId === prov.id && ['pending', 'accepted'].includes(o.status)).length) : 0;
     const clinic = prov?.type === 'clinic';
     tabs = [
       { key: 'orders', label: clinic ? 'الحجوزات' : 'الطلبات', icon: clinic ? 'calendar' : 'receipt', badge: pending, render: () => <ProviderOrdersScreen navigation={navigation} /> },

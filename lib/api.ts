@@ -201,7 +201,7 @@ export async function apiAdminDeleteRegion(id: string | number) {
 }
 
 /** Phase 4 (part B): orders, invoices, bookings and chat are central. */
-export type SyncPayload = { warnings?: string[]; settings: CentralSettings; user: ServerUser | null; orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
+export type SyncPayload = { warnings?: string[]; couriersOnline?: number; settings: CentralSettings; user: ServerUser | null; orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
 export async function apiSync() {
   return apiRequest<SyncPayload>('/api/sync');
 }

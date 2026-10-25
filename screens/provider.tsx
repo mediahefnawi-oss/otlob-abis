@@ -23,14 +23,15 @@ export function ProviderOrdersScreen({ navigation }: any) {
   const { me, db, prov } = useMyProvider();
   const isClinic = prov.type === 'clinic';
   const [seg, setSeg] = useState(isClinic ? 'pending' : 'new');
-  const couriers = availableCouriers(db).length;
+  const couriers = db.couriersOnline ?? availableCouriers(db).length;
 
   const orders = db.orders.filter((o) => o.providerId === prov.id).sort((a, b) => b.createdAt - a.createdAt);
   const appts = db.appointments.filter((a) => a.providerId === prov.id).sort((a, b) => b.createdAt - a.createdAt);
 
   const groups: Record<string, (o: any) => boolean> = {
-    new: (o) => o.status === 'pending',
-    active: (o) => ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status),
+    // a new order goes straight to preparing (and to the couriers): there is no approval step any more
+    new: (o) => ['pending', 'accepted'].includes(o.status),
+    active: (o) => ['ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status),
     done: (o) => o.status === 'delivered',
     dead: (o) => ['rejected', 'cancelled'].includes(o.status),
   };
@@ -63,7 +64,7 @@ export function ProviderOrdersScreen({ navigation }: any) {
             </>
           ) : (
             <>
-              <MiniStat icon="notifications" label="طلبات جديدة" value={orders.filter(groups.new).length} />
+              <MiniStat icon="notifications" label="طلبات للتحضير" value={orders.filter(groups.new).length} />
               <MiniStat icon="cash" label="مبيعات اليوم" value={money(todayRev)} />
               <MiniStat icon="bicycle" label="مناديب متاحون" value={couriers} />
             </>
@@ -129,7 +130,12 @@ export function ProviderOrdersScreen({ navigation }: any) {
                     <Btn small variant="danger" icon="close" title="رفض" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الطلب؟', danger: true, confirmText: 'رفض', onConfirm: () => { orderAction(item.id, 'reject', me, 'تعذر على المتجر تنفيذ الطلب'); toast('تم رفض الطلب'); } })} />
                   </View>
                 )}
-                {item.status === 'accepted' && <Btn small icon="bag-check" title="الطلب جاهز للاستلام" onPress={() => { orderAction(item.id, 'ready', me); toast('تم إبلاغ المندوب بجاهزية الطلب'); }} />}
+                {item.status === 'accepted' && (
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Btn small icon="bag-check" title="الطلب جاهز للاستلام" style={{ flex: 2 }} onPress={() => { orderAction(item.id, 'ready', me); toast('تم إبلاغ المندوب بجاهزية الطلب'); }} />
+                    <Btn small variant="danger" icon="close" title="اعتذار" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'الاعتذار عن الطلب؟', message: 'سيتم إلغاء الطلب وإبلاغ العميل.', danger: true, confirmText: 'اعتذار', onConfirm: () => { orderAction(item.id, 'cancel', me); toast('تم إلغاء الطلب'); } })} />
+                  </View>
+                )}
               </OrderCard>
             </Appear>
           )}

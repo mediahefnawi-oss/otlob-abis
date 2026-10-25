@@ -195,6 +195,7 @@ export interface DB {
   providers: Provider[];
   products: Product[];
   regions: Region[];
+  couriersOnline?: number; // couriers who are switched on right now (the server counts them)
   bookedSlots: { doctorId: string; date: string; time: string }[];
   orders: Order[];
   appointments: Appointment[];

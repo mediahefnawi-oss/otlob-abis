@@ -229,15 +229,17 @@ function checkNewOrderAlerts(orders: Order[], appts: Appointment[]) {
   const me = state.db.users.find((u) => u.id === state.userId);
   if (!me) return;
   let fresh: { key: string; line: string }[] = [];
+  const recent = (t: number) => Date.now() - t < 30 * 60 * 1000; // never replay old orders as "new"
   if (me.role === 'provider') {
     fresh = [
-      ...orders.filter((o) => o.status === 'pending' && o.providerOwnerId === me.id && !seenOrders.has(o.id))
+      ...orders.filter((o) => ['pending', 'accepted'].includes(o.status) && o.providerOwnerId === me.id && !seenOrders.has(o.id) && recent(o.createdAt))
         .map((o) => ({ key: o.id, line: `${o.customerName} — ${o.total} ج.م` })),
-      ...appts.filter((a) => a.status === 'pending' && a.clinicOwnerId === me.id && !seenOrders.has(`a${a.id}`))
+      ...appts.filter((a) => a.status === 'pending' && a.clinicOwnerId === me.id && !seenOrders.has(`a${a.id}`) && recent(a.createdAt))
         .map((a) => ({ key: `a${a.id}`, line: `حجز جديد من ${a.patientName}` })),
     ];
   } else if (me.role === 'courier' && me.available) {
-    fresh = orders.filter((o) => !o.courierId && ['pending', 'accepted', 'ready'].includes(o.status) && !seenOrders.has(o.id))
+    // open offers, or an order the system just assigned to this courier automatically
+    fresh = orders.filter((o) => (!o.courierId || o.courierId === me.id) && ['pending', 'accepted', 'ready'].includes(o.status) && !seenOrders.has(o.id) && recent(o.createdAt))
       .map((o) => ({ key: o.id, line: `${o.regionName ? `منطقة ${o.regionName}` : o.address} — ${o.providerName}` }));
   }
   if (!fresh.length) return;
@@ -255,8 +257,8 @@ function applySync(x: SyncPayload) {
   applySettings(x.settings);
   if (x.user) mirrorUser(x.user);
   if (pendingWrites > 0) return;
-  const same = JSON.stringify([x.orders, x.invoices, x.appointments, x.messages, x.bookedSlots])
-    === JSON.stringify([state.db.orders, state.db.invoices, state.db.appointments, state.db.messages, state.db.bookedSlots || []]);
+  const same = JSON.stringify([x.orders, x.invoices, x.appointments, x.messages, x.bookedSlots, x.couriersOnline ?? 0])
+    === JSON.stringify([state.db.orders, state.db.invoices, state.db.appointments, state.db.messages, state.db.bookedSlots || [], state.db.couriersOnline ?? 0]);
   if (!same) {
     mutate((db) => {
       db.orders = x.orders as Order[];
@@ -264,6 +266,7 @@ function applySync(x: SyncPayload) {
       db.appointments = x.appointments as Appointment[];
       db.messages = x.messages as Message[];
       db.bookedSlots = x.bookedSlots;
+      db.couriersOnline = x.couriersOnline ?? 0;
     });
   }
   checkNewOrderAlerts(x.orders as Order[], x.appointments as Appointment[]);

@@ -139,7 +139,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const me = meRow.rows[0] ? cleanUser(meRow.rows[0]) : null;
     if (!me || req.auth.status !== 'active') {
       // an account still waiting for approval only needs its own status and the app settings
-      return res.json({ settings, user: me, orders: [], invoices: [], appointments: [], messages: [], bookedSlots: [] });
+      return res.json({ settings, user: me, couriersOnline: 0, orders: [], invoices: [], appointments: [], messages: [], bookedSlots: [] });
     }
     const ov = [];
     const orders = (await pool.query(`SELECT o.* FROM orders o WHERE ${orderScope(req.auth, ov)} ORDER BY o.created_at DESC LIMIT 300`, ov)).rows;
@@ -152,6 +152,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const messages = orderIds.length
       ? await soft('messages', [], async () => (await pool.query('SELECT * FROM messages WHERE order_id = ANY($1::bigint[]) ORDER BY created_at DESC LIMIT 1500', [orderIds])).rows.reverse())
       : [];
+    const online = await soft('couriers', 0, async () => Number((await pool.query("SELECT COUNT(*) AS n FROM users WHERE role='courier' AND status='active' AND available=TRUE")).rows[0].n));
     const invIds = new Set();
     orders.forEach(o => o.data && o.data.invoiceId && invIds.add(Number(o.data.invoiceId)));
     appts.forEach(a => a.data && a.data.invoiceId && invIds.add(Number(a.data.invoiceId)));
@@ -163,7 +164,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       "SELECT doctor_product_id, to_char(appointment_date,'YYYY-MM-DD') AS d, appointment_time AS t FROM appointments WHERE status IN ('pending','confirmed') AND appointment_date >= CURRENT_DATE - 1")).rows) };
     res.set('Cache-Control', 'no-store');
     res.json({
-      warnings, settings, user: me,
+      warnings, settings, user: me, couriersOnline: online,
       orders: orders.map(orderJson), invoices: invoices.map(invoiceJson), appointments: appts.map(apptJson), messages: messages.map(messageJson),
       bookedSlots: slots.rows.filter(s => s.doctor_product_id).map(s => ({ doctorId: String(s.doctor_product_id), date: s.d, time: s.t })),
     });
@@ -203,9 +204,9 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
           providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined,
-          history: [{ status: 'pending', at: Date.now() }],
+          history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
         };
-        const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',$3,$4,$5) RETURNING *',
+        const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'accepted\',$3,$4,$5) RETURNING *',
           [Number(req.auth.sub), g.p.id, g.subtotal + fee, region ? region.id : null, JSON.stringify(d)]);
         orders.push(r.rows[0]);
       }
@@ -221,7 +222,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const finalOrders = [];
       for (const o of orders) {
         const d = { ...o.data, groupId: String(inv.rows[0].id), invoiceId: String(inv.rows[0].id) };
-        finalOrders.push((await db.query('UPDATE orders SET data=$1 WHERE id=$2 RETURNING *', [JSON.stringify(d), o.id])).rows[0]);
+        let row = (await db.query('UPDATE orders SET data=$1 WHERE id=$2 RETURNING *', [JSON.stringify(d), o.id])).rows[0];
+        await sysMsg(db, row.id, 'تم استلام طلبك وجاري التحضير 👨‍🍳');
+        row = await tryAutoAssign(db, row);
+        finalOrders.push(row);
       }
       const u = await db.query('UPDATE users SET address=$1 WHERE id=$2 RETURNING *', [address, Number(req.auth.sub)]);
       return { invoice: inv.rows[0], orders: finalOrders, user: u.rows[0] };
