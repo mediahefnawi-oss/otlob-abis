@@ -141,27 +141,35 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       // an account still waiting for approval only needs its own status and the app settings
       return res.json({ settings, user: me, couriersOnline: 0, orders: [], invoices: [], appointments: [], messages: [], bookedSlots: [] });
     }
-    const ov = [];
-    const orders = (await pool.query(`SELECT o.* FROM orders o WHERE ${orderScope(req.auth, ov)} ORDER BY o.created_at DESC LIMIT 300`, ov)).rows;
-    const av = [];
-    const appts = (await pool.query(`${APPT_SQL} WHERE ${apptScope(req.auth, av)} ORDER BY a.created_at DESC LIMIT 300`, av)).rows;
-    const orderIds = orders.map(o => o.id);
     const warnings = [];
-    // chat, invoices and slot lists must never hide the orders themselves if one of them fails
+    // chat, invoices, slot lists and the courier counter must never hide the orders if one of them fails
     const soft = async (name, fallback, fn) => { try { return await fn(); } catch (e) { console.error(`sync ${name} failed:`, e.message); warnings.push(name); return fallback; } };
-    const messages = orderIds.length
-      ? await soft('messages', [], async () => (await pool.query('SELECT * FROM messages WHERE order_id = ANY($1::bigint[]) ORDER BY created_at DESC LIMIT 1500', [orderIds])).rows.reverse())
-      : [];
-    const online = await soft('couriers', 0, async () => Number((await pool.query("SELECT COUNT(*) AS n FROM users WHERE role='courier' AND status='active' AND available=TRUE")).rows[0].n));
+    const ov = [];
+    const av = [];
+    // the server is far from the user: ask the database everything at once instead of one question at a time
+    const [ordersRes, apptsRes, online, slotRows] = await Promise.all([
+      pool.query(`SELECT o.* FROM orders o WHERE ${orderScope(req.auth, ov)} ORDER BY o.created_at DESC LIMIT 300`, ov),
+      pool.query(`${APPT_SQL} WHERE ${apptScope(req.auth, av)} ORDER BY a.created_at DESC LIMIT 300`, av),
+      soft('couriers', 0, async () => Number((await pool.query("SELECT COUNT(*) AS n FROM users WHERE role='courier' AND status='active' AND available=TRUE")).rows[0].n)),
+      soft('slots', [], async () => (await pool.query(
+        "SELECT doctor_product_id, to_char(appointment_date,'YYYY-MM-DD') AS d, appointment_time AS t FROM appointments WHERE status IN ('pending','confirmed') AND appointment_date >= CURRENT_DATE - 1")).rows),
+    ]);
+    const orders = ordersRes.rows;
+    const appts = apptsRes.rows;
+    const orderIds = orders.map(o => o.id);
     const invIds = new Set();
     orders.forEach(o => o.data && o.data.invoiceId && invIds.add(Number(o.data.invoiceId)));
     appts.forEach(a => a.data && a.data.invoiceId && invIds.add(Number(a.data.invoiceId)));
-    const invoices = await soft('invoices', [], async () => {
-      if (req.auth.role === 'admin') return (await pool.query('SELECT * FROM invoices ORDER BY created_at DESC LIMIT 300')).rows;
-      return invIds.size ? (await pool.query('SELECT * FROM invoices WHERE id = ANY($1::bigint[]) ORDER BY created_at DESC', [[...invIds]])).rows : [];
-    });
-    const slots = { rows: await soft('slots', [], async () => (await pool.query(
-      "SELECT doctor_product_id, to_char(appointment_date,'YYYY-MM-DD') AS d, appointment_time AS t FROM appointments WHERE status IN ('pending','confirmed') AND appointment_date >= CURRENT_DATE - 1")).rows) };
+    const [messages, invoices] = await Promise.all([
+      orderIds.length
+        ? soft('messages', [], async () => (await pool.query('SELECT * FROM messages WHERE order_id = ANY($1::bigint[]) ORDER BY created_at DESC LIMIT 1500', [orderIds])).rows.reverse())
+        : [],
+      soft('invoices', [], async () => {
+        if (req.auth.role === 'admin') return (await pool.query('SELECT * FROM invoices ORDER BY created_at DESC LIMIT 300')).rows;
+        return invIds.size ? (await pool.query('SELECT * FROM invoices WHERE id = ANY($1::bigint[]) ORDER BY created_at DESC', [[...invIds]])).rows : [];
+      }),
+    ]);
+    const slots = { rows: slotRows };
     res.set('Cache-Control', 'no-store');
     res.json({
       warnings, settings, user: me, couriersOnline: online,

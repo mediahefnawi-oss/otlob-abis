@@ -85,9 +85,37 @@ function providerVisibility(viewer, values) {
 const providerJson = p => ({ ...p.metadata, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
+// Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
+// (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
+const SCHEMA_VERSION = 20261025;
+let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
-  await pool.query(schema);
+  try { await pool.query('CREATE TABLE IF NOT EXISTS schema_meta (id INT PRIMARY KEY, version BIGINT NOT NULL)'); }
+  catch (e) { if (e.code !== '23505' && e.code !== '42P07') throw e; } // another instance created it at the same moment
+  const cur = await pool.query('SELECT version FROM schema_meta WHERE id=1');
+  if (cur.rowCount && Number(cur.rows[0].version) >= SCHEMA_VERSION) schemaState = 'ok';
+  else {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(74201)');
+      const again = await client.query('SELECT version FROM schema_meta WHERE id=1');
+      if (!again.rowCount || Number(again.rows[0].version) < SCHEMA_VERSION) {
+        await client.query(schema);
+        await client.query('INSERT INTO schema_meta(id, version) VALUES(1,$1) ON CONFLICT (id) DO UPDATE SET version=EXCLUDED.version', [SCHEMA_VERSION]);
+      }
+      await client.query('COMMIT');
+      schemaState = 'ok';
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      // do not take the whole API down for a migration problem: log it, report it on /api/health and retry on the next start
+      schemaState = 'failed';
+      console.error('Schema migration failed:', e.message);
+    } finally {
+      client.release();
+    }
+  }
   const username = process.env.OWNER_USERNAME;
   const phone = process.env.OWNER_PHONE || '01000000000';
   const existing = await pool.query("SELECT id FROM users WHERE role='admin' AND phone=$1", [phone]);
@@ -115,7 +143,7 @@ app.use((_req, _res, next) => {
 
 app.get('/api/health', asyncRoute(async (_req, res) => {
   await pool.query('SELECT 1');
-  res.json({ ok: true, service: 'otlob-abis-api', database: 'connected' });
+  res.json({ ok: true, service: 'otlob-abis-api', database: 'connected', schema: schemaState });
 }));
 
 app.post('/api/auth/register', asyncRoute(async (req, res) => {
