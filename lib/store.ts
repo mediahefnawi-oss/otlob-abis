@@ -1,4 +1,5 @@
 import { storage } from './storage';
+import { alertNewOrder } from './alerts';
 import * as SecureStore from 'expo-secure-store';
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
@@ -8,7 +9,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiSync, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -209,26 +210,71 @@ const upsertById = <T extends { id: string }>(list: T[], items: T[]): T[] => {
   return [...list.filter((x) => !ids.has(x.id)), ...items];
 };
 
-/** Orders, invoices, bookings and chat: the server's copy replaces the local one. */
-async function syncOrders() {
-  if (pendingWrites > 0 || !state.userId) return;
-  const x = await apiSync();
+/* ---------- new-order alerts (shops and couriers) ---------- */
+const SEEN_KEY = 'abis_seen_orders_v1';
+let seenOrders = new Set<string>();
+let noticeHandler: (msg: string) => void = () => {};
+/** The UI registers a banner/toast here so an alert is also visible, not only audible. */
+export function setStoreNoticeHandler(fn: (msg: string) => void) { noticeHandler = fn; }
+async function loadSeen() {
+  try {
+    const raw = await storage.getItem(SEEN_KEY);
+    seenOrders = new Set<string>(raw ? JSON.parse(raw) : []);
+  } catch {}
+}
+const saveSeen = () => { storage.setItem(SEEN_KEY, JSON.stringify([...seenOrders].slice(-500))).catch(() => {}); };
+
+function checkNewOrderAlerts(orders: Order[], appts: Appointment[]) {
+  const me = state.db.users.find((u) => u.id === state.userId);
+  if (!me) return;
+  let fresh: { key: string; line: string }[] = [];
+  if (me.role === 'provider') {
+    fresh = [
+      ...orders.filter((o) => o.status === 'pending' && o.providerOwnerId === me.id && !seenOrders.has(o.id))
+        .map((o) => ({ key: o.id, line: `${o.customerName} — ${o.total} ج.م` })),
+      ...appts.filter((a) => a.status === 'pending' && a.clinicOwnerId === me.id && !seenOrders.has(`a${a.id}`))
+        .map((a) => ({ key: `a${a.id}`, line: `حجز جديد من ${a.patientName}` })),
+    ];
+  } else if (me.role === 'courier' && me.available) {
+    fresh = orders.filter((o) => !o.courierId && ['pending', 'accepted', 'ready'].includes(o.status) && !seenOrders.has(o.id))
+      .map((o) => ({ key: o.id, line: `${o.regionName ? `منطقة ${o.regionName}` : o.address} — ${o.providerName}` }));
+  }
+  if (!fresh.length) return;
+  fresh.forEach((f) => seenOrders.add(f.key));
+  saveSeen();
+  const title = me.role === 'provider'
+    ? (fresh.length > 1 ? `${fresh.length} طلبات جديدة` : 'طلب جديد')
+    : (fresh.length > 1 ? `${fresh.length} طلبات توصيل جديدة` : 'طلب توصيل جديد');
+  alertNewOrder(title, fresh[0].line);
+  noticeHandler(`🔔 ${title}: ${fresh[0].line}`);
+}
+
+/** One /api/sync answer: the app settings, my account, orders, invoices, bookings and chat. */
+function applySync(x: SyncPayload) {
+  applySettings(x.settings);
+  if (x.user) mirrorUser(x.user);
   if (pendingWrites > 0) return;
   const same = JSON.stringify([x.orders, x.invoices, x.appointments, x.messages, x.bookedSlots])
     === JSON.stringify([state.db.orders, state.db.invoices, state.db.appointments, state.db.messages, state.db.bookedSlots || []]);
-  if (same) return;
-  mutate((db) => {
-    db.orders = x.orders as Order[];
-    db.invoices = x.invoices as Invoice[];
-    db.appointments = x.appointments as Appointment[];
-    db.messages = x.messages as Message[];
-    db.bookedSlots = x.bookedSlots;
-  });
+  if (!same) {
+    mutate((db) => {
+      db.orders = x.orders as Order[];
+      db.invoices = x.invoices as Invoice[];
+      db.appointments = x.appointments as Appointment[];
+      db.messages = x.messages as Message[];
+      db.bookedSlots = x.bookedSlots;
+    });
+  }
+  checkNewOrderAlerts(x.orders as Order[], x.appointments as Appointment[]);
+}
+async function syncOrders() {
+  if (pendingWrites > 0 || !state.userId) return;
+  applySync(await apiSync());
 }
 
 async function syncCatalog() {
   if (pendingWrites > 0) return;
-  const [{ providers }, { products }, { regions }] = await Promise.all([apiListProviders<any>(), apiListProducts<any>(), apiListRegions()]);
+  const { providers, products, regions } = await apiCatalog<any>();
   if (pendingWrites > 0) return;
   const P = providers.map(toProvider);
   const I = products.map(toProduct);
@@ -250,24 +296,19 @@ async function syncCatalog() {
 
 let syncing = false;
 let syncTick = 0;
-/** Pull the central settings (maintenance/announcement) and refresh the signed-in account. */
+let adminTick = 0;
+/** One request per cycle: settings + my account + orders. The catalog follows on its own, slower, schedule. */
 export async function syncRemote(withCatalog = true) {
   if (syncing) return;
   syncing = true;
   try {
-    try {
-      const { settings } = await apiGetSettings();
-      applySettings(settings);
-    } catch {}
-    if (withCatalog) {
-      try { await syncCatalog(); } catch {}
-    }
     if (state.userId && (await hasApiToken())) {
       try {
-        const { user } = await apiMe();
-        mirrorUser(user);
-        if (user.role === 'admin') await syncAdminQueues();
-        await syncOrders();
+        if (pendingWrites === 0) {
+          const x = await apiSync();
+          applySync(x);
+          if (x.user?.role === 'admin' && adminTick++ % 5 === 0) await syncAdminQueues();
+        }
       } catch (e) {
         // Token expired / account deleted → sign out. Network failures keep the cached session.
         if (e instanceof ApiError && e.status === 401) {
@@ -276,6 +317,14 @@ export async function syncRemote(withCatalog = true) {
           secure.del(SESSION_KEY);
         }
       }
+    } else {
+      try {
+        const { settings } = await apiGetSettings();
+        applySettings(settings);
+      } catch {}
+    }
+    if (withCatalog) {
+      try { await syncCatalog(); } catch {}
     }
   } finally {
     syncing = false;
@@ -283,6 +332,7 @@ export async function syncRemote(withCatalog = true) {
 }
 
 export async function initStore() {
+  await loadSeen();
   try {
     const raw = await storage.getItem(DB_KEY);
     let db: DB = raw ? JSON.parse(raw) : buildSeed();
@@ -313,9 +363,16 @@ export async function initStore() {
   await Promise.race([syncRemote(), new Promise((r) => setTimeout(r, 4000))]);
   setState({ ready: true });
 
-  // Live sync: central settings + account status every 10s and whenever the app returns to the foreground
-  // orders move fast (courier steps), so poll every 6s; the catalog changes slowly (every ~18s)
-  setInterval(() => { syncRemote(++syncTick % 3 === 0); }, 6000);
+  // Live sync. Shops and couriers must hear about new orders right away (every ~4s); customers can wait (~8s),
+  // and a customer in a background tab hardly polls at all. The catalog changes slowly (every ~32s).
+  setInterval(() => {
+    syncTick++;
+    const me = state.db.users.find((u) => u.id === state.userId);
+    const fast = !!me && (me.role === 'provider' || me.role === 'courier');
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (!fast && (syncTick % 2 !== 0 || (hidden && syncTick % 8 !== 0))) return;
+    syncRemote(syncTick % 8 === 0);
+  }, 4000);
   AppState.addEventListener('change', (st) => { if (st === 'active') syncRemote(); });
 }
 
@@ -523,6 +580,7 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
   if (!o) return { ok: false, error: 'الطلب غير موجود' };
   if (action === 'cancel' && ['picked_up', 'on_the_way', 'arrived', 'delivered'].includes(o.status)) return { ok: false, error: 'لا يمكن إلغاء الطلب الآن' };
   if (action === 'courier_accept') {
+    if (o.status === 'pending') return { ok: false, error: 'بانتظار قبول المتجر للطلب أولاً' };
     if (!by.available) return { ok: false, error: 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات' };
     if (o.courierId && o.courierId !== by.id) return { ok: false, error: 'تم قبول الطلب بواسطة مندوب آخر' };
   }

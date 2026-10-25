@@ -4,7 +4,7 @@
  * The app mirrors /api/sync into its screens; every state change goes through one of the POST/PATCH routes below,
  * so the server alone decides who may do what (and who wins when two couriers tap "accept" together).
  */
-module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRoute, positiveId, maintenanceState }) {
+module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser }) {
   const num = v => Number(v) || 0;
   const ms = d => new Date(d).getTime();
   const PHONE = /^01[0-9]{9}$/;
@@ -121,7 +121,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
     const i = values.length;
     if (user.role === 'customer') return `o.customer_user_id=$${i}`;
     if (user.role === 'provider') return `o.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i})`;
-    if (user.role === 'courier') return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('accepted','ready')))`;
+    if (user.role === 'courier') return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('pending','accepted','ready')))`;
     return 'FALSE';
   }
   function apptScope(user, values) {
@@ -134,7 +134,13 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
   }
 
   /** One request refreshes the whole app: orders, invoices, bookings, chat. */
-  app.get('/api/sync', auth, asyncRoute(async (req, res) => {
+  app.get('/api/sync', authAny, asyncRoute(async (req, res) => {
+    const [settings, meRow] = await Promise.all([loadSettings(), pool.query('SELECT * FROM users WHERE id=$1', [Number(req.auth.sub)])]);
+    const me = meRow.rows[0] ? cleanUser(meRow.rows[0]) : null;
+    if (!me || req.auth.status !== 'active') {
+      // an account still waiting for approval only needs its own status and the app settings
+      return res.json({ settings, user: me, orders: [], invoices: [], appointments: [], messages: [], bookedSlots: [] });
+    }
     const ov = [];
     const orders = (await pool.query(`SELECT o.* FROM orders o WHERE ${orderScope(req.auth, ov)} ORDER BY o.created_at DESC LIMIT 300`, ov)).rows;
     const av = [];
@@ -152,6 +158,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, roles, asyncRou
     const slots = await pool.query(
       "SELECT doctor_product_id, to_char(appointment_date,'YYYY-MM-DD') AS d, appointment_time AS t FROM appointments WHERE status IN ('pending','confirmed') AND appointment_date >= CURRENT_DATE - 1");
     res.json({
+      settings, user: me,
       orders: orders.map(orderJson), invoices: invoices.map(invoiceJson), appointments: appts.map(apptJson), messages: messages.map(messageJson),
       bookedSlots: slots.rows.filter(s => s.doctor_product_id).map(s => ({ doctorId: String(s.doctor_product_id), date: s.d, time: s.t })),
     });

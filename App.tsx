@@ -10,8 +10,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { C } from './lib/theme';
-import { initStore, useStore, useMe, availableCouriers, setStoreErrorHandler } from './lib/store';
+import { initStore, useStore, useMe, availableCouriers, setStoreErrorHandler, setStoreNoticeHandler } from './lib/store';
 import { Overlays, Logo, toast } from './components/ui';
+import { SoundGate } from './components/SoundGate';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
@@ -25,6 +26,7 @@ import {
 } from './screens/admin';
 
 setStoreErrorHandler((msg) => toast(msg, 'err'));
+setStoreNoticeHandler((msg) => toast(msg, 'ok'));
 
 const Stack = createNativeStackNavigator();
 
@@ -36,7 +38,7 @@ function Main({ navigation }: any) {
 
   let tabs: TabDef[] = [];
   if (me.role === 'customer') {
-    const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'accepted', 'ready', 'on_the_way'].includes(o.status)).length;
+    const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)).length;
     tabs = [
       { key: 'home', label: 'الرئيسية', icon: 'home', render: () => <HomeScreen navigation={navigation} /> },
       { key: 'orders', label: 'طلباتي', icon: 'receipt', badge: active, render: () => <CustomerOrdersScreen navigation={navigation} /> },
@@ -55,7 +57,7 @@ function Main({ navigation }: any) {
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <ProviderProfileScreen navigation={navigation} /> },
     ];
   } else if (me.role === 'courier') {
-    const offers = me.available ? db.orders.filter((o) => !o.courierId && ['accepted', 'ready'].includes(o.status)).length : 0;
+    const offers = me.available ? db.orders.filter((o) => !o.courierId && ['pending', 'accepted', 'ready'].includes(o.status)).length : 0;
     tabs = [
       { key: 'work', label: 'العمل', icon: 'bicycle', badge: offers, render: () => <CourierWorkScreen navigation={navigation} /> },
       { key: 'history', label: 'السجل', icon: 'time', render: () => <CourierHistoryScreen navigation={navigation} /> },
@@ -158,7 +160,8 @@ export default function App() {
       <StatusBar style="light" />
       <View style={{ flex: 1, backgroundColor: C.dark, direction: 'rtl' }}>
         <View style={{ flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
-          <Root />
+          <SoundGate />
+          <View style={{ flex: 1 }}><Root /></View>
           <Overlays />
         </View>
       </View>

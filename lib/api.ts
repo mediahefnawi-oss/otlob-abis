@@ -197,7 +197,7 @@ export async function apiAdminDeleteRegion(id: string | number) {
 }
 
 /** Phase 4 (part B): orders, invoices, bookings and chat are central. */
-export type SyncPayload = { orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
+export type SyncPayload = { settings: CentralSettings; user: ServerUser | null; orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
 export async function apiSync() {
   return apiRequest<SyncPayload>('/api/sync');
 }
@@ -218,4 +218,9 @@ export async function apiBookAppointment(input: { doctorId: string; date: string
 }
 export async function apiApptAction(id: string | number, action: string) {
   return apiRequest<{ appointment: any }>(`/api/appointments/${encodeURIComponent(String(id))}/action`, { method: 'POST', body: JSON.stringify({ action }) });
+}
+
+/** Providers + products + delivery areas in one request. */
+export async function apiCatalog<T = any>() {
+  return apiRequest<{ providers: T[]; products: T[]; regions: ServerRegion[] }>('/api/catalog', {}, true);
 }

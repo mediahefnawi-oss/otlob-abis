@@ -16,7 +16,7 @@ export function CourierWorkScreen({ navigation }: any) {
   const { db } = useStore();
   const me = useMe()!;
   const [seg, setSeg] = useState('offers');
-  const offers = db.orders.filter((o) => !o.courierId && ['accepted', 'ready'].includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
+  const offers = db.orders.filter((o) => !o.courierId && ['pending', 'accepted', 'ready'].includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
   const mine = db.orders.filter((o) => o.courierId === me.id && ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
   const doneToday = db.orders.filter((o) => o.courierId === me.id && o.status === 'delivered' && isToday(o.updatedAt));
   const earn = doneToday.reduce((s, o) => s + o.deliveryFee, 0);
@@ -71,12 +71,14 @@ export function CourierWorkScreen({ navigation }: any) {
           refreshControl={rc}
           contentContainerStyle={{ padding: 16, gap: 12 }}
           ListEmptyComponent={
-            on ? <Empty icon="radio" title="لا توجد طلبات الآن" text="سيظهر هنا أي طلب جديد فور قبوله من المتجر، ابقَ متاحاً" /> : <Empty icon="power" title="فعّل حالتك للعمل" text="اضغط على زر التشغيل بالأعلى لتظهر لك الطلبات المتاحة" />
+            on ? <Empty icon="radio" title="لا توجد طلبات الآن" text="سيظهر هنا أي طلب جديد فور وصوله مع تنبيه صوتي، ابقَ متاحاً" /> : <Empty icon="power" title="فعّل حالتك للعمل" text="اضغط على زر التشغيل بالأعلى لتظهر لك الطلبات المتاحة" />
           }
           renderItem={({ item, index }) => (
             <Appear i={index}>
               <OrderCard o={item} perspective="courier" onPress={() => navigation.navigate('OrderDetail', { id: item.id })}>
-                <Btn icon="bicycle" title="قبول الطلب" onPress={() => take(item.id)} />
+                {item.status === 'pending'
+                  ? <Btn variant="soft" icon="hourglass" title="بانتظار قبول المتجر" disabled />
+                  : <Btn icon="bicycle" title="قبول الطلب" onPress={() => take(item.id)} />}
               </OrderCard>
             </Appear>
           )}

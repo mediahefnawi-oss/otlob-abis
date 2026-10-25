@@ -58,7 +58,7 @@ async function authCore(req, res, next, allowInactive) {
     if (!result.rowCount) return res.status(401).json({ error: 'الحساب غير موجود' });
     const user = result.rows[0];
     if (!allowInactive && user.status !== 'active') return res.status(403).json({ error: 'الحساب غير مفعّل. تواصل مع الدعم' });
-    req.auth = { ...claims, sub: String(user.id), role: user.role };
+    req.auth = { ...claims, sub: String(user.id), role: user.role, status: user.status };
     return next();
   } catch (err) { return next(err); }
 }
@@ -257,9 +257,7 @@ app.post('/api/admin/providers', auth, roles('admin'), asyncRoute(async (req, re
 // Delivery areas: everyone reads the active list; only the owner edits it.
 const regionJson = r => ({ id: String(r.id), name: r.name, deliveryFee: Number(r.delivery_fee), active: r.active });
 app.get('/api/regions', optionalAuth, asyncRoute(async (req, res) => {
-  const all = req.viewer && req.viewer.role === 'admin';
-  const r = await pool.query(`SELECT * FROM regions ${all ? '' : 'WHERE active=TRUE'} ORDER BY sort_order, id`);
-  res.json({ regions: r.rows.map(regionJson) });
+  res.json({ regions: await listRegions(req.viewer) });
 }));
 app.post('/api/admin/regions', auth, roles('admin'), asyncRoute(async (req, res) => {
   const name = String((req.body || {}).name || '').trim();
@@ -303,10 +301,13 @@ app.delete('/api/admin/regions/:id', auth, roles('admin'), asyncRoute(async (req
 
 // Public runtime settings are read from PostgreSQL, so maintenance mode and announcements
 // apply consistently to every client using this API.
-app.get('/api/settings', asyncRoute(async (_req, res) => {
+async function loadSettings() {
   const r = await pool.query('SELECT app_enabled,maintenance_message,announcement,auto_assign,support_phone,support_name,updated_at FROM app_settings WHERE id=1');
   const x = r.rows[0];
-  res.json({ settings: { appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at } });
+  return { appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at };
+}
+app.get('/api/settings', asyncRoute(async (_req, res) => {
+  res.json({ settings: await loadSettings() });
 }));
 app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, res) => {
   const b = req.body || {};
@@ -330,21 +331,37 @@ app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(
   res.json({user:{id:String(r.rows[0].id),name:r.rows[0].name,role:r.rows[0].role,status:r.rows[0].status}});
 }));
 
-app.get('/api/providers', optionalAuth, asyncRoute(async (req, res) => {
+async function listProviders(viewer, type) {
   const values = [];
-  let sql = `SELECT p.* FROM providers p WHERE ${providerVisibility(req.viewer, values)}`;
-  if (req.query.type) { values.push(String(req.query.type)); sql += ` AND p.type=$${values.length}`; }
+  let sql = `SELECT p.* FROM providers p WHERE ${providerVisibility(viewer, values)}`;
+  if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
   sql += ' ORDER BY p.created_at DESC LIMIT 500';
-  const r = await pool.query(sql, values);
-  res.json({ providers: r.rows.map(providerJson) });
+  return (await pool.query(sql, values)).rows.map(providerJson);
+}
+async function listProducts(viewer, providerId) {
+  const values = [];
+  let sql = `SELECT pr.* FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE ${providerVisibility(viewer, values)}`;
+  if (providerId) { values.push(providerId); sql += ` AND pr.provider_id=$${values.length}`; }
+  sql += ' ORDER BY pr.created_at ASC LIMIT 2000';
+  return (await pool.query(sql, values)).rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available }));
+}
+async function listRegions(viewer) {
+  const all = viewer && viewer.role === 'admin';
+  const r = await pool.query(`SELECT * FROM regions ${all ? '' : 'WHERE active=TRUE'} ORDER BY sort_order, id`);
+  return r.rows.map(x => ({ id: String(x.id), name: x.name, deliveryFee: Number(x.delivery_fee), active: x.active }));
+}
+app.get('/api/providers', optionalAuth, asyncRoute(async (req, res) => {
+  res.json({ providers: await listProviders(req.viewer, req.query.type) });
 }));
 app.get('/api/products', optionalAuth, asyncRoute(async (req, res) => {
-  const values = [];
-  let sql = `SELECT pr.* FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE ${providerVisibility(req.viewer, values)}`;
-  if (req.query.providerId) { const providerId = positiveId(req.query.providerId); if (!providerId) return res.status(400).json({ error: 'معرّف مقدم الخدمة غير صالح' }); values.push(providerId); sql += ` AND pr.provider_id=$${values.length}`; }
-  sql += ' ORDER BY pr.created_at ASC LIMIT 2000';
-  const r = await pool.query(sql, values);
-  res.json({ products: r.rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available })) });
+  let providerId = null;
+  if (req.query.providerId) { providerId = positiveId(req.query.providerId); if (!providerId) return res.status(400).json({ error: 'معرّف مقدم الخدمة غير صالح' }); }
+  res.json({ products: await listProducts(req.viewer, providerId) });
+}));
+// Everything the home screen needs in ONE request (fewer calls = faster app and a lighter server).
+app.get('/api/catalog', optionalAuth, asyncRoute(async (req, res) => {
+  const [providers, products, regions] = await Promise.all([listProviders(req.viewer), listProducts(req.viewer), listRegions(req.viewer)]);
+  res.json({ providers, products, regions });
 }));
 
 // Owner of the service (or the app owner) edits the service details / open-closed switch.
@@ -416,7 +433,7 @@ app.delete('/api/products/:id', auth, roles('provider','admin'), asyncRoute(asyn
 }));
 
 // Orders, invoices, bookings and chat live in orders.js
-require('./orders')(app, { pool, auth, roles, asyncRoute, positiveId, maintenanceState });
+require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser });
 
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {
   const r = await pool.query("SELECT p.*,u.name AS owner_name FROM providers p JOIN users u ON u.id=p.owner_user_id WHERE p.status='pending' AND p.deleted_at IS NULL ORDER BY p.created_at ASC");
