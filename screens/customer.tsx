@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -10,7 +10,8 @@ import {
 } from '../components/ui';
 import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
 import {
-  useStore, useMe, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
+  useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
+import { pickImage, canPickImage } from '../lib/pickImage';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS } from '../lib/format';
 import { ProviderType, Provider } from '../lib/types';
 
@@ -38,7 +39,7 @@ export function HomeScreen({ navigation }: any) {
   const [q, setQ] = useState('');
   const insets = useSafeAreaInsets();
   const provs = db.providers.filter((p) => p.status === 'active');
-  const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
+  const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
   const cartCount = cart.reduce((s, l) => s + l.qty, 0);
 
   const results = useMemo(() => {
@@ -296,6 +297,18 @@ export function ProviderScreen({ navigation, route }: any) {
           <Icon name="moon" size={18} color={C.red} />
           <T color={C.red} w="bold" size={13}>{p.type === 'clinic' ? 'العيادة لا تستقبل حجوزات حالياً' : 'المكان مغلق حالياً ولا يستقبل طلبات'}</T>
         </View>
+      )}
+      {!closed && (p.type === 'supermarket' || p.type === 'pharmacy') && (
+        <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
+          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.goldSoft, borderWidth: 1.5, borderColor: C.gold }}>
+            <Icon name="create" size={28} color={C.goldDeep} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <T w="black" size={15}>هتطلب إيه؟ اكتب طلبك</T>
+              <T size={12} color={C.sub}>{p.type === 'pharmacy' ? 'اكتب الدواء المطلوب أو ارفع صورة الروشتة، والصيدلية تحدد السعر' : 'اكتب اللي عايزه والمتجر يقبل الطلب ويحدد السعر'}</T>
+            </View>
+            <Icon name="chevron-back" size={18} color={C.sub} />
+          </Card>
+        </Pressable>
       )}
       <FlatList
         data={shown}
@@ -628,6 +641,68 @@ export function CustomerOrdersScreen({ navigation }: any) {
           )}
         />
       )}
+    </View>
+  );
+}
+
+/* ---------------- written request to a supermarket / pharmacy ---------------- */
+export function RequestOrderScreen({ navigation, route }: any) {
+  const { db } = useStore();
+  const me = useMe()!;
+  const p = db.providers.find((x) => x.id === route.params.id);
+  const [text, setText] = useState('');
+  const [image, setImage] = useState<string | null>(null);
+  const [phone, setPhone] = useState(me.phone);
+  const [address, setAddress] = useState(me.address);
+  const [busy, setBusy] = useState(false);
+  if (!p) return <View style={{ flex: 1 }}><Header title="طلب مكتوب" onBack={() => navigation.goBack()} /><Empty title="المتجر غير موجود" /></View>;
+  const pharmacy = p.type === 'pharmacy';
+
+  const choose = async () => {
+    if (!canPickImage) return toast('رفع الصور متاح حالياً من نسخة الويب', 'info');
+    const img = await pickImage();
+    if (img) setImage(img);
+    else toast('تعذر تحميل الصورة، جرّب صورة أخرى', 'err');
+  };
+  const submit = async () => {
+    setBusy(true);
+    const r = await placeRequestOrder(me, { provider: p, text, image, phone, address });
+    setBusy(false);
+    if (!r.ok) return toast(r.error, 'err');
+    toast('تم إرسال طلبك للمتجر ✅');
+    navigation.replace('OrderDetail', { id: r.orderId });
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title={pharmacy ? 'اطلب من الصيدلية' : 'اطلب من السوبر ماركت'} subtitle={p.name} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+        <Card style={{ gap: 6, backgroundColor: C.goldSoft }}>
+          <T w="black" size={14} color={C.goldDeep}>إزاي بيشتغل؟</T>
+          <T size={12.5} color={C.dark3}>1) اكتب طلبك{pharmacy ? ' أو ارفع صورة الروشتة' : ''}.  2) المتجر يقبل الطلب ويحدد السعر.  3) توصلك الفاتورة وتوافق عليها.  4) المندوب يوصّل لحد باب بيتك. الدفع كاش عند الاستلام.</T>
+        </Card>
+        <Field
+          label="هتطلب إيه؟"
+          icon="create"
+          value={text}
+          onChangeText={setText}
+          multiline
+          placeholder={pharmacy ? 'اكتب أسماء الأدوية وكمياتها' : 'اكتب الأصناف اللي عايزها وكمياتها، مثال: 2 كيلو سكر، علبة شاي'}
+        />
+        {pharmacy && (
+          <View style={{ gap: 8 }}>
+            <T w="semi" size={13} color={C.dark3}>صورة الروشتة (اختياري)</T>
+            {image ? <Image source={{ uri: image }} style={{ width: '100%', height: 260, borderRadius: 14, backgroundColor: C.line }} resizeMode="contain" /> : null}
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Btn variant="soft" icon="camera" title={image ? 'تغيير الصورة' : 'ارفع صورة الروشتة'} style={{ flex: 1 }} onPress={choose} />
+              {image ? <Btn variant="danger" icon="trash" title="حذف" style={{ flex: 0.5 }} onPress={() => setImage(null)} /> : null}
+            </View>
+          </View>
+        )}
+        <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+        <Field label="العنوان التفصيلي" icon="location" value={address} onChangeText={setAddress} multiline />
+        <Btn title="إرسال الطلب للمتجر" icon="send" loading={busy} onPress={submit} />
+      </ScrollView>
     </View>
   );
 }

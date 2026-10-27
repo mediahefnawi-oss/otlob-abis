@@ -13,10 +13,13 @@ import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, c
 import { ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
+import { QuoteButtons, RequestPhoto } from '../components/Quote';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
-const STEP_LABEL: Record<string, string> = { pending: 'تم الطلب', accepted: 'التحضير', ready: 'جاهز', picked_up: 'استلام', on_the_way: 'في الطريق', arrived: 'وصل', delivered: 'تسليم' };
+// a written request is priced by the shop and approved by the customer before it goes to a courier
+const STEPS_REQ: OrderStatus[] = ['pending', 'quoted', 'accepted', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
+const STEP_LABEL: Record<string, string> = { pending: 'تم الطلب', quoted: 'التسعير', accepted: 'التحضير', ready: 'جاهز', picked_up: 'استلام', on_the_way: 'في الطريق', arrived: 'وصل', delivered: 'تسليم' };
 
 // when a step happened, e.g. "6:04 م" (from the order's history on the server)
 const stepTime = (o: { history?: { status: string; at: number }[]; createdAt: number }, s: string) => {
@@ -30,8 +33,10 @@ export function OrderDetailScreen({ navigation, route }: any) {
   const o = db.orders.find((x) => x.id === route.params.id);
   if (!o) return <View style={{ flex: 1 }}><Header title="الطلب" onBack={() => navigation.goBack()} /><Empty title="الطلب غير موجود" /></View>;
   const st = ORDER_STATUS[o.status];
-  const dead = o.status === 'rejected' || o.status === 'cancelled';
-  const idx = STEPS.indexOf(o.status);
+  const dead = ['rejected', 'cancelled', 'unavailable'].includes(o.status);
+  const isRequest = !!o.request;
+const FLOW = isRequest ? STEPS_REQ : STEPS.filter((s) => !(o.providerType === 'custom' && s === 'ready'));
+const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.status === 'ready' ? FLOW.indexOf('accepted') : -1; })();
   const isCustom = o.providerType === 'custom';
   const courier = o.courierId ? db.users.find((u) => u.id === o.courierId) : null;
   const provider = db.providers.find((p) => p.id === o.providerId);
@@ -58,7 +63,9 @@ export function OrderDetailScreen({ navigation, route }: any) {
               <View style={{ flex: 1 }}>
                 <T w="black" size={17} color={st.color}>{st.label}</T>
                 <T size={12} color={C.sub}>
-                  {o.status === 'pending' && 'في انتظار موافقة مقدم الخدمة'}
+                  {o.status === 'pending' && (isRequest ? 'بانتظار قبول المتجر وتحديد سعر طلبك' : 'في انتظار موافقة مقدم الخدمة')}
+                  {o.status === 'quoted' && 'المتجر حدد السعر، راجع الفاتورة ووافق عليها'}
+                  {o.status === 'unavailable' && 'للأسف الأصناف المطلوبة غير متوفرة حالياً'}
                   {o.status === 'accepted' && (o.courierId ? `المندوب ${o.courierName} في الطريق للتجهيز` : 'جاري البحث عن مندوب متاح...')}
                   {o.status === 'ready' && (o.courierId ? 'المندوب سيستلم الطلب الآن' : 'في انتظار مندوب لاستلام الطلب')}
                   {o.status === 'picked_up' && 'المندوب استلم طلبك'}
@@ -71,8 +78,8 @@ export function OrderDetailScreen({ navigation, route }: any) {
             </View>
             {!dead && (
               <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                {STEPS.filter((s) => !(isCustom && s === 'ready')).map((s, i, arr) => {
-                  const done = STEPS.indexOf(s) <= idx;
+                {FLOW.map((s, i, arr) => {
+                  const done = i <= idx;
                   return (
                     <View key={s} style={{ flex: 1, alignItems: 'center' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch' }}>
@@ -80,7 +87,7 @@ export function OrderDetailScreen({ navigation, route }: any) {
                         <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: done ? C.green : C.line, alignItems: 'center', justifyContent: 'center' }}>
                           {done && <Icon name="checkmark" size={13} color="#fff" />}
                         </View>
-                        <View style={{ flex: 1, height: 3, backgroundColor: i === arr.length - 1 ? 'transparent' : STEPS.indexOf(arr[i + 1]) <= idx ? C.green : C.line }} />
+                        <View style={{ flex: 1, height: 3, backgroundColor: i === arr.length - 1 ? 'transparent' : i + 1 <= idx ? C.green : C.line }} />
                       </View>
                       <T size={10.5} w={done ? 'bold' : 'regular'} color={done ? C.dark : C.sub} align="center" style={{ marginTop: 4 }}>{STEP_LABEL[s]}</T>
                       {done && stepTime(o, s) ? <T size={9.5} color={C.sub} align="center">{stepTime(o, s)}</T> : null}
@@ -126,6 +133,13 @@ export function OrderDetailScreen({ navigation, route }: any) {
         {/* items */}
         <Card style={{ gap: 10 }}>
           <T w="black" size={15}>تفاصيل الطلب</T>
+          {isRequest && (
+            <View style={{ backgroundColor: C.goldSoft, borderRadius: 12, padding: 12, gap: 8 }}>
+              <T w="bold" size={12} color={C.goldDeep}>الطلب المكتوب</T>
+              {!!o.request?.text && <T w="semi" size={13.5} color={C.dark3}>📝 {o.request.text}</T>}
+              <RequestPhoto o={o} />
+            </View>
+          )}
           {isCustom ? (
             <View style={{ backgroundColor: C.goldSoft, borderRadius: 12, padding: 12 }}>
               <T w="semi" size={13.5} color={C.dark3}>🎁 {o.customText}</T>
@@ -140,6 +154,10 @@ export function OrderDetailScreen({ navigation, route }: any) {
             ))
           )}
           <View style={{ height: 1, backgroundColor: C.line }} />
+          {isRequest && ['pending', 'unavailable'].includes(o.status) ? (
+            <T size={12.5} color={C.sub}>{o.status === 'pending' ? 'السعر: بانتظار تحديد المتجر' : 'لا توجد مبالغ مستحقة'}</T>
+          ) : (
+            <>
           {!isCustom && <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>المجموع</T><T w="bold">{money(o.subtotal)}</T></View>}
           <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>{isCustom ? 'رسوم الخدمة' : 'التوصيل'}</T><T w="bold">{money(o.deliveryFee)}</T></View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -147,13 +165,16 @@ export function OrderDetailScreen({ navigation, route }: any) {
             <T w="black" size={18} color={C.goldDeep}>{isCustom ? `${money(o.total)} +` : money(o.total)}</T>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Icon name="cash" size={15} color={C.green} /><T size={12} color={C.green} w="semi">الدفع كاش عند الاستلام</T></View>
+            </>
+          )}
         </Card>
 
         {/* actions */}
         <View style={{ gap: 10 }}>
           {((me.role === 'provider' && o.providerOwnerId === me.id) || me.role === 'admin') && (
             <>
-              {o.status === 'pending' && (
+              <QuoteButtons o={o} />
+              {o.status === 'pending' && !isRequest && (
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                   <Btn title="قبول الطلب" icon="checkmark" variant="green" style={{ flex: 1 }} onPress={() => act('accept')} />
                   <Btn title="رفض" icon="close" variant="danger" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الطلب؟', message: 'سيتم إبلاغ العميل برفض الطلب', danger: true, confirmText: 'رفض', onConfirm: () => act('reject', 'تعذر على المتجر تنفيذ الطلب') })} />
@@ -178,10 +199,20 @@ export function OrderDetailScreen({ navigation, route }: any) {
               <T size={12} color={C.goldDeep} style={{ flex: 1 }}>سيتم تفعيل الشات مع المندوب فور قبوله لطلبك.</T>
             </View>
           )}
-          {(me.role === 'customer' || me.role === 'admin' || me.role === 'provider') && (
+          {me.role === 'customer' && o.customerId === me.id && o.status === 'quoted' && (
+            <Card style={{ gap: 10, borderWidth: 1.5, borderColor: C.gold, backgroundColor: C.goldSoft }}>
+              <T w="black" size={15}>المتجر حدد سعر طلبك: {money(o.total)}</T>
+              <T size={12.5} color={C.dark3}>الإجمالي شامل التوصيل ({money(o.deliveryFee)}). لو موافق هيتجهز الطلب ويروح للمندوب.</T>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn title="موافق، جهّز الطلب" icon="checkmark" variant="green" style={{ flex: 2 }} onPress={() => act('approve_quote')} />
+                <Btn title="رفض" icon="close" variant="danger" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الفاتورة؟', message: 'سيتم إلغاء الطلب.', danger: true, confirmText: 'رفض', onConfirm: () => act('decline_quote') })} />
+              </View>
+            </Card>
+          )}
+          {!!o.invoiceId && (me.role === 'customer' || me.role === 'admin' || me.role === 'provider') && (
             <Btn title="عرض الفاتورة" icon="document-text" variant="outline" onPress={() => navigation.navigate('Invoice', { id: o.invoiceId, providerId: me.role === 'provider' ? o.providerId : undefined })} />
           )}
-          {((me.role === 'customer' && o.status === 'pending') || (me.role === 'admin' && !['delivered', 'cancelled', 'rejected'].includes(o.status))) && (
+          {((me.role === 'customer' && o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready'].includes(o.status)) || (me.role === 'admin' && !['delivered', 'cancelled', 'rejected', 'unavailable'].includes(o.status))) && (
             <Btn title="إلغاء الطلب" icon="close-circle" variant="danger" onPress={() => confirmDialog({ title: 'إلغاء الطلب؟', message: 'لا يمكن التراجع عن الإلغاء', danger: true, confirmText: 'إلغاء الطلب', onConfirm: () => act('cancel') })} />
           )}
           <Btn title="مشكلة في الطلب؟ تواصل مع الدعم" icon="logo-whatsapp" variant="soft" onPress={() => openWhats('01004379508', `مرحباً، أحتاج مساعدة بخصوص الطلب رقم #${o.number}`)} />
@@ -268,6 +299,7 @@ export function InvoiceScreen({ navigation, route }: any) {
       parts.forEach((p) => {
         lines.push(`🏪 ${p.providerName}`);
         if (p.customText) lines.push(`  • ${p.customText}`);
+        if (p.requestText) lines.push(`  📝 ${p.requestText}`);
         p.items.forEach((i) => lines.push(`  • ${i.qty}× ${i.name} = ${money(i.price * i.qty)}`));
         lines.push(`  التوصيل: ${money(p.deliveryFee)}`, '');
       });
@@ -312,6 +344,12 @@ export function InvoiceScreen({ navigation, route }: any) {
               <Row icon="call" label="رقم الهاتف" value={inv.phone} />
             </View>
 
+            {inv.unavailable && (
+              <View style={{ backgroundColor: C.redSoft, borderRadius: 16, padding: 14, gap: 4 }}>
+                <T w="black" size={14.5} color={C.red}>الأصناف المطلوبة غير متوفرة حالياً</T>
+                <T size={12.5} color={C.red}>{inv.note || 'نعتذر، لا يمكن تجهيز هذا الطلب الآن. لا توجد مبالغ مستحقة عليك.'}</T>
+              </View>
+            )}
             {inv.kind === 'booking' ? (
               <View style={{ borderWidth: 1.5, borderColor: C.line, borderRadius: 16, padding: 14, gap: 10 }}>
                 <T w="black" size={13.5} color={C.goldDeep}>تفاصيل الحجز</T>
@@ -343,6 +381,7 @@ export function InvoiceScreen({ navigation, route }: any) {
                       </View>
                       <View style={{ padding: 12, gap: 8 }}>
                         {p.customText && <T size={13} color={C.dark3}>🎁 {p.customText}</T>}
+                        {!!p.requestText && <T size={13} color={C.dark3}>📝 {p.requestText}</T>}
                         {p.items.map((i) => (
                           <View key={i.productId} style={{ flexDirection: 'row' }}>
                             <T size={13} style={{ flex: 1 }}>{i.qty}× {i.name}</T>

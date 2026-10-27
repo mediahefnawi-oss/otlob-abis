@@ -9,7 +9,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiPlaceRequest, apiQuote, apiOrderImage, apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -233,10 +233,14 @@ function checkNewOrderAlerts(orders: Order[], appts: Appointment[]) {
   if (me.role === 'provider') {
     fresh = [
       ...orders.filter((o) => ['pending', 'accepted'].includes(o.status) && o.providerOwnerId === me.id && !seenOrders.has(o.id) && recent(o.createdAt))
-        .map((o) => ({ key: o.id, line: `${o.customerName} — ${o.total} ج.م` })),
+        .map((o) => ({ key: o.id, line: o.request ? `${o.customerName} — طلب مكتوب يحتاج تسعير` : `${o.customerName} — ${o.total} ج.م` })),
       ...appts.filter((a) => a.status === 'pending' && a.clinicOwnerId === me.id && !seenOrders.has(`a${a.id}`) && recent(a.createdAt))
         .map((a) => ({ key: `a${a.id}`, line: `حجز جديد من ${a.patientName}` })),
     ];
+  } else if (me.role === 'customer') {
+    // the shop priced (or could not supply) a written request
+    fresh = orders.filter((o) => ['quoted', 'unavailable'].includes(o.status) && o.customerId === me.id && !seenOrders.has(`${o.status[0]}${o.id}`) && recent(o.updatedAt))
+      .map((o) => ({ key: `${o.status[0]}${o.id}`, line: o.status === 'quoted' ? `${o.providerName}: ${o.total} ج.م — راجع الفاتورة ووافق` : `${o.providerName}: الأصناف غير متوفرة` }));
   } else if (me.role === 'courier' && me.available) {
     // open offers, or an order the system just assigned to this courier automatically
     fresh = orders.filter((o) => (!o.courierId || o.courierId === me.id) && ['pending', 'accepted', 'ready'].includes(o.status) && !seenOrders.has(o.id) && recent(o.createdAt))
@@ -247,7 +251,9 @@ function checkNewOrderAlerts(orders: Order[], appts: Appointment[]) {
   saveSeen();
   const title = me.role === 'provider'
     ? (fresh.length > 1 ? `${fresh.length} طلبات جديدة` : 'طلب جديد')
-    : (fresh.length > 1 ? `${fresh.length} طلبات توصيل جديدة` : 'طلب توصيل جديد');
+    : me.role === 'customer'
+      ? 'رد المتجر على طلبك'
+      : (fresh.length > 1 ? `${fresh.length} طلبات توصيل جديدة` : 'طلب توصيل جديد');
   alertNewOrder(title, fresh[0].line);
   noticeHandler(`🔔 ${title}: ${fresh[0].line}`);
 }
@@ -585,7 +591,7 @@ export async function placeCustomOrder(me: User, info: { text: string; phone: st
   }
 }
 
-export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver';
+export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver' | 'approve_quote' | 'decline_quote';
 
 export function orderAction(orderId: string, action: OrderAction, by: User, reason?: string): Result {
   const o = state.db.orders.find((x) => x.id === orderId);
@@ -599,6 +605,13 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
   // optimistic: show the result at once; the server then confirms (or corrects) it
   mutate((db) => {
     switch (action) {
+      case 'approve_quote':
+        setStatus(db, orderId, 'accepted');
+        sysMsg(db, orderId, 'وافق العميل على الفاتورة وجاري تجهيز الطلب 👨‍🍳');
+        break;
+      case 'decline_quote':
+        setStatus(db, orderId, 'cancelled', { rejectReason: 'رفض العميل الفاتورة' });
+        break;
       case 'accept':
         setStatus(db, orderId, 'accepted');
         sysMsg(db, orderId, 'تم قبول طلبك وجاري التحضير 👨‍🍳');
@@ -967,4 +980,66 @@ export async function deleteRegion(id: string): Promise<Result> {
     mutate((db) => { db.regions = db.regions.filter((r) => r.id !== id); });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+
+/* ---------- free-text requests (supermarket / pharmacy) ---------- */
+export async function placeRequestOrder(
+  me: User,
+  info: { provider: Provider; text: string; image?: string | null; phone: string; address: string }
+): Promise<Result<{ orderId: string }>> {
+  if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
+  if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المتجر مغلق حالياً' };
+  if (info.text.trim().length < 3 && !info.image) return { ok: false, error: 'اكتب طلبك أو ارفع صورة' };
+  if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
+  if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
+  pendingWrites++;
+  try {
+    const { order } = await apiPlaceRequest({
+      providerId: info.provider.id, text: info.text.trim(), image: info.image || null, phone: normPhone(info.phone), address: info.address.trim(),
+    });
+    if (info.image) imageCache.set(String(order.id), info.image);
+    mutate((db) => {
+      db.orders = upsertById(db.orders, [order as Order]);
+      db.users = db.users.map((u) => (u.id === me.id ? { ...u, address: info.address.trim() } : u));
+    });
+    return { ok: true, orderId: String(order.id) };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
+}
+
+/** The shop prices a written request (lines), or answers that the items are not available. */
+export async function quoteOrder(
+  orderId: string,
+  input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string }
+): Promise<Result> {
+  pendingWrites++;
+  try {
+    const r = await apiQuote(orderId, input);
+    mutate((db) => {
+      db.orders = upsertById(db.orders, [r.order as Order]);
+      db.invoices = upsertById(db.invoices, [r.invoice as Invoice]);
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
+}
+
+const imageCache = new Map<string, string>();
+/** The photo of a request order (downloaded once, then kept). */
+export async function orderImage(orderId: string): Promise<string | null> {
+  const hit = imageCache.get(orderId);
+  if (hit) return hit;
+  try {
+    const { image } = await apiOrderImage(orderId);
+    if (image) imageCache.set(orderId, image);
+    return image;
+  } catch {
+    return null;
+  }
 }

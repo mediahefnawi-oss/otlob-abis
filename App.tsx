@@ -17,7 +17,7 @@ import { SyncBanner } from './components/SyncBanner';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
-  HomeScreen, CategoryScreen, ProviderScreen, CartScreen, CustomOrderScreen, BookingScreen, CustomerOrdersScreen,
+  HomeScreen, CategoryScreen, ProviderScreen, CartScreen, CustomOrderScreen, RequestOrderScreen, BookingScreen, CustomerOrdersScreen,
 } from './screens/customer';
 import { OrderDetailScreen, ApptDetailScreen, InvoiceScreen, ChatScreen, SupportScreen, ProfileScreen } from './screens/shared';
 import { ProviderOrdersScreen, ProviderCatalogScreen, ProviderInvoicesScreen, ProviderProfileScreen } from './screens/provider';
@@ -39,7 +39,7 @@ function Main({ navigation }: any) {
 
   let tabs: TabDef[] = [];
   if (me.role === 'customer') {
-    const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)).length;
+    const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)).length;
     tabs = [
       { key: 'home', label: 'الرئيسية', icon: 'home', render: () => <HomeScreen navigation={navigation} /> },
       { key: 'orders', label: 'طلباتي', icon: 'receipt', badge: active, render: () => <CustomerOrdersScreen navigation={navigation} /> },
@@ -111,6 +111,7 @@ function Root() {
         <Stack.Screen name="Provider" component={ProviderScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
         <Stack.Screen name="CustomOrder" component={CustomOrderScreen} />
+        <Stack.Screen name="RequestOrder" component={RequestOrderScreen} />
         <Stack.Screen name="Booking" component={BookingScreen} />
         <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
         <Stack.Screen name="ApptDetail" component={ApptDetailScreen} />

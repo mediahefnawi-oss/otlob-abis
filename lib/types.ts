@@ -94,7 +94,7 @@ export interface Order {
   providerOwnerId: string;
   items: OrderItem[];
   customText?: string;
-  request?: { text: string; image?: string };
+  request?: { text: string; hasImage?: boolean }; // the photo is fetched separately (see orderImage)
   regionId?: string;
   regionName?: string;
   subtotal: number;
@@ -143,6 +143,7 @@ export interface InvoicePart {
   providerType: ProviderType | 'custom';
   items: OrderItem[];
   customText?: string;
+  requestText?: string; // what the customer wrote when the shop priced a free-text request
   subtotal: number;
   deliveryFee: number;
 }
@@ -158,6 +159,8 @@ export interface Invoice {
   createdAt: number;
   parts: InvoicePart[];
   total: number;
+  unavailable?: boolean; // the shop could not supply the requested items
+  note?: string;
   // booking
   appointmentId?: string;
   ownerId?: string;

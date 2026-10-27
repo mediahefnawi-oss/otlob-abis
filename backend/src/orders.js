@@ -21,7 +21,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       customerId: String(r.customer_user_id), customerName: d.customerName || '', phone: d.phone || '', address: d.address || '', notes: d.notes || '',
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
-      request: d.request || undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
+      request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
       courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined,
       createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [],
@@ -123,7 +123,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const i = values.length;
     if (user.role === 'customer') return `o.customer_user_id=$${i}`;
     if (user.role === 'provider') return `o.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i})`;
-    return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('pending','accepted','ready')))`;
+    return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('accepted','ready')))`;
   }
   function apptScope(user, values) {
     if (user.role === 'admin') return 'TRUE';
@@ -272,6 +272,108 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     res.status(201).json({ invoice: invoiceJson(out.inv), orders: [orderJson(out.o)] });
   }));
 
+
+  /* ---------- free-text requests (supermarket / pharmacy): the shop prices them ---------- */
+  const MAX_IMAGE = 600000; // characters of base64 text
+  app.post('/api/orders/request', auth, roles('customer'), guard(async (req, res) => {
+    await requireOpen();
+    const b = req.body || {};
+    const providerId = positiveId(b.providerId);
+    const text = String(b.text || '').trim().slice(0, 1500);
+    const image = typeof b.image === 'string' && b.image ? b.image : null;
+    if (!providerId) throw fail(400, 'اختر المتجر');
+    if (text.length < 3 && !image) throw fail(400, 'اكتب طلبك أو ارفع صورة');
+    if (image && (!/^data:image\/(jpeg|png|webp);base64,/.test(image) || image.length > MAX_IMAGE)) throw fail(400, 'الصورة غير صالحة أو كبيرة جداً');
+    const { address, phone } = checkContact(b);
+    const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
+    const prov = p.rows[0];
+    if (!prov || prov.status !== 'active' || !prov.is_open) throw fail(409, 'المتجر مغلق حالياً');
+    if (!['supermarket', 'pharmacy'].includes(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
+    const out = await withTx(async db => {
+      const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
+      const region = await regionOf(db, Number(req.auth.sub));
+      const fee = region ? region.fee : Number(prov.delivery_fee);
+      const d = {
+        customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
+        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined,
+        request: { text, hasImage: !!image }, history: [{ status: 'pending', at: Date.now() }],
+      };
+      const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',
+        [Number(req.auth.sub), prov.id, region ? region.id : null, JSON.stringify(d)])).rows[0];
+      if (image) await db.query('INSERT INTO order_images(order_id, image) VALUES($1,$2)', [o.id, image]);
+      await sysMsg(db, o.id, 'تم إرسال طلبك للمتجر، وسيقوم بتسعيره وإرسال الفاتورة إليك 📝');
+      return o;
+    });
+    res.status(201).json({ order: orderJson(out) });
+  }));
+
+  /** The shop prices the request (lines of name × price × quantity), or says the items are not available. */
+  app.post('/api/orders/:id/quote', auth, roles('provider', 'admin'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف الطلب غير صالح');
+    const b = req.body || {};
+    const note = String(b.note || '').trim().slice(0, 300);
+    const lines = [];
+    if (!b.unavailable) {
+      let raw = Array.isArray(b.items) ? b.items.slice(0, 50) : [];
+      // the usual case: the shop just writes the price of the whole request
+      if (!raw.length && b.price !== undefined) {
+        if (!(Number(b.price) > 0)) throw fail(400, 'اكتب سعر الطلب');
+        raw = [{ name: 'ثمن الطلب', price: Number(b.price), qty: 1 }];
+      }
+      for (const it of raw) {
+        const name = String((it && it.name) || '').trim().slice(0, 80);
+        const price = Number(it && it.price);
+        const qty = Math.floor(Number(it && it.qty));
+        if (!name || !Number.isFinite(price) || price < 0 || price > 100000 || !(qty >= 1 && qty <= 99)) throw fail(400, 'راجع أسماء الأصناف وأسعارها وكمياتها');
+        lines.push({ productId: `q${lines.length + 1}`, name, price, qty, emoji: '🛒' });
+      }
+      if (!lines.length) throw fail(400, 'أضف صنفاً واحداً على الأقل');
+    }
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT o.*, p.owner_user_id AS powner FROM orders o JOIN providers p ON p.id=o.provider_id WHERE o.id=$1 FOR UPDATE OF o', [id]);
+      if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+      const row = f.rows[0];
+      if (req.auth.role !== 'admin' && Number(row.powner) !== Number(req.auth.sub)) throw fail(403, 'غير مسموح');
+      if (!row.data || !row.data.request) throw fail(400, 'هذا ليس طلباً مكتوباً');
+      if (!['pending', 'quoted'].includes(row.status)) throw fail(409, 'حالة الطلب لا تسمح بالتسعير الآن');
+      const fee = Number(row.data.deliveryFee) || 0;
+      const unavailable = !!b.unavailable;
+      const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
+      const total = unavailable ? 0 : subtotal + fee;
+      const part = {
+        orderId: String(row.id), providerId: String(row.provider_id), providerName: row.data.providerName, providerType: row.data.providerType,
+        items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, deliveryFee: unavailable ? 0 : fee, requestText: row.data.request.text || '',
+      };
+      const invData = { number: `INV-${row.order_number}`, customerName: row.data.customerName, phone: row.data.phone, address: row.data.address, parts: [part], unavailable, note };
+      let invoiceId = row.data.invoiceId ? Number(row.data.invoiceId) : null;
+      if (invoiceId) await db.query('UPDATE invoices SET total=$1, data=$2 WHERE id=$3', [total, JSON.stringify(invData), invoiceId]);
+      else invoiceId = (await db.query('INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,\'delivery\',$3,$4) RETURNING id',
+        [row.customer_user_id, row.id, total, JSON.stringify(invData)])).rows[0].id;
+      const d = { ...row.data, items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, invoiceId: String(invoiceId), groupId: String(invoiceId), quoteNote: note };
+      const r = await db.query('UPDATE orders SET status=$1, total=$2, data=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [unavailable ? 'unavailable' : 'quoted', total, JSON.stringify({ ...d, history: [...(d.history || []), { status: unavailable ? 'unavailable' : 'quoted', at: Date.now() }] }), row.id]);
+      await sysMsg(db, row.id, unavailable
+        ? `للأسف الأصناف المطلوبة غير متوفرة حالياً${note ? `: ${note}` : ''}`
+        : `قام المتجر بتسعير طلبك: ${total} ج.م (شامل التوصيل). راجع الفاتورة ووافق عليها ليبدأ التحضير 🧾`);
+      const inv = (await db.query('SELECT * FROM invoices WHERE id=$1', [invoiceId])).rows[0];
+      return { order: r.rows[0], invoice: inv };
+    });
+    res.json({ order: orderJson(out.order), invoice: invoiceJson(out.invoice) });
+  }));
+
+  /** The request photo, only for people who belong to that order. */
+  app.get('/api/orders/:id/image', auth, guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف الطلب غير صالح');
+    const f = await pool.query('SELECT o.customer_user_id, o.courier_user_id, p.owner_user_id AS powner, i.image FROM orders o LEFT JOIN providers p ON p.id=o.provider_id LEFT JOIN order_images i ON i.order_id=o.id WHERE o.id=$1', [id]);
+    if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+    const r = f.rows[0]; const me = Number(req.auth.sub);
+    const ok = req.auth.role === 'admin' || [r.customer_user_id, r.courier_user_id, r.powner].some(v => v && Number(v) === me);
+    if (!ok) throw fail(403, 'غير مسموح');
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.json({ image: r.image || null });
+  }));
+
   /* ---------- order state machine ---------- */
   app.post('/api/orders/:id/action', auth, guard(async (req, res) => {
     const id = positiveId(req.params.id);
@@ -292,9 +394,20 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       switch (action) {
         case 'accept':
           need(isShop); state('pending');
+          if (row.data && row.data.request) throw fail(409, 'سعّر الطلب أولاً ثم أرسل الفاتورة للعميل');
           next = await moveOrder(db, row, 'accepted');
           await sysMsg(db, id, 'تم قبول طلبك وجاري التحضير 👨‍🍳');
           next = await tryAutoAssign(db, next);
+          break;
+        case 'approve_quote':
+          need(isCustomer); state('quoted');
+          next = await moveOrder(db, row, 'accepted');
+          await sysMsg(db, id, 'وافق العميل على الفاتورة وجاري تجهيز الطلب 👨‍🍳');
+          next = await tryAutoAssign(db, next);
+          break;
+        case 'decline_quote':
+          need(isCustomer); state('quoted', 'unavailable');
+          next = await moveOrder(db, row, 'cancelled', { rejectReason: 'رفض العميل الفاتورة' });
           break;
         case 'reject':
           need(isShop); state('pending', 'quoted');

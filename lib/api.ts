@@ -228,3 +228,14 @@ export async function apiApptAction(id: string | number, action: string) {
 export async function apiCatalog<T = any>() {
   return apiRequest<{ providers: T[]; products: T[]; regions: ServerRegion[] }>('/api/catalog', {}, true);
 }
+
+/** Free-text requests to supermarkets / pharmacies, priced by the shop. */
+export async function apiPlaceRequest(input: { providerId: string; text: string; image?: string | null; phone: string; address: string }) {
+  return apiRequest<{ order: any }>('/api/orders/request', { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiQuote(orderId: string | number, input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string }) {
+  return apiRequest<{ order: any; invoice: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/quote`, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiOrderImage(orderId: string | number) {
+  return apiRequest<{ image: string | null }>(`/api/orders/${encodeURIComponent(String(orderId))}/image`);
+}

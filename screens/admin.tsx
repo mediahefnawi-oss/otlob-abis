@@ -62,7 +62,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
   const me = useMe()!;
   const orders = db.orders;
   const delivered = orders.filter((o) => o.status === 'delivered');
-  const active = orders.filter((o) => ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
+  const active = orders.filter((o) => ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
   const pendingProv = db.providers.filter((p) => p.status === 'pending');
   const pendingCour = db.users.filter((u) => u.role === 'courier' && u.status === 'pending');
   const couriers = db.users.filter((u) => u.role === 'courier' && u.status === 'active');
@@ -275,7 +275,7 @@ export function AdminOrdersScreen({ navigation }: any) {
   const { db } = useStore();
   const [seg, setSeg] = useState('orders');
   const [f, setF] = useState('all');
-  const orders = db.orders.filter((o) => f === 'all' || (f === 'active' ? ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status) : f === 'dead' ? ['rejected', 'cancelled'].includes(o.status) : o.status === f)).sort((a, b) => b.createdAt - a.createdAt);
+  const orders = db.orders.filter((o) => f === 'all' || (f === 'active' ? ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status) : f === 'dead' ? ['rejected', 'cancelled', 'unavailable'].includes(o.status) : o.status === f)).sort((a, b) => b.createdAt - a.createdAt);
   const appts = db.appointments.filter((a) => f === 'all' || a.status === f).sort((a, b) => b.createdAt - a.createdAt);
   const chips = seg === 'orders'
     ? [{ k: 'all', l: 'الكل' }, { k: 'active', l: 'جارية' }, { k: 'pending', l: 'جديدة' }, { k: 'delivered', l: 'مكتملة' }, { k: 'dead', l: 'ملغية' }]

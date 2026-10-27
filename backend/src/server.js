@@ -26,7 +26,7 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   process.exit(1);
 }
 app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin not allowed')); }, methods: ['GET','POST','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization'] }));
-app.use(express.json({ limit: '256kb' }));
+app.use(express.json({ limit: '1mb' })); // a request photo is shrunk by the app to well under 600 KB
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false }));
 
 async function maintenanceState() {
@@ -87,7 +87,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261025;
+const SCHEMA_VERSION = 20261026;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');

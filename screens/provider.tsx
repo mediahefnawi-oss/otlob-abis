@@ -5,6 +5,7 @@ import {
   T, Icon, Toggle, Card, Btn, Header, Empty, Segmented, Stat, Appear, EmojiBubble, Sheet, Field, Chip, Pill, IconBubble, toast, confirmDialog, SectionTitle, IconBtn,
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
+import { QuoteButtons } from '../components/Quote';
 import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { useStore, useMe, orderAction, apptAction, saveProduct, deleteProduct, updateProvider, availableCouriers } from '../lib/store';
@@ -31,9 +32,9 @@ export function ProviderOrdersScreen({ navigation }: any) {
   const groups: Record<string, (o: any) => boolean> = {
     // a new order goes straight to preparing (and to the couriers): there is no approval step any more
     new: (o) => ['pending', 'accepted'].includes(o.status),
-    active: (o) => ['ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status),
+    active: (o) => ['quoted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status),
     done: (o) => o.status === 'delivered',
-    dead: (o) => ['rejected', 'cancelled'].includes(o.status),
+    dead: (o) => ['rejected', 'cancelled', 'unavailable'].includes(o.status),
   };
   const agroups: Record<string, (a: any) => boolean> = {
     pending: (a) => a.status === 'pending',
@@ -124,7 +125,8 @@ export function ProviderOrdersScreen({ navigation }: any) {
           renderItem={({ item, index }) => (
             <Appear i={index}>
               <OrderCard o={item} perspective="provider" onPress={() => navigation.navigate('OrderDetail', { id: item.id })}>
-                {item.status === 'pending' && (
+                <QuoteButtons o={item} />
+                {item.status === 'pending' && !item.request && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="green" icon="checkmark" title="قبول الطلب" style={{ flex: 2 }} onPress={() => { orderAction(item.id, 'accept', me); toast('تم قبول الطلب'); }} />
                     <Btn small variant="danger" icon="close" title="رفض" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الطلب؟', danger: true, confirmText: 'رفض', onConfirm: () => { orderAction(item.id, 'reject', me, 'تعذر على المتجر تنفيذ الطلب'); toast('تم رفض الطلب'); } })} />

@@ -136,3 +136,11 @@ DO $$ BEGIN
     ALTER TABLE orders ADD CONSTRAINT orders_status_v3 CHECK (status IN ('pending','accepted','ready','picked_up','on_the_way','arrived','delivered','rejected','cancelled','quoted','unavailable'));
   END IF;
 END $$;
+
+-- Free-text requests to supermarkets / pharmacies: the photo (a prescription, a shopping list) lives apart from the order
+-- so the 4-second sync never downloads pictures.
+CREATE TABLE IF NOT EXISTS order_images (
+  order_id BIGINT PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
+  image TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
