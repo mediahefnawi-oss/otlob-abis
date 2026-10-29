@@ -19,6 +19,15 @@ export interface User {
   regionId?: string | null;
 }
 
+export interface Ad {
+  id: string;
+  title: string;
+  link: string;
+  active: boolean;
+  sortOrder: number;
+  v: number; // changes when the picture changes (so the browser fetches the new one)
+}
+
 export interface Region {
   id: string;
   name: string;
@@ -198,6 +207,7 @@ export interface DB {
   providers: Provider[];
   products: Product[];
   regions: Region[];
+  ads?: Ad[];
   couriersOnline?: number; // couriers who are switched on right now (the server counts them)
   bookedSlots: { doctorId: string; date: string; time: string }[];
   orders: Order[];

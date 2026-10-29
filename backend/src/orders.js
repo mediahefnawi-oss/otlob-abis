@@ -4,7 +4,7 @@
  * The app mirrors /api/sync into its screens; every state change goes through one of the POST/PATCH routes below,
  * so the server alone decides who may do what (and who wins when two couriers tap "accept" together).
  */
-module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser }) {
+module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
   const num = v => Number(v) || 0;
   const ms = d => new Date(d).getTime();
   const PHONE = /^01[0-9]{9}$/;
@@ -112,6 +112,54 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     if (address.length < 6) throw fail(400, 'اكتب العنوان بالتفصيل');
     if (!PHONE.test(phone)) throw fail(400, 'رقم الهاتف غير صحيح');
     return { address: address.slice(0, 300), phone };
+  }
+
+
+  /* ---------- phone notifications (Web Push); a failed push never fails the request ---------- */
+  const notify = (ids, title, body, tag) => {
+    const list = (ids || []).filter(Boolean);
+    if (!pushToUsers || !list.length) return Promise.resolve();
+    return pushToUsers(list, { title, body, tag, url: '/', requireInteraction: true }).catch(() => {});
+  };
+  async function onlineCourierIds() {
+    return (await pool.query("SELECT id FROM users WHERE role='courier' AND status='active' AND available=TRUE")).rows.map(r => r.id);
+  }
+  /** New jobs: the courier they were auto-assigned to, or every courier who is switched on. */
+  async function notifyCouriers(rows) {
+    try {
+      const jobs = [];
+      for (const r of rows.filter(x => x.courier_user_id)) jobs.push(notify([r.courier_user_id], 'تم تعيين طلب لك 🛵', `${(r.data || {}).providerName || ''} — ${(r.data || {}).regionName || (r.data || {}).address || ''}`, `order-${r.id}`));
+      const open = rows.filter(x => !x.courier_user_id);
+      if (open.length) {
+        const ids = await onlineCourierIds();
+        const d = open[0].data || {};
+        jobs.push(notify(ids, open.length > 1 ? `${open.length} طلبات توصيل جديدة 🛵` : 'طلب توصيل جديد 🛵', `${d.regionName ? `منطقة ${d.regionName}` : d.address || ''} — ${d.providerName || ''}`, `offer-${open[0].id}`));
+      }
+      await Promise.allSettled(jobs);
+    } catch (e) { console.error('notifyCouriers failed:', e.message); }
+  }
+  async function notifyAction(action, row, actorRole) {
+    try {
+      const d = row.data || {};
+      const cust = [row.customer_user_id];
+      const shop = d.providerOwnerId ? [d.providerOwnerId] : [];
+      const tag = `order-${row.id}`;
+      const jobs = [];
+      switch (action) {
+        case 'approve_quote': jobs.push(notify(shop, 'وافق العميل على السعر ✅', `${d.customerName || ''} — ${Number(row.total)} ج.م`, tag), notifyCouriers([row])); break;
+        case 'courier_accept': jobs.push(notify(cust, `المندوب ${d.courierName || ''} قبل طلبك 🛵`, 'وسيتولى التوصيل', tag), notify(shop, 'مندوب سيستلم الطلب', d.courierName || '', tag)); break;
+        case 'pickup': jobs.push(notify(cust, 'استلم المندوب طلبك 📦', d.providerName || '', tag)); break;
+        case 'go': jobs.push(notify(cust, 'المندوب في الطريق إليك 🚀', '', tag)); break;
+        case 'arrive': jobs.push(notify(cust, 'وصل المندوب إلى مكانك 📍', 'تفضّل بالاستلام', tag)); break;
+        case 'deliver': jobs.push(notify(cust, 'تم تسليم طلبك 💚', 'بالهناء والشفاء', tag), notify(shop, 'تم تسليم الطلب للعميل', `#${row.order_number}`, tag)); break;
+        case 'ready': jobs.push(notify(row.courier_user_id ? [row.courier_user_id] : [], 'الطلب جاهز للاستلام ✅', d.providerName || '', tag)); break;
+        case 'reject': jobs.push(notify(cust, 'اعتذر المتجر عن طلبك', d.rejectReason || '', tag)); break;
+        case 'cancel': jobs.push(actorRole === 'customer' ? notify([...shop, row.courier_user_id], 'ألغى العميل الطلب', `#${row.order_number}`, tag) : notify(cust, 'تم إلغاء طلبك', d.rejectReason || '', tag)); break;
+        case 'decline_quote': jobs.push(notify(shop, 'رفض العميل السعر', `#${row.order_number}`, tag)); break;
+        default: break;
+      }
+      await Promise.allSettled(jobs);
+    } catch (e) { console.error('notifyAction failed:', e.message); }
   }
 
   /* ---------- who sees what ---------- */
@@ -239,6 +287,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const u = await db.query('UPDATE users SET address=$1 WHERE id=$2 RETURNING *', [address, Number(req.auth.sub)]);
       return { invoice: inv.rows[0], orders: finalOrders, user: u.rows[0] };
     });
+    await Promise.allSettled([
+      ...out.orders.map(r => notify([(r.data || {}).providerOwnerId], 'طلب جديد 🔔', `${name} — ${Number(r.total)} ج.م`, `order-${r.id}`)),
+      notifyCouriers(out.orders),
+    ]);
     res.status(201).json({ invoice: invoiceJson(out.invoice), orders: out.orders.map(orderJson), address: out.user.address });
   }));
 
@@ -269,6 +321,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       o = await tryAutoAssign(db, o);
       return { o, inv };
     });
+    await notifyCouriers([out.o]);
     res.status(201).json({ invoice: invoiceJson(out.inv), orders: [orderJson(out.o)] });
   }));
 
@@ -304,6 +357,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       await sysMsg(db, o.id, 'تم إرسال طلبك للمتجر، وسيقوم بتسعيره وإرسال الفاتورة إليك 📝');
       return o;
     });
+    await notify([prov.owner_user_id], 'طلب مكتوب جديد 📝', `${(out.data || {}).customerName || ''} — يحتاج تسعير`, `order-${out.id}`);
     res.status(201).json({ order: orderJson(out) });
   }));
 
@@ -358,6 +412,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const inv = (await db.query('SELECT * FROM invoices WHERE id=$1', [invoiceId])).rows[0];
       return { order: r.rows[0], invoice: inv };
     });
+    await notify([out.order.customer_user_id], out.order.status === 'unavailable' ? 'الأصناف غير متوفرة' : 'المتجر حدد سعر طلبك 🧾', out.order.status === 'unavailable' ? ((out.order.data || {}).providerName || '') : `${Number(out.order.total)} ج.م شامل التوصيل — راجع الفاتورة ووافق`, `order-${out.order.id}`);
     res.json({ order: orderJson(out.order), invoice: invoiceJson(out.invoice) });
   }));
 
@@ -457,6 +512,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       }
       return next;
     });
+    await notifyAction(action, out, role);
     res.json({ order: orderJson(out) });
   }));
 
@@ -508,6 +564,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           patientName, phone, clinicName: doc.pname, clinicOwnerId: String(doc.owner_user_id), clinicAddress: doc.paddr || '', doctorName: doc.name,
           specialty: (doc.data && doc.data.category) || '', notes: String(b.notes || '').slice(0, 500) })]);
       const a = await pool.query(`${APPT_SQL} WHERE a.id=$1`, [r.rows[0].id]);
+      await notify([doc.owner_user_id], 'حجز جديد 📅', `${patientName} — ${date} ${time}`, `appt-${r.rows[0].id}`);
       res.status(201).json({ appointment: apptJson(a.rows[0]) });
     } catch (e) {
       if (e.code === '23505') throw fail(409, 'هذا الموعد محجوز، اختر موعداً آخر');
@@ -546,6 +603,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       await db.query('UPDATE appointments SET status=$1, data=$2, updated_at=NOW() WHERE id=$3', [status, JSON.stringify(dataNow), id]);
       return (await db.query(`${APPT_SQL} WHERE a.id=$1`, [id])).rows[0];
     });
+    if (['confirm', 'reject'].includes(action)) await notify([out.customer_user_id], action === 'confirm' ? 'تم تأكيد حجزك ✅' : 'اعتذرت العيادة عن الحجز', `${(out.data || {}).clinicName || ''} — ${out.date_str} ${out.appointment_time}`, `appt-${out.id}`);
     res.json({ appointment: apptJson(out) });
   }));
 };

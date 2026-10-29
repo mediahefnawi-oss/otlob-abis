@@ -9,11 +9,12 @@ import {
   T, Icon, Card, Btn, Header, Empty, Row, OrderPill, ApptPill, Pill, IconBubble, EmojiBubble, Sheet, Field, Logo,
   toast, confirmDialog, openWhats, callPhone, IconBtn, SectionTitle, AcctPill,
 } from '../components/ui';
-import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable } from '../lib/store';
+import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened } from '../lib/store';
 import { ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
 import { QuoteButtons, RequestPhoto } from '../components/Quote';
+import { PushCard } from '../components/PushCard';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
@@ -31,6 +32,8 @@ export function OrderDetailScreen({ navigation, route }: any) {
   const { db } = useStore();
   const me = useMe()!;
   const o = db.orders.find((x) => x.id === route.params.id);
+  // a shop that opens its order silences the new-order alarm for it
+  useEffect(() => { if (o && me.role === 'provider') markOrderOpened(o.id); }, [o?.id, me.role]);
   if (!o) return <View style={{ flex: 1 }}><Header title="الطلب" onBack={() => navigation.goBack()} /><Empty title="الطلب غير موجود" /></View>;
   const st = ORDER_STATUS[o.status];
   const dead = ['rejected', 'cancelled', 'unavailable'].includes(o.status);
@@ -588,6 +591,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
       </Header>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
         {extra}
+        <PushCard />
         <Card style={{ paddingVertical: 4 }}>
           <Item icon="create" label="تعديل البيانات الشخصية" sub={me.address || 'أضف عنوانك'} onPress={() => { setName(me.name); setAddress(me.address); setRegionId(me.regionId || ''); setEdit(true); }} />
           <View style={{ height: 1, backgroundColor: C.line }} />

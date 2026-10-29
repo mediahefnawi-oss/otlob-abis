@@ -1,5 +1,6 @@
 import { storage } from './storage';
-import { alertNewOrder } from './alerts';
+import { alertNewOrder, setAlarm } from './alerts';
+import { syncPushSubscription, forgetPushSubscription } from './push';
 import * as SecureStore from 'expo-secure-store';
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
@@ -9,11 +10,11 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiPlaceRequest, apiQuote, apiOrderImage, apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiOrderImage, apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
-  Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region,
+  Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region, Ad,
 } from './types';
 import { buildSeed } from './seed';
 import { hash, normPhone } from './format';
@@ -178,6 +179,7 @@ export function setStoreErrorHandler(fn: (msg: string) => void) { storeErrorHand
 
 let pendingWrites = 0; // while >0 a background catalog refresh would overwrite an unsaved optimistic edit
 
+const toAd = (a: ServerAd): Ad => ({ id: a.id, title: a.title, link: a.link, active: a.active, sortOrder: a.sortOrder, v: a.v });
 const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0,
@@ -195,6 +197,7 @@ function stripDemo(db: DB): DB {
   return {
     ...db,
     regions: db.regions || [],
+    ads: db.ads || [],
     bookedSlots: db.bookedSlots || [],
     users: db.users.filter((u) => isServerId(u.id)),
     providers: db.providers.filter((p) => isServerId(p.id)),
@@ -212,8 +215,10 @@ const upsertById = <T extends { id: string }>(list: T[], items: T[]): T[] => {
 };
 
 /* ---------- new-order alerts (shops and couriers) ---------- */
+const OPENED_KEY = 'abis_opened_orders_v1';
 const SEEN_KEY = 'abis_seen_orders_v1';
 let seenOrders = new Set<string>();
+let openedOrders = new Set<string>(); // orders a shop has opened (the alarm stops for them)
 let noticeHandler: (msg: string) => void = () => {};
 /** The UI registers a banner/toast here so an alert is also visible, not only audible. */
 export function setStoreNoticeHandler(fn: (msg: string) => void) { noticeHandler = fn; }
@@ -221,9 +226,30 @@ async function loadSeen() {
   try {
     const raw = await storage.getItem(SEEN_KEY);
     seenOrders = new Set<string>(raw ? JSON.parse(raw) : []);
+    const op = await storage.getItem(OPENED_KEY);
+    openedOrders = new Set<string>(op ? JSON.parse(op) : []);
   } catch {}
 }
+const saveOpened = () => { storage.setItem(OPENED_KEY, JSON.stringify([...openedOrders].slice(-500))).catch(() => {}); };
 const saveSeen = () => { storage.setItem(SEEN_KEY, JSON.stringify([...seenOrders].slice(-500))).catch(() => {}); };
+
+/** Orders a shop has been told about but has not opened yet. The alarm rings while this list is not empty. */
+export function unopenedOrders(db: DB, me?: User | null): Order[] {
+  if (!me || me.role !== 'provider') return [];
+  return db.orders.filter((o) => o.providerOwnerId === me.id && ['pending', 'accepted'].includes(o.status) && !openedOrders.has(o.id) && Date.now() - o.createdAt < 3 * 3600 * 1000);
+}
+export function updateAlarm() {
+  const me = state.db.users.find((u) => u.id === state.userId);
+  setAlarm(unopenedOrders(state.db, me).length > 0);
+}
+/** Called when a shop opens an order: that order no longer rings. */
+export function markOrderOpened(id: string) {
+  if (openedOrders.has(id)) return;
+  openedOrders.add(id);
+  saveOpened();
+  setState({});
+  updateAlarm();
+}
 
 function checkNewOrderAlerts(orders: Order[], appts: Appointment[]) {
   const me = state.db.users.find((u) => u.id === state.userId);
@@ -258,6 +284,8 @@ function checkNewOrderAlerts(orders: Order[], appts: Appointment[]) {
   noticeHandler(`🔔 ${title}: ${fresh[0].line}`);
 }
 
+let pushLinkedFor: string | null = null;
+let loginEpoch = 0;
 /** One /api/sync answer: the app settings, my account, orders, invoices, bookings and chat. */
 function applySync(x: SyncPayload) {
   applySettings(x.settings);
@@ -276,6 +304,11 @@ function applySync(x: SyncPayload) {
     });
   }
   checkNewOrderAlerts(x.orders as Order[], x.appointments as Appointment[]);
+  updateAlarm();
+  if (x.user && pushLinkedFor !== x.user.id) {
+    pushLinkedFor = x.user.id;
+    syncPushSubscription().catch(() => {});
+  }
 }
 async function syncOrders() {
   if (pendingWrites > 0 || !state.userId) return;
@@ -284,13 +317,14 @@ async function syncOrders() {
 
 async function syncCatalog() {
   if (pendingWrites > 0) return;
-  const { providers, products, regions } = await apiCatalog<any>();
+  const { providers, products, regions, ads } = await apiCatalog<any>();
   if (pendingWrites > 0) return;
   const P = providers.map(toProvider);
   const I = products.map(toProduct);
   const R: Region[] = regions.map((r) => ({ id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active }));
+  const A: Ad[] = (ads || []).map(toAd);
   const same = JSON.stringify(P) === JSON.stringify(state.db.providers) && JSON.stringify(I) === JSON.stringify(state.db.products)
-    && JSON.stringify(R) === JSON.stringify(state.db.regions);
+    && JSON.stringify(R) === JSON.stringify(state.db.regions) && JSON.stringify(A) === JSON.stringify(state.db.ads || []);
   if (same) return;
   mutate((db) => {
     const clean = stripDemo(db);
@@ -299,6 +333,7 @@ async function syncCatalog() {
     db.providers = P;
     db.products = I;
     db.regions = R;
+    db.ads = A;
   });
   const ids = new Set(I.map((p) => p.id));
   if (state.cart.some((l) => !ids.has(l.productId))) saveCart(state.cart.filter((l) => ids.has(l.productId)));
@@ -400,6 +435,7 @@ export type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 export async function login(phone: string, pass: string): Promise<Result<{ user: User }>> {
   const ph = normPhone(phone);
   try {
+    loginEpoch++;
     const { user: su } = await apiLogin({ phone: ph, password: pass });
     mirrorUser(su);
     const user = state.db.users.find((u) => u.id === su.id)!;
@@ -413,7 +449,12 @@ export async function login(phone: string, pass: string): Promise<Result<{ user:
 }
 
 export function logout() {
-  clearApiToken();
+  setAlarm(false);
+  pushLinkedFor = null;
+  const epoch = ++loginEpoch;
+  Promise.race([forgetPushSubscription(), new Promise((r) => setTimeout(r, 3000))]).finally(() => {
+    if (epoch === loginEpoch) clearApiToken();
+  });
   setState({ userId: null });
   secure.del(SESSION_KEY);
 }
@@ -438,6 +479,7 @@ export async function register(inp: RegisterInput): Promise<Result<{ user: User 
   if (inp.role === 'provider' && (!inp.provider || inp.provider.name.trim().length < 2))
     return { ok: false, error: 'اكتب اسم النشاط التجاري' };
   try {
+    loginEpoch++;
     const { user: su } = await apiRegister({
       name: inp.name.trim(), phone, password: inp.pass, address: inp.address.trim(), role: inp.role, regionId: inp.regionId, vehicle: inp.vehicle,
       provider: inp.role === 'provider' && inp.provider ? { ...inp.provider } : undefined,
@@ -1042,4 +1084,27 @@ export async function orderImage(orderId: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/* ---------- announcements board (owner) ---------- */
+export async function addAd(title: string, link: string, image: string): Promise<Result> {
+  try {
+    const { ad } = await apiAdminCreateAd({ title: title.trim(), link: link.trim(), image });
+    mutate((db) => { db.ads = [...(db.ads || []), toAd(ad)]; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function updateAd(id: string, patch: { title?: string; link?: string; active?: boolean; image?: string }): Promise<Result> {
+  try {
+    const { ad } = await apiAdminUpdateAd(id, patch);
+    mutate((db) => { db.ads = (db.ads || []).map((a) => (a.id === id ? toAd(ad) : a)); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function deleteAd(id: string): Promise<Result> {
+  try {
+    await apiAdminDeleteAd(id);
+    mutate((db) => { db.ads = (db.ads || []).filter((a) => a.id !== id); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
 }

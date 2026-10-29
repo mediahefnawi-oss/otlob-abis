@@ -16,7 +16,7 @@ for (const key of required) {
 if (process.env.JWT_SECRET.length < 32) { console.error('JWT_SECRET must be at least 32 characters.'); process.exit(1); }
 
 const app = express();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: process.env.VERCEL ? 3 : 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'false' ? false : process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: process.env.VERCEL ? 3 : 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet());
@@ -87,7 +87,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261026;
+const SCHEMA_VERSION = 20261027;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -131,6 +131,28 @@ async function ensureSchema() {
     for (let i = 0; i < names.length; i++) await pool.query('INSERT INTO regions(name, sort_order) VALUES($1,$2) ON CONFLICT (name) DO NOTHING', [names[i], i]);
     await pool.query('UPDATE app_settings SET regions_seeded=TRUE WHERE id=1');
   }
+}
+
+
+// ---------- Web Push (phone notifications even when the app is closed) ----------
+let webpush = null;
+try { webpush = require('web-push'); } catch (e) { console.warn('web-push is not installed: push notifications are off'); }
+const pushEnabled = !!(webpush && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+if (pushEnabled) webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+/** Sends one notification to every device of the given users. Never throws (a failed push must not fail an order). */
+async function pushToUsers(userIds, payload) {
+  if (!pushEnabled || !userIds || !userIds.length) return;
+  try {
+    const subs = (await pool.query('SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1::bigint[])', [[...new Set(userIds.map(Number))]])).rows;
+    const body = JSON.stringify(payload);
+    await Promise.allSettled(subs.map(s => Promise.race([
+      webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: 3600, urgency: 'high' }).catch(async e => {
+        if (e && (e.statusCode === 404 || e.statusCode === 410)) await pool.query('DELETE FROM push_subscriptions WHERE id=$1', [s.id]); // the device unsubscribed
+        else console.error('push failed:', e && (e.statusCode || e.message));
+      }),
+      new Promise(r => setTimeout(r, 4000)),
+    ])));
+  } catch (e) { console.error('push error:', e.message); }
 }
 
 // Serverless hosting (Vercel) has no long-running boot step, so prepare the schema once per instance.
@@ -327,6 +349,80 @@ app.delete('/api/admin/regions/:id', auth, roles('admin'), asyncRoute(async (req
   res.json({ ok: true });
 }));
 
+
+// ---------- Announcements board: the owner adds / pauses / deletes; everyone sees the active ones ----------
+const MAX_AD_IMAGE = 700000; // characters of base64 text
+function parseImage(dataUrl) {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
+  if (!m || String(dataUrl).length > MAX_AD_IMAGE) return null;
+  return { mime: m[1], buf: Buffer.from(m[2], 'base64') };
+}
+const adJson = x => ({ id: String(x.id), title: x.title, link: x.link, active: x.active, sortOrder: x.sort_order, v: new Date(x.updated_at).getTime() });
+app.get('/api/ads/:id/image', asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).end();
+  const r = await pool.query('SELECT image, mime FROM ads WHERE id=$1', [id]);
+  if (!r.rowCount) return res.status(404).end();
+  res.set('Content-Type', r.rows[0].mime);
+  res.set('Cache-Control', 'public, max-age=31536000, immutable'); // the link changes (?v=) when the picture changes
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin'); // the web app lives on another address
+  res.send(r.rows[0].image);
+}));
+app.post('/api/admin/ads', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  const img = parseImage(b.image);
+  if (!img) return res.status(400).json({ error: 'ارفع صورة صالحة (JPG أو PNG)' });
+  const title = String(b.title || '').trim().slice(0, 80);
+  const link = String(b.link || '').trim().slice(0, 300);
+  if (link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'الرابط يجب أن يبدأ بـ http أو https' });
+  const next = await pool.query('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM ads');
+  const r = await pool.query('INSERT INTO ads(title, link, image, mime, sort_order) VALUES($1,$2,$3,$4,$5) RETURNING id, title, link, active, sort_order, updated_at', [title, link, img.buf, img.mime, next.rows[0].n]);
+  res.status(201).json({ ad: adJson(r.rows[0]) });
+}));
+app.patch('/api/admin/ads/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف الإعلان غير صالح' });
+  const b = req.body || {};
+  const old = await pool.query('SELECT * FROM ads WHERE id=$1', [id]);
+  if (!old.rowCount) return res.status(404).json({ error: 'الإعلان غير موجود' });
+  let image = old.rows[0].image; let mime = old.rows[0].mime;
+  if (b.image) {
+    const img = parseImage(b.image);
+    if (!img) return res.status(400).json({ error: 'الصورة غير صالحة' });
+    image = img.buf; mime = img.mime;
+  }
+  const link = b.link === undefined ? old.rows[0].link : String(b.link).trim().slice(0, 300);
+  if (link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'الرابط يجب أن يبدأ بـ http أو https' });
+  const r = await pool.query('UPDATE ads SET title=$1, link=$2, image=$3, mime=$4, active=$5, sort_order=$6, updated_at=NOW() WHERE id=$7 RETURNING id, title, link, active, sort_order, updated_at', [
+    b.title === undefined ? old.rows[0].title : String(b.title).trim().slice(0, 80), link, image, mime,
+    b.active === undefined ? old.rows[0].active : Boolean(b.active),
+    b.sortOrder === undefined ? old.rows[0].sort_order : Math.floor(Number(b.sortOrder) || 0), id]);
+  res.json({ ad: adJson(r.rows[0]) });
+}));
+app.delete('/api/admin/ads/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف الإعلان غير صالح' });
+  const r = await pool.query('DELETE FROM ads WHERE id=$1 RETURNING id', [id]);
+  if (!r.rowCount) return res.status(404).json({ error: 'الإعلان غير موجود' });
+  res.json({ ok: true });
+}));
+
+// ---------- Push subscriptions (one per browser/device, owned by whoever is signed in there) ----------
+app.get('/api/push/key', (_req, res) => { res.set('Cache-Control', 'no-store'); res.json({ key: pushEnabled ? process.env.VAPID_PUBLIC_KEY : null }); });
+app.post('/api/push/subscribe', auth, asyncRoute(async (req, res) => {
+  const sub = (req.body || {}).subscription || {};
+  const endpoint = String(sub.endpoint || '');
+  const p256dh = String((sub.keys || {}).p256dh || '');
+  const authKey = String((sub.keys || {}).auth || '');
+  if (!/^https:\/\//.test(endpoint) || endpoint.length > 1000 || !p256dh || !authKey) return res.status(400).json({ error: 'اشتراك غير صالح' });
+  await pool.query('INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth) VALUES($1,$2,$3,$4) ON CONFLICT (endpoint) DO UPDATE SET user_id=EXCLUDED.user_id, p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth', [Number(req.auth.sub), endpoint, p256dh, authKey]);
+  res.status(201).json({ ok: true });
+}));
+app.post('/api/push/unsubscribe', auth, asyncRoute(async (req, res) => {
+  await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2', [String((req.body || {}).endpoint || ''), Number(req.auth.sub)]);
+  res.json({ ok: true });
+}));
+
 // Public runtime settings are read from PostgreSQL, so maintenance mode and announcements
 // apply consistently to every client using this API.
 async function loadSettings() {
@@ -387,10 +483,15 @@ app.get('/api/products', optionalAuth, asyncRoute(async (req, res) => {
   res.json({ products: await listProducts(req.viewer, providerId) });
 }));
 // Everything the home screen needs in ONE request (fewer calls = faster app and a lighter server).
+async function listAds(viewer) {
+  const all = viewer && viewer.role === 'admin';
+  const r = await pool.query(`SELECT id, title, link, active, sort_order, updated_at FROM ads ${all ? '' : 'WHERE active=TRUE'} ORDER BY sort_order, id DESC LIMIT 30`);
+  return r.rows.map(x => ({ id: String(x.id), title: x.title, link: x.link, active: x.active, sortOrder: x.sort_order, v: new Date(x.updated_at).getTime() }));
+}
 app.get('/api/catalog', optionalAuth, asyncRoute(async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const [providers, products, regions] = await Promise.all([listProviders(req.viewer), listProducts(req.viewer), listRegions(req.viewer)]);
-  res.json({ providers, products, regions });
+  const [providers, products, regions, ads] = await Promise.all([listProviders(req.viewer), listProducts(req.viewer), listRegions(req.viewer), listAds(req.viewer).catch(() => [])]);
+  res.json({ providers, products, regions, ads });
 }));
 
 // Owner of the service (or the app owner) edits the service details / open-closed switch.
@@ -462,7 +563,7 @@ app.delete('/api/products/:id', auth, roles('provider','admin'), asyncRoute(asyn
 }));
 
 // Orders, invoices, bookings and chat live in orders.js
-require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser });
+require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {
   const r = await pool.query("SELECT p.*,u.name AS owner_name FROM providers p JOIN users u ON u.id=p.owner_user_id WHERE p.status='pending' AND p.deleted_at IS NULL ORDER BY p.created_at ASC");

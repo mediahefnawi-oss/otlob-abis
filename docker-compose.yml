@@ -1,0 +1,33 @@
+# Whole server on one computer: PostgreSQL + the API.  Usage:  copy .env.docker.example to .env, fill it in, then:  docker compose up -d
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: otlob
+      POSTGRES_USER: otlob
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://otlob:${DB_PASSWORD}@db:5432/otlob
+      DATABASE_SSL: "false"
+      NODE_ENV: production
+      PORT: "4000"
+      JWT_SECRET: ${JWT_SECRET}
+      OWNER_USERNAME: ${OWNER_USERNAME}
+      OWNER_PASSWORD: ${OWNER_PASSWORD}
+      OWNER_PHONE: ${OWNER_PHONE}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+volumes:
+  pgdata:

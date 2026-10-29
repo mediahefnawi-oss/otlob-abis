@@ -144,3 +144,25 @@ CREATE TABLE IF NOT EXISTS order_images (
   image TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Announcements board (owner only) and Web Push subscriptions.
+CREATE TABLE IF NOT EXISTS ads (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  link TEXT NOT NULL DEFAULT '',
+  image BYTEA NOT NULL,
+  mime TEXT NOT NULL DEFAULT 'image/jpeg',
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);

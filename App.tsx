@@ -14,6 +14,8 @@ import { initStore, useStore, useMe, availableCouriers, setStoreErrorHandler, se
 import { Overlays, Logo, toast } from './components/ui';
 import { SoundGate } from './components/SoundGate';
 import { SyncBanner } from './components/SyncBanner';
+import { OrderAlarmBar } from './components/OrderAlarmBar';
+import { navigationRef } from './lib/nav';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
@@ -123,7 +125,7 @@ function Root() {
   }
 
   return (
-    <NavigationContainer theme={navTheme} direction="rtl">
+    <NavigationContainer ref={navigationRef} theme={navTheme} direction="rtl">
       <Stack.Navigator key={`${me?.id || 'guest'}-${enabled}-${me?.status}`} screenOptions={{ headerShown: false, animation: 'slide_from_left', contentStyle: { backgroundColor: C.bg } }}>
         {screens}
       </Stack.Navigator>
@@ -164,6 +166,7 @@ export default function App() {
         <View style={{ flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
           <SoundGate />
           <SyncBanner />
+          <OrderAlarmBar />
           <View style={{ flex: 1 }}><Root /></View>
           <Overlays />
         </View>

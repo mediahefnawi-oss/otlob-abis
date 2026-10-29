@@ -15,7 +15,7 @@ function getCtx(): any {
     const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!AC) return null;
     ctx = new AC();
-    ctx.onstatechange = () => listeners.forEach((l) => l());
+    ctx.onstatechange = () => { listeners.forEach((l) => l()); syncAlarm(); };
   }
   return ctx;
 }
@@ -48,7 +48,7 @@ if (isWeb) {
   ['pointerdown', 'touchstart', 'keydown'].forEach((ev) => window.addEventListener(ev, unlock, { passive: true }));
 }
 
-function tone(c: any, freq: number, start: number, dur: number, vol = 0.4) {
+function tone(c: any, freq: number, start: number, dur: number, vol = 0.4, dest?: any) {
   const o = c.createOscillator();
   const g = c.createGain();
   o.type = 'sine';
@@ -57,7 +57,7 @@ function tone(c: any, freq: number, start: number, dur: number, vol = 0.4) {
   g.gain.exponentialRampToValueAtTime(vol, start + 0.02);
   g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
   o.connect(g);
-  g.connect(c.destination);
+  g.connect(dest || c.destination);
   o.start(start);
   o.stop(start + dur + 0.05);
 }
@@ -103,3 +103,53 @@ export function alertNewOrder(title: string, body: string) {
     if (N && N.permission === 'granted') new N(title, { body, tag: 'otlob-order' });
   } catch {}
 }
+
+/* ---------- continuous alarm (shops): rings until every new order has been opened ---------- */
+let wantAlarm = false;
+let alarmTimer: any = null;
+let alarmGain: any = null;
+let alarmUntil = 0;
+
+function scheduleAlarm(c: any) {
+  if (!alarmGain) return;
+  // keep ~90 s of ding-dong queued on the audio clock: it keeps ringing even if the browser slows timers in a background tab
+  const horizon = c.currentTime + 90;
+  let t = Math.max(alarmUntil, c.currentTime + 0.05);
+  while (t < horizon) {
+    tone(c, 988, t, 0.35, 0.55, alarmGain);
+    tone(c, 784, t + 0.3, 0.55, 0.55, alarmGain);
+    t += 3.3;
+  }
+  alarmUntil = t;
+}
+function startAlarm(c: any) {
+  alarmGain = c.createGain();
+  alarmGain.connect(c.destination);
+  alarmUntil = 0;
+  scheduleAlarm(c);
+  alarmTimer = setInterval(() => {
+    scheduleAlarm(c);
+    try { (navigator as any).vibrate?.([300, 150, 300]); } catch {}
+  }, 3300);
+  if (typeof document !== 'undefined') document.title = '🔔 طلب جديد — أطلب أبيس';
+}
+function stopAlarm() {
+  if (alarmTimer) clearInterval(alarmTimer);
+  alarmTimer = null;
+  try { alarmGain?.disconnect(); } catch {} // everything already queued goes silent at once
+  alarmGain = null;
+  if (typeof document !== 'undefined') document.title = BASE_TITLE;
+}
+function syncAlarm() {
+  if (!isWeb) return;
+  const c = ctx;
+  if (wantAlarm && !alarmTimer && c && c.state === 'running') startAlarm(c);
+  else if (!wantAlarm && alarmTimer) stopAlarm();
+}
+/** on = ring until setAlarm(false). If the browser has not allowed sound yet it starts as soon as it does. */
+export function setAlarm(on: boolean) {
+  wantAlarm = on;
+  if (on) getCtx();
+  syncAlarm();
+}
+export const alarmActive = () => !!alarmTimer;

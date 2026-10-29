@@ -12,6 +12,7 @@ import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
 import {
   useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
+import { AdsCarousel } from '../components/Ads';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS } from '../lib/format';
 import { ProviderType, Provider } from '../lib/types';
 
@@ -86,6 +87,7 @@ export function HomeScreen({ navigation }: any) {
         />
       ) : (
         <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+          <View style={{ marginHorizontal: -16, marginTop: -14, marginBottom: 12 }}><AdsCarousel /></View>
           {!!db.settings.announcement && (
             <Appear>
               <View style={{ flexDirection: 'row', gap: 10, backgroundColor: C.goldSoft, borderRadius: 16, padding: 12, alignItems: 'center', marginBottom: 14 }}>

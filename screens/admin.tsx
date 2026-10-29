@@ -15,6 +15,7 @@ import {
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS } from '../lib/format';
 import { RegionsManager } from '../components/Regions';
+import { AdsManager } from '../components/Ads';
 import { ProviderType, AccountStatus } from '../lib/types';
 
 // Runs a server-backed action and only reports success when the server accepted it.
@@ -395,6 +396,7 @@ export function AdminSettingsScreen({ navigation }: any) {
     <>
       <AppSwitch />
       <RegionsManager />
+      <AdsManager />
       <Card style={{ gap: 12 }}>
         <T w="black" size={15}>إعدادات التطبيق</T>
         <Field label="رسالة الصيانة (عند إيقاف التطبيق)" value={msg} onChangeText={setMsg} multiline icon="construct" />

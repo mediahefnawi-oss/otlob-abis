@@ -18,7 +18,7 @@ for (const file of [server, ordersFile]) {
 for (const table of ['users', 'providers', 'products', 'orders', 'messages', 'appointments', 'invoices', 'app_settings']) {
   assert.match(schema, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`), `Missing SQL table: ${table}`);
 }
-for (const route of ['/api/health', '/api/auth/register', '/api/auth/login', '/api/me', '/api/providers', '/api/products', '/api/orders/checkout', '/api/orders/custom', '/api/orders/:id/action', '/api/orders/:id/messages', '/api/sync', '/api/appointments/book', '/api/appointments/:id/action', '/api/settings', '/api/admin/settings', '/api/admin/users/:id/status', '/api/me/password', '/api/admin/users', '/api/admin/users/:id/password', '/api/admin/providers', '/api/providers/:id', '/api/admin/providers/:id', '/api/regions', '/api/admin/regions', '/api/admin/regions/:id']) {
+for (const route of ['/api/health', '/api/auth/register', '/api/auth/login', '/api/me', '/api/providers', '/api/products', '/api/orders/checkout', '/api/orders/custom', '/api/orders/:id/action', '/api/orders/:id/messages', '/api/sync', '/api/appointments/book', '/api/appointments/:id/action', '/api/settings', '/api/admin/settings', '/api/admin/users/:id/status', '/api/me/password', '/api/admin/users', '/api/admin/users/:id/password', '/api/admin/providers', '/api/providers/:id', '/api/admin/providers/:id', '/api/regions', '/api/admin/regions', '/api/admin/regions/:id', '/api/admin/ads', '/api/admin/ads/:id', '/api/ads/:id/image', '/api/push/key', '/api/push/subscribe', '/api/push/unsubscribe']) {
   assert.ok(source.includes(`'${route}'`) || source.includes(`"${route}"`), `Missing expected API route: ${route}`);
 }
 assert.match(source, /jwt\.verify\(/, 'JWT verification must remain enabled');

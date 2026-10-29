@@ -226,7 +226,7 @@ export async function apiApptAction(id: string | number, action: string) {
 
 /** Providers + products + delivery areas in one request. */
 export async function apiCatalog<T = any>() {
-  return apiRequest<{ providers: T[]; products: T[]; regions: ServerRegion[] }>('/api/catalog', {}, true);
+  return apiRequest<{ providers: T[]; products: T[]; regions: ServerRegion[]; ads?: ServerAd[] }>('/api/catalog', {}, true);
 }
 
 /** Free-text requests to supermarkets / pharmacies, priced by the shop. */
@@ -238,4 +238,28 @@ export async function apiQuote(orderId: string | number, input: { items?: { name
 }
 export async function apiOrderImage(orderId: string | number) {
   return apiRequest<{ image: string | null }>(`/api/orders/${encodeURIComponent(String(orderId))}/image`);
+}
+
+/** Announcements board (the owner manages it; everybody sees the active ones). */
+export type ServerAd = { id: string; title: string; link: string; active: boolean; sortOrder: number; v: number };
+export const adImageUrl = (ad: { id: string; v: number }) => `${API_BASE}/api/ads/${encodeURIComponent(ad.id)}/image?v=${ad.v}`;
+export async function apiAdminCreateAd(input: { title: string; link: string; image: string }) {
+  return apiRequest<{ ad: ServerAd }>('/api/admin/ads', { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiAdminUpdateAd(id: string | number, patch: { title?: string; link?: string; active?: boolean; sortOrder?: number; image?: string }) {
+  return apiRequest<{ ad: ServerAd }>(`/api/admin/ads/${encodeURIComponent(String(id))}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+export async function apiAdminDeleteAd(id: string | number) {
+  return apiRequest<{ ok: boolean }>(`/api/admin/ads/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+}
+
+/** Web Push subscriptions. */
+export async function apiPushKey() {
+  return apiRequest<{ key: string | null }>('/api/push/key', {}, false);
+}
+export async function apiPushSubscribe(subscription: unknown) {
+  return apiRequest<{ ok: boolean }>('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription }) });
+}
+export async function apiPushUnsubscribe(endpoint: string) {
+  return apiRequest<{ ok: boolean }>('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });
 }
