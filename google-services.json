@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "33887471343",
+    "project_id": "otlob-abis-31f11",
+    "storage_bucket": "otlob-abis-31f11.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:33887471343:android:d85242860c2564fac53d1a",
+        "android_client_info": {
+          "package_name": "com.otlobabis.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_9i_DP4rp0YxrNd3BpzNhWMZvfIFF2YQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
