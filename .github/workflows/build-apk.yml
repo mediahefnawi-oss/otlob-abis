@@ -1,0 +1,73 @@
+name: build-apk
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_API_URL_BACKUP: ${{ vars.EXPO_PUBLIC_API_URL_BACKUP }}
+    steps:
+      - name: Check API address
+        run: |
+          if [ -z "$EXPO_PUBLIC_API_URL" ]; then echo "Add the repository variable EXPO_PUBLIC_API_URL first"; exit 1; fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Use the app icon the owner chose in the control panel (if any)
+        run: |
+          if curl -fsS "$EXPO_PUBLIC_API_URL/api/app-icon" -o /tmp/owner-icon; then
+            sudo apt-get install -y imagemagick >/dev/null 2>&1 || true
+            convert /tmp/owner-icon -resize 1024x1024^ -gravity center -extent 1024x1024 PNG32:assets/icon.png
+            convert /tmp/owner-icon -resize 680x680 -background none -gravity center -extent 1024x1024 PNG32:assets/android-icon-foreground.png
+            echo "Owner icon applied"
+          else
+            echo "No custom icon: using the built-in one"
+          fi
+      - name: Install packages
+        run: |
+          npm install --no-audit --no-fund
+          npx expo install expo-image-picker expo-image-manipulator expo-notifications
+      - name: Phone-only settings (kept out of the web build)
+        run: |
+          node -e "
+          const fs=require('fs');
+          const a=JSON.parse(fs.readFileSync('app.json','utf8'));
+          const e=a.expo;
+          e.plugins=[...(e.plugins||[]),
+            ['expo-image-picker',{photosPermission:'نحتاج صورك لرفع الروشتة وصور المنتجات والشعارات',cameraPermission:'نحتاج الكاميرا لتصوير الروشتة والمنتجات'}],
+            ['expo-notifications',{color:'#F2B51D'}]];
+          if(fs.existsSync('google-services.json')){e.android.googleServicesFile='./google-services.json';console.log('Firebase file found: notifications enabled');}
+          else console.log('No google-services.json: the app is built without phone notifications');
+          fs.writeFileSync('app.json',JSON.stringify(a,null,2));
+          "
+      - name: Create the Android project
+        run: npx expo prebuild --platform android --no-install --clean
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+      - name: Name the file
+        run: cp android/app/build/outputs/apk/release/*.apk otlob-abis.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: otlob-abis-apk
+          path: otlob-abis.apk
+          retention-days: 30
+      - name: Publish a download link
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: أطلب أبيس — نسخة الأندرويد ${{ github.run_number }}
+          files: otlob-abis.apk
+          make_latest: true
