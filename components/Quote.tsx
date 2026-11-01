@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Image, ScrollView } from 'react-native';
+import { View, Image, ScrollView, Modal, Pressable, useWindowDimensions } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Btn, Sheet, Field, Card, Chip, toast, confirmDialog } from './ui';
+import { T, Btn, Sheet, Field, Card, Chip, Icon, toast, confirmDialog } from './ui';
 import { quoteOrder, orderImage, orderAction, useMe } from '../lib/store';
 import { money, isoDay, prettyIso, readyLabel } from '../lib/format';
 import { Order } from '../lib/types';
@@ -18,9 +18,43 @@ export function RequestPhoto({ o }: { o: Order }) {
     return () => { live = false; };
   }, [o.id, o.request?.hasImage]);
   if (!o.request?.hasImage) return null;
-  return uri
-    ? <Image source={{ uri }} style={{ width: '100%', height: 320, borderRadius: 14, backgroundColor: C.line }} resizeMode="contain" />
-    : <T size={12} color={C.sub}>جاري تحميل الصورة…</T>;
+  const [open, setOpen] = useState(false);
+  if (!uri) return <T size={12} color={C.sub}>جاري تحميل الصورة…</T>;
+  return (
+    <View style={{ gap: 6 }}>
+      <Pressable onPress={() => setOpen(true)}>
+        <Image source={{ uri }} style={{ width: '100%', height: 320, borderRadius: 14, backgroundColor: C.line }} resizeMode="contain" />
+      </Pressable>
+      <Btn small variant="soft" icon="expand" title="فتح الصورة وتكبيرها" onPress={() => setOpen(true)} />
+      <PhotoViewer uri={uri} visible={open} onClose={() => setOpen(false)} />
+    </View>
+  );
+}
+
+/** Full-screen photo: zoom with the + / − buttons (or pinch where the phone supports it) and scroll around to read the details. */
+export function PhotoViewer({ uri, visible, onClose }: { uri: string; visible: boolean; onClose: () => void }) {
+  const { width, height } = useWindowDimensions();
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => { if (visible) setZoom(1); }, [visible]);
+  const w = width * zoom, h = (height - 120) * zoom;
+  const step = (d: number) => setZoom((z) => Math.min(5, Math.max(1, Math.round((z + d) * 10) / 10)));
+  return (
+    <Modal visible={visible} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ minHeight: height - 120, justifyContent: 'center' }} maximumZoomScale={4} minimumZoomScale={1} bouncesZoom>
+          <ScrollView horizontal contentContainerStyle={{ minWidth: width, justifyContent: 'center' }}>
+            <Image source={{ uri }} style={{ width: w, height: h }} resizeMode="contain" />
+          </ScrollView>
+        </ScrollView>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, paddingVertical: 18, paddingBottom: 30, backgroundColor: '#111' }}>
+          <Pressable onPress={() => step(-0.5)} style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' }}><Icon name="remove" size={28} color="#fff" /></Pressable>
+          <T w="bold" size={14} color="#fff">{Math.round(zoom * 100)}%</T>
+          <Pressable onPress={() => step(0.5)} style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' }}><Icon name="add" size={28} color="#fff" /></Pressable>
+          <Pressable onPress={onClose} style={{ paddingHorizontal: 22, height: 54, borderRadius: 27, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center', marginStart: 14 }}><T w="bold" size={14} color={C.dark}>إغلاق</T></Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 const nextDays = () => Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return isoDay(d); });

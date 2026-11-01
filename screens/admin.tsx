@@ -529,6 +529,8 @@ export function AdminCustomerScreen({ navigation, route }: any) {
   const [flag, setFlag] = useState(user?.accountFlag || '');
   const [note, setNote] = useState(user?.flagNote || '');
   const [busy, setBusy] = useState(false);
+  const [pwSheet, setPwSheet] = useState(false);
+  const [newPw, setNewPw] = useState('');
   if (!user) return <View style={{ flex: 1 }}><Header title="العميل" onBack={() => navigation.goBack()} /><Empty title="غير موجود" /></View>;
   const orders = db.orders.filter((o) => o.customerId === user.id).sort((a, b) => b.createdAt - a.createdAt);
   const dirty = flag !== (user.accountFlag || '') || (flag && note.trim() !== (user.flagNote || ''));
@@ -538,6 +540,13 @@ export function AdminCustomerScreen({ navigation, route }: any) {
     setBusy(false);
   };
   const suspended = user.status === 'suspended';
+  const savePw = async () => {
+    setBusy(true);
+    const r = await adminResetPassword(user.id, newPw);
+    setBusy(false);
+    if (!r.ok) return toast(r.error || 'تعذر تعيين كلمة المرور', 'err');
+    setPwSheet(false); setNewPw(''); toast('تم تعيين كلمة المرور الجديدة ✅ أبلغها للعميل');
+  };
   const toggleSuspend = () =>
     confirmDialog({
       title: suspended ? 'إعادة تفعيل الحساب؟' : 'إيقاف الحساب؟',
@@ -571,6 +580,12 @@ export function AdminCustomerScreen({ navigation, route }: any) {
           <Btn title="حفظ العلامة" icon="checkmark" disabled={busy || !dirty} onPress={save} />
         </Card>
 
+        <Btn variant="outline" icon="key" title="تعيين كلمة مرور جديدة للعميل" onPress={() => setPwSheet(true)} />
+        <Sheet visible={pwSheet} onClose={() => setPwSheet(false)} title="كلمة مرور جديدة">
+          <T size={12.5} color={C.sub}>كلمات المرور مشفّرة ولا يمكن لأحد (حتى الإدارة) معرفة القديمة. اكتب كلمة جديدة (8 أحرف على الأقل) وأبلغها للعميل على {user.phone}.</T>
+          <Field label="كلمة المرور الجديدة" icon="key" value={newPw} onChangeText={setNewPw} secureTextEntry autoCapitalize="none" />
+          <Btn title="حفظ" icon="checkmark" disabled={busy || newPw.length < 8} onPress={savePw} />
+        </Sheet>
         <Btn variant={suspended ? 'green' : 'danger'} icon={suspended ? 'play' : 'ban'} title={suspended ? 'إعادة تفعيل الحساب' : 'إيقاف الحساب'} onPress={toggleSuspend} />
 
         <SectionTitle title="طلبات العميل" />
