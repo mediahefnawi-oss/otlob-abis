@@ -25,7 +25,7 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   console.error('CORS_ORIGINS must contain the exact deployed Vercel origin in production.');
   process.exit(1);
 }
-app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin not allowed')); }, methods: ['GET','POST','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization'] }));
+app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin not allowed')); }, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization'] }));
 app.use(express.json({ limit: '2mb' })); // a request photo is shrunk by the app to well under 600 KB
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false }));
 
