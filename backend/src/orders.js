@@ -22,7 +22,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
-      courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined,
+      courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined,
       createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [],
     };
@@ -341,7 +341,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
     const prov = p.rows[0];
     if (!prov || prov.status !== 'active' || !prov.is_open) throw fail(409, 'المتجر مغلق حالياً');
-    if (!['supermarket', 'pharmacy'].includes(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
+    if (!['supermarket', 'pharmacy', 'maker'].includes(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
@@ -354,7 +354,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',
         [Number(req.auth.sub), prov.id, region ? region.id : null, JSON.stringify(d)])).rows[0];
       if (image) await db.query('INSERT INTO order_images(order_id, image) VALUES($1,$2)', [o.id, image]);
-      await sysMsg(db, o.id, 'تم إرسال طلبك للمتجر، وسيقوم بتسعيره وإرسال الفاتورة إليك 📝');
+      await sysMsg(db, o.id, prov.type === 'maker' ? 'تم إرسال طلبك للصانع، وسيقبله أو يعتذر عنه ويحدد السعر وموعد التسليم 🧵' : 'تم إرسال طلبك للمتجر، وسيقوم بتسعيره وإرسال الفاتورة إليك 📝');
       return o;
     });
     await notify([prov.owner_user_id], 'طلب مكتوب جديد 📝', `${(out.data || {}).customerName || ''} — يحتاج تسعير`, `order-${out.id}`);
@@ -384,6 +384,9 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       }
       if (!lines.length) throw fail(400, 'أضف صنفاً واحداً على الأقل');
     }
+    const readyDate = String(b.readyDate || '').trim();
+    const readyTime = String(b.readyTime || '').trim();
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
     const out = await withTx(async db => {
       const f = await db.query('SELECT o.*, p.owner_user_id AS powner FROM orders o JOIN providers p ON p.id=o.provider_id WHERE o.id=$1 FOR UPDATE OF o', [id]);
       if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
@@ -391,24 +394,31 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       if (req.auth.role !== 'admin' && Number(row.powner) !== Number(req.auth.sub)) throw fail(403, 'غير مسموح');
       if (!row.data || !row.data.request) throw fail(400, 'هذا ليس طلباً مكتوباً');
       if (!['pending', 'quoted'].includes(row.status)) throw fail(409, 'حالة الطلب لا تسمح بالتسعير الآن');
+      const isMaker = row.data.providerType === 'maker';
       const fee = Number(row.data.deliveryFee) || 0;
       const unavailable = !!b.unavailable;
+      if (isMaker && !unavailable) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(readyDate) || Number.isNaN(Date.parse(readyDate)) || readyDate < today) throw fail(400, 'حدد يوم التسليم (اليوم أو بعده)');
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(readyTime)) throw fail(400, 'حدد ساعة التسليم بشكل صحيح');
+      }
       const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
       const total = unavailable ? 0 : subtotal + fee;
       const part = {
         orderId: String(row.id), providerId: String(row.provider_id), providerName: row.data.providerName, providerType: row.data.providerType,
         items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, deliveryFee: unavailable ? 0 : fee, requestText: row.data.request.text || '',
+        ...(isMaker && !unavailable ? { readyDate, readyTime } : {}),
       };
       const invData = { number: `INV-${row.order_number}`, customerName: row.data.customerName, phone: row.data.phone, address: row.data.address, parts: [part], unavailable, note };
       let invoiceId = row.data.invoiceId ? Number(row.data.invoiceId) : null;
       if (invoiceId) await db.query('UPDATE invoices SET total=$1, data=$2 WHERE id=$3', [total, JSON.stringify(invData), invoiceId]);
       else invoiceId = (await db.query('INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,\'delivery\',$3,$4) RETURNING id',
         [row.customer_user_id, row.id, total, JSON.stringify(invData)])).rows[0].id;
-      const d = { ...row.data, items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, invoiceId: String(invoiceId), groupId: String(invoiceId), quoteNote: note };
+      const d = { ...row.data, items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, invoiceId: String(invoiceId), groupId: String(invoiceId), quoteNote: note, ...(isMaker && !unavailable ? { readyDate, readyTime } : {}) };
       const r = await db.query('UPDATE orders SET status=$1, total=$2, data=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [unavailable ? 'unavailable' : 'quoted', total, JSON.stringify({ ...d, history: [...(d.history || []), { status: unavailable ? 'unavailable' : 'quoted', at: Date.now() }] }), row.id]);
       await sysMsg(db, row.id, unavailable
-        ? `للأسف الأصناف المطلوبة غير متوفرة حالياً${note ? `: ${note}` : ''}`
-        : `قام المتجر بتسعير طلبك: ${total} ج.م (شامل التوصيل). راجع الفاتورة ووافق عليها ليبدأ التحضير 🧾`);
+        ? (isMaker ? `اعتذر الصانع عن تنفيذ الطلب${note ? `: ${note}` : ''}` : `للأسف الأصناف المطلوبة غير متوفرة حالياً${note ? `: ${note}` : ''}`)
+        : (isMaker ? `قبل الصانع طلبك بسعر ${total} ج.م (شامل التوصيل) ويكون جاهزاً للتسليم ${readyDate} الساعة ${readyTime}. راجع الفاتورة ووافق عليها 🧵`
+          : `قام المتجر بتسعير طلبك: ${total} ج.م (شامل التوصيل). راجع الفاتورة ووافق عليها ليبدأ التحضير 🧾`));
       const inv = (await db.query('SELECT * FROM invoices WHERE id=$1', [invoiceId])).rows[0];
       return { order: r.rows[0], invoice: inv };
     });

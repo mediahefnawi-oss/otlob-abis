@@ -8,7 +8,7 @@ import {
   ApiError, ServerUser, apiLogin, apiRegister, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
-  apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiUpdateProvider, apiAdminDeleteProvider,
+  apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
   apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiOrderImage, apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
@@ -147,7 +147,7 @@ function applySettings(c: CentralSettings) {
   });
 }
 
-const EMOJI: Record<ProviderType, string> = { restaurant: '🍽️', supermarket: '🛒', pharmacy: '💊', clinic: '🩺' };
+const EMOJI: Record<ProviderType, string> = { restaurant: '🍽️', supermarket: '🛒', pharmacy: '💊', clinic: '🩺', store: '🏬', maker: '🧵' };
 
 // Owner device: bring pending couriers / providers registered from other devices into the review queues.
 async function syncAdminQueues() {
@@ -184,12 +184,12 @@ const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0,
   eta: x.eta ?? (x.type === 'clinic' ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
-  open: !!x.open, specialty: x.specialty || undefined, createdAt: Number(x.createdAt) || Date.now(),
+  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, createdAt: Number(x.createdAt) || Date.now(),
 });
 const toProduct = (x: any): Product => ({
   id: String(x.id), providerId: String(x.providerId), kind: x.kind === 'doctor' ? 'doctor' : 'item', name: x.name,
   price: Number(x.price) || 0, emoji: x.emoji || (x.kind === 'doctor' ? '👨‍⚕️' : '📦'), category: x.category || 'عام',
-  desc: x.desc || '', available: !!x.available, slots: Array.isArray(x.slots) ? x.slots : undefined,
+  desc: x.desc || '', available: !!x.available, slots: Array.isArray(x.slots) ? x.slots : undefined, imageV: Number(x.imageV) || 0,
 });
 
 /** Removes the built-in demo data (sample shops, users, orders). Only central (numeric-id) records survive. */
@@ -804,7 +804,8 @@ function backgroundWrite(job: () => Promise<void>): Promise<void> {
   return writeChain;
 }
 
-export function saveProduct(p: Omit<Product, 'id'> & { id?: string }) {
+/** `image`: undefined = leave the picture alone, a data URL = new picture, null = remove it. */
+export function saveProduct(p: Omit<Product, 'id'> & { id?: string }, image?: string | null) {
   const existing = p.id && isServerId(p.id) ? state.db.products.find((x) => x.id === p.id) : undefined;
   const tempId = existing ? p.id! : uid(state.db, p.kind === 'doctor' ? 'd' : 'i');
   mutate((db) => {
@@ -812,16 +813,32 @@ export function saveProduct(p: Omit<Product, 'id'> & { id?: string }) {
     db.products = db.products.some((x) => x.id === tempId) ? db.products.map((x) => (x.id === tempId ? next : x)) : [...db.products, next];
   });
   if (!isServerId(p.providerId)) return;
+  const setImage = async (id: string) => {
+    if (image === undefined || (image === null && !(existing && existing.imageV))) return;
+    const { imageV } = await apiSetProductImage(id, image);
+    mutate((db) => { db.products = db.products.map((x) => (x.id === id ? { ...x, imageV } : x)); });
+  };
   backgroundWrite(async () => {
     if (existing) {
       await apiUpdateProduct(tempId, { name: p.name, price: p.price, available: p.available, data: productData(p) });
+      await setImage(tempId);
     } else {
       const { product } = await apiCreateProduct({ providerId: p.providerId, name: p.name, price: p.price, data: productData(p) });
       mutate((db) => {
         db.products = db.products.map((x) => (x.id === tempId ? toProduct(product) : x));
       });
+      await setImage(String(product.id));
     }
   });
+}
+/** Uploads (or removes, with null) a provider's logo right away. */
+export async function setProviderLogo(providerId: string, image: string | null): Promise<Result> {
+  if (!isServerId(providerId)) return { ok: false, error: 'احفظ الخدمة أولاً' };
+  try {
+    const { logoV } = await apiSetProviderLogo(providerId, image);
+    mutate((db) => { db.providers = db.providers.map((p) => (p.id === providerId ? { ...p, logoV } : p)); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 export function deleteProduct(id: string) {
   mutate((db) => {
@@ -957,7 +974,7 @@ export async function adminCreateProvider(admin: User, inp: NewProviderInput): P
     return { ok: false, error: errMsg(e) };
   }
 }
-const TYPES_EMOJI: Record<ProviderType, string> = { restaurant: '🍽️', supermarket: '🛒', pharmacy: '💊', clinic: '🩺' };
+const TYPES_EMOJI: Record<ProviderType, string> = { restaurant: '🍽️', supermarket: '🛒', pharmacy: '💊', clinic: '🩺', store: '🏬', maker: '🧵' };
 
 export async function adminDeleteProvider(providerId: string): Promise<Result> {
   const p = state.db.providers.find((x) => x.id === providerId);
@@ -1055,7 +1072,7 @@ export async function placeRequestOrder(
 /** The shop prices a written request (lines), or answers that the items are not available. */
 export async function quoteOrder(
   orderId: string,
-  input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string }
+  input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string; readyDate?: string; readyTime?: string }
 ): Promise<Result> {
   pendingWrites++;
   try {

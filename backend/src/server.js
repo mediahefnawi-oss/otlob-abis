@@ -82,12 +82,13 @@ function providerVisibility(viewer, values) {
   if (viewer && viewer.role === 'provider') { values.push(Number(viewer.id)); return `p.deleted_at IS NULL AND (p.status='active' OR p.owner_user_id=$${values.length})`; }
   return "p.deleted_at IS NULL AND p.status='active'";
 }
-const providerJson = p => ({ ...p.metadata, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
+const PROVIDER_TYPES = ['restaurant','supermarket','pharmacy','clinic','store','maker'];
+const providerJson = p => ({ ...p.metadata, logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261027;
+const SCHEMA_VERSION = 20261101;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -194,7 +195,7 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status,region_id,vehicle) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status, region, role === 'courier' ? String(vehicle || 'موتوسيكل').slice(0, 30) : '']);
     const user = result.rows[0];
     if (role === 'provider') {
-      await client.query('INSERT INTO providers(owner_user_id,type,name,description,address,phone,delivery_fee,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,\'pending\',$8)', [user.id, provider.type || 'other', String(provider.name).trim(), String(provider.desc || ''), String(address).trim(), normalizedPhone, Math.max(0, Number(provider.deliveryFee) || 0), JSON.stringify({ specialty: provider.specialty || '' })]);
+      await client.query('INSERT INTO providers(owner_user_id,type,name,description,address,phone,delivery_fee,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,\'pending\',$8)', [user.id, PROVIDER_TYPES.includes(provider.type) ? provider.type : 'other', String(provider.name).trim(), String(provider.desc || ''), String(address).trim(), normalizedPhone, Math.max(0, Number(provider.deliveryFee) || 0), JSON.stringify({ specialty: provider.specialty || '' })]);
     }
     await client.query('COMMIT');
     res.status(201).json({ token: tokenFor(user), user: cleanUser(user) });
@@ -285,7 +286,7 @@ app.patch('/api/admin/users/:id/password', auth, roles('admin'), asyncRoute(asyn
 app.post('/api/admin/providers', auth, roles('admin'), asyncRoute(async (req, res) => {
   const b = req.body || {};
   const type = String(b.type || '');
-  if (!['restaurant','supermarket','pharmacy','clinic'].includes(type)) return res.status(400).json({ error: 'نوع الخدمة غير صالح' });
+  if (!PROVIDER_TYPES.includes(type)) return res.status(400).json({ error: 'نوع الخدمة غير صالح' });
   if (!b.name || String(b.name).trim().length < 2) return res.status(400).json({ error: 'اكتب اسم الخدمة' });
   const mPhone = String(b.managerPhone || '').replace(/\s+/g, '');
   if (!/^01[0-9]{9}$/.test(mPhone)) return res.status(400).json({ error: 'رقم هاتف المسؤول غير صحيح' });
@@ -457,17 +458,17 @@ app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(
 
 async function listProviders(viewer, type) {
   const values = [];
-  let sql = `SELECT p.* FROM providers p WHERE ${providerVisibility(viewer, values)}`;
+  let sql = `SELECT p.*, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v FROM providers p WHERE ${providerVisibility(viewer, values)}`;
   if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
   sql += ' ORDER BY p.created_at DESC LIMIT 500';
   return (await pool.query(sql, values)).rows.map(providerJson);
 }
 async function listProducts(viewer, providerId) {
   const values = [];
-  let sql = `SELECT pr.* FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE ${providerVisibility(viewer, values)}`;
+  let sql = `SELECT pr.*, (SELECT (EXTRACT(EPOCH FROM i.updated_at)*1000)::bigint FROM product_images i WHERE i.product_id=pr.id) AS image_v FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE ${providerVisibility(viewer, values)}`;
   if (providerId) { values.push(providerId); sql += ` AND pr.provider_id=$${values.length}`; }
   sql += ' ORDER BY pr.created_at ASC LIMIT 2000';
-  return (await pool.query(sql, values)).rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available }));
+  return (await pool.query(sql, values)).rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available, imageV: x.image_v ? Number(x.image_v) : 0 }));
 }
 async function listRegions(viewer) {
   const all = viewer && viewer.role === 'admin';
@@ -560,6 +561,77 @@ app.delete('/api/products/:id', auth, roles('provider','admin'), asyncRoute(asyn
   if (!found.rowCount) return res.status(404).json({ error: 'المنتج غير موجود' });
   if (req.auth.role !== 'admin' && String(found.rows[0].owner_user_id) !== req.auth.sub) return res.status(403).json({ error: 'غير مسموح' });
   await pool.query('DELETE FROM products WHERE id=$1', [found.rows[0].id]); res.status(204).end();
+}));
+
+
+// ---------- Provider logos and product pictures (stored apart so the sync never downloads them) ----------
+function sendImage(res, row) {
+  res.set('Content-Type', row.mime);
+  res.set('Cache-Control', 'public, max-age=31536000, immutable'); // the link changes (?v=) when the picture changes
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.send(row.image);
+}
+async function ownsProvider(req, providerId) {
+  const p = await pool.query('SELECT owner_user_id FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
+  if (!p.rowCount) return 404;
+  if (req.auth.role !== 'admin' && String(p.rows[0].owner_user_id) !== req.auth.sub) return 403;
+  return 0;
+}
+app.get('/api/providers/:id/logo', asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).end();
+  const r = await pool.query('SELECT image, mime FROM provider_logos WHERE provider_id=$1', [id]);
+  if (!r.rowCount) return res.status(404).end();
+  sendImage(res, r.rows[0]);
+}));
+app.put('/api/providers/:id/logo', auth, roles('provider','admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف مقدم الخدمة غير صالح' });
+  const bad = await ownsProvider(req, id);
+  if (bad) return res.status(bad).json({ error: bad === 404 ? 'مقدم الخدمة غير موجود' : 'غير مسموح' });
+  const img = parseImage((req.body || {}).image);
+  if (!img) return res.status(400).json({ error: 'ارفع صورة صالحة (JPG أو PNG)' });
+  await pool.query('INSERT INTO provider_logos(provider_id, image, mime, updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT (provider_id) DO UPDATE SET image=EXCLUDED.image, mime=EXCLUDED.mime, updated_at=NOW()', [id, img.buf, img.mime]);
+  const v = await pool.query('SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM provider_logos WHERE provider_id=$1', [id]);
+  res.json({ logoV: Number(v.rows[0].v) });
+}));
+app.delete('/api/providers/:id/logo', auth, roles('provider','admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف مقدم الخدمة غير صالح' });
+  const bad = await ownsProvider(req, id);
+  if (bad) return res.status(bad).json({ error: bad === 404 ? 'مقدم الخدمة غير موجود' : 'غير مسموح' });
+  await pool.query('DELETE FROM provider_logos WHERE provider_id=$1', [id]);
+  res.json({ logoV: 0 });
+}));
+async function productProvider(req) {
+  const id = positiveId(req.params.id);
+  if (!id) return { code: 400 };
+  const f = await pool.query('SELECT pr.id, p.owner_user_id FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE pr.id=$1', [id]);
+  if (!f.rowCount) return { code: 404 };
+  if (req.auth.role !== 'admin' && String(f.rows[0].owner_user_id) !== req.auth.sub) return { code: 403 };
+  return { id };
+}
+app.get('/api/products/:id/image', asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).end();
+  const r = await pool.query('SELECT image, mime FROM product_images WHERE product_id=$1', [id]);
+  if (!r.rowCount) return res.status(404).end();
+  sendImage(res, r.rows[0]);
+}));
+app.put('/api/products/:id/image', auth, roles('provider','admin'), asyncRoute(async (req, res) => {
+  const f = await productProvider(req);
+  if (f.code) return res.status(f.code).json({ error: 'تعذّر حفظ صورة المنتج' });
+  const img = parseImage((req.body || {}).image);
+  if (!img) return res.status(400).json({ error: 'ارفع صورة صالحة (JPG أو PNG)' });
+  await pool.query('INSERT INTO product_images(product_id, image, mime, updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT (product_id) DO UPDATE SET image=EXCLUDED.image, mime=EXCLUDED.mime, updated_at=NOW()', [f.id, img.buf, img.mime]);
+  const v = await pool.query('SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM product_images WHERE product_id=$1', [f.id]);
+  res.json({ imageV: Number(v.rows[0].v) });
+}));
+app.delete('/api/products/:id/image', auth, roles('provider','admin'), asyncRoute(async (req, res) => {
+  const f = await productProvider(req);
+  if (f.code) return res.status(f.code).json({ error: 'تعذّر حذف صورة المنتج' });
+  await pool.query('DELETE FROM product_images WHERE product_id=$1', [f.id]);
+  res.json({ imageV: 0 });
 }));
 
 // Orders, invoices, bookings and chat live in orders.js

@@ -1,9 +1,10 @@
-import { feeFor } from '../lib/store';
+import { feeFor, useStore } from '../lib/store';
+import { ProviderLogo } from './Brand';
 import React from 'react';
 import { View } from 'react-native';
 import { Provider, Order, Appointment, Invoice } from '../lib/types';
 import { C } from '../lib/theme';
-import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI } from '../lib/format';
+import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
 import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill } from './ui';
 
 export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void }) {
@@ -11,7 +12,7 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
   const closed = !p.open;
   return (
     <Card onPress={onPress} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: closed ? 0.75 : 1 }}>
-      <EmojiBubble emoji={p.emoji} size={62} bg={t.soft} />
+      <ProviderLogo p={p} size={62} />
       <View style={{ flex: 1, gap: 3 }}>
         <T w="bold" size={15.5} numberOfLines={1}>{p.name}</T>
         <T size={12} color={C.sub} numberOfLines={1}>{p.desc}</T>
@@ -46,10 +47,12 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
 
 export function OrderCard({ o, onPress, perspective, children }: { o: Order; onPress: () => void; perspective: 'customer' | 'provider' | 'courier' | 'admin'; children?: React.ReactNode }) {
   const t = o.providerType === 'custom' ? null : TYPES[o.providerType];
+  const { db } = useStore();
+  const prov = o.providerId ? db.providers.find((x) => x.id === o.providerId) : undefined;
   return (
     <Card onPress={onPress} style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <EmojiBubble emoji={o.providerType === 'custom' ? '🎁' : t!.emoji} size={44} bg={t ? t.soft : C.goldSoft} />
+        {prov && perspective !== 'provider' && perspective !== 'courier' ? <ProviderLogo p={prov} size={44} /> : <EmojiBubble emoji={o.providerType === 'custom' ? '🎁' : t!.emoji} size={44} bg={t ? t.soft : C.goldSoft} />}
         <View style={{ flex: 1 }}>
           <T w="bold" size={14.5} numberOfLines={1}>
             {perspective === 'provider' || perspective === 'courier' ? o.customerName : o.providerName}
@@ -61,6 +64,9 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
       <T size={12.5} color={C.sub} numberOfLines={2}>
         {o.customText ? `🎁 ${o.customText}` : o.request ? `📝 ${o.request.text || 'طلب بصورة الروشتة'}${o.request.hasImage ? ' 📷' : ''}` : o.items.map((i) => `${i.qty}× ${i.name}`).join('، ')}
       </T>
+      {!!o.readyDate && o.status !== 'rejected' && o.status !== 'unavailable' && o.status !== 'cancelled' && (
+        <View style={{ flexDirection: 'row' }}><Pill label={`جاهز للتسليم: ${readyLabel(o.readyDate, o.readyTime)}`} color={TYPES.maker.color} soft={TYPES.maker.soft} icon="calendar" /></View>
+      )}
       {o.regionName && perspective !== 'customer' && (
         <View style={{ flexDirection: 'row' }}><Pill label={`المنطقة: ${o.regionName}`} color={C.goldDeep} soft={C.goldSoft} icon="map" /></View>
       )}

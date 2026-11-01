@@ -233,7 +233,7 @@ export async function apiCatalog<T = any>() {
 export async function apiPlaceRequest(input: { providerId: string; text: string; image?: string | null; phone: string; address: string }) {
   return apiRequest<{ order: any }>('/api/orders/request', { method: 'POST', body: JSON.stringify(input) });
 }
-export async function apiQuote(orderId: string | number, input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string }) {
+export async function apiQuote(orderId: string | number, input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string; readyDate?: string; readyTime?: string }) {
   return apiRequest<{ order: any; invoice: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/quote`, { method: 'POST', body: JSON.stringify(input) });
 }
 export async function apiOrderImage(orderId: string | number) {
@@ -251,6 +251,18 @@ export async function apiAdminUpdateAd(id: string | number, patch: { title?: str
 }
 export async function apiAdminDeleteAd(id: string | number) {
   return apiRequest<{ ok: boolean }>(`/api/admin/ads/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+}
+
+/** Provider logos and product pictures (separate files, versioned by ?v= so the browser caches them). */
+export const providerLogoUrl = (p: { id: string; logoV?: number }) => (p.logoV ? `${API_BASE}/api/providers/${encodeURIComponent(p.id)}/logo?v=${p.logoV}` : '');
+export const productImageUrl = (p: { id: string; imageV?: number }) => (p.imageV ? `${API_BASE}/api/products/${encodeURIComponent(p.id)}/image?v=${p.imageV}` : '');
+export async function apiSetProviderLogo(id: string | number, image: string | null) {
+  const path = `/api/providers/${encodeURIComponent(String(id))}/logo`;
+  return image ? apiRequest<{ logoV: number }>(path, { method: 'PUT', body: JSON.stringify({ image }) }) : apiRequest<{ logoV: number }>(path, { method: 'DELETE' });
+}
+export async function apiSetProductImage(id: string | number, image: string | null) {
+  const path = `/api/products/${encodeURIComponent(String(id))}/image`;
+  return image ? apiRequest<{ imageV: number }>(path, { method: 'PUT', body: JSON.stringify({ image }) }) : apiRequest<{ imageV: number }>(path, { method: 'DELETE' });
 }
 
 /** Web Push subscriptions. */

@@ -7,6 +7,7 @@ import {
   toast, confirmDialog, SectionTitle, Row, callPhone, openWhats,
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
+import { ProviderLogo } from '../components/Brand';
 import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
@@ -175,7 +176,7 @@ export function AdminProvidersScreen({ navigation }: any) {
       <View style={{ paddingTop: 12, gap: 8 }}>
         <FlatList horizontal data={[{ k: 'all', l: 'الكل' }, { k: 'pending', l: 'قيد المراجعة' }, { k: 'active', l: 'معتمد' }, { k: 'rejected', l: 'مرفوض' }, { k: 'suspended', l: 'موقوف' }]} keyExtractor={(x) => x.k} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
           renderItem={({ item }) => <Chip label={item.l} active={st === item.k} count={item.k === 'pending' ? pending : undefined} onPress={() => setSt(item.k as any)} />} />
-        <FlatList horizontal data={['all', 'restaurant', 'supermarket', 'pharmacy', 'clinic']} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+        <FlatList horizontal data={['all', 'restaurant', 'supermarket', 'pharmacy', 'clinic', 'store', 'maker']} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
           renderItem={({ item }) => <Chip label={item === 'all' ? 'كل الأنواع' : TYPES[item as ProviderType].label} icon={item === 'all' ? undefined : TYPES[item as ProviderType].icon} active={tp === item} onPress={() => setTp(item as any)} />} />
       </View>
       <FlatList
@@ -192,7 +193,7 @@ export function AdminProvidersScreen({ navigation }: any) {
             <Appear i={index}>
               <Card onPress={() => navigation.navigate('AdminDetail', { kind: 'provider', id: item.id })} style={{ gap: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <EmojiBubble emoji={item.emoji} size={50} bg={TYPES[item.type].soft} />
+                  <ProviderLogo p={item} size={50} />
                   <View style={{ flex: 1, gap: 2 }}>
                     <T w="bold" size={15} numberOfLines={1}>{item.name}</T>
                     <T size={11.5} color={C.sub}>{TYPES[item.type].single} • {o?.name} • {o?.phone}</T>

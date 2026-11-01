@@ -9,6 +9,7 @@ import {
   toast, IconBtn, Pill, openWhats,
 } from '../components/ui';
 import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
+import { ProviderLogo, ProductThumb } from '../components/Brand';
 import {
   useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
@@ -54,7 +55,7 @@ export function HomeScreen({ navigation }: any) {
     return Array.from(new Set([...byName, ...byProduct]));
   }, [q, db]);
 
-  const cats: ProviderType[] = ['restaurant', 'supermarket', 'pharmacy', 'clinic'];
+  const cats: ProviderType[] = ['restaurant', 'supermarket', 'pharmacy', 'clinic', 'store', 'maker'];
   const top = [...provs].filter((p) => p.type !== 'clinic').sort((a, b) => b.rating - a.rating).slice(0, 6);
 
   return (
@@ -97,9 +98,9 @@ export function HomeScreen({ navigation }: any) {
             </Appear>
           )}
 
-          <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
             {cats.map((k, i) => (
-              <Appear key={k} i={i} style={{ flex: 1 }}>
+              <Appear key={k} i={i} style={{ width: '31.3%', flexGrow: 1 }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, paddingVertical: 14, alignItems: 'center', gap: 8, ...shadow }, pressed && { transform: [{ scale: 0.96 }] }]}
@@ -152,7 +153,7 @@ export function HomeScreen({ navigation }: any) {
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
                 <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: 150, alignItems: 'center', gap: 6 }}>
-                  <EmojiBubble emoji={item.emoji} size={64} bg={TYPES[item.type].soft} />
+                  <ProviderLogo p={item} size={64} />
                   <T w="bold" size={13} align="center" numberOfLines={1}>{item.name}</T>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Icon name="star" size={13} color={C.gold} />
@@ -215,6 +216,8 @@ export function CategoryScreen({ navigation, route }: any) {
     supermarket: 'كل احتياجاتك في مكان واحد',
     pharmacy: 'صحتك تهمنا.. أقرب صيدلية لبابك',
     clinic: 'رعايتك الصحية أولويتنا',
+    store: 'متاجر أبيس كلها في مكان واحد',
+    maker: 'منتجات يدوية من صُنّاع أبيس.. اطلب والصانع يحدد السعر وموعد التسليم',
   }[type];
 
   return (
@@ -282,7 +285,7 @@ export function ProviderScreen({ navigation, route }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title={p.name} onBack={() => navigation.goBack()} subtitle={t.single}>
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 14, alignItems: 'center' }}>
-          <EmojiBubble emoji={p.emoji} size={66} bg={t.soft} />
+          <ProviderLogo p={p} size={66} />
           <View style={{ flex: 1, gap: 4 }}>
             <T size={12.5} color="#C9D8D2" numberOfLines={2}>{p.desc}</T>
             <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
@@ -300,13 +303,13 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13}>{p.type === 'clinic' ? 'العيادة لا تستقبل حجوزات حالياً' : 'المكان مغلق حالياً ولا يستقبل طلبات'}</T>
         </View>
       )}
-      {!closed && (p.type === 'supermarket' || p.type === 'pharmacy') && (
+      {!closed && (p.type === 'supermarket' || p.type === 'pharmacy' || p.type === 'maker') && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.goldSoft, borderWidth: 1.5, borderColor: C.gold }}>
             <Icon name="create" size={28} color={C.goldDeep} />
             <View style={{ flex: 1, gap: 2 }}>
-              <T w="black" size={15}>هتطلب إيه؟ اكتب طلبك</T>
-              <T size={12} color={C.sub}>{p.type === 'pharmacy' ? 'اكتب الدواء المطلوب أو ارفع صورة الروشتة، والصيدلية تحدد السعر' : 'اكتب اللي عايزه والمتجر يقبل الطلب ويحدد السعر'}</T>
+              <T w="black" size={15}>{p.type === 'maker' ? 'اطلب من الصانع' : 'هتطلب إيه؟ اكتب طلبك'}</T>
+              <T size={12} color={C.sub}>{p.type === 'pharmacy' ? 'اكتب الدواء المطلوب أو ارفع صورة الروشتة، والصيدلية تحدد السعر' : p.type === 'maker' ? 'اوصف اللي عايزه (ومعاه صورة لو تحب)، والصانع يقبل ويحدد السعر ويوم وساعة التسليم' : 'اكتب اللي عايزه والمتجر يقبل الطلب ويحدد السعر'}</T>
             </View>
             <Icon name="chevron-back" size={18} color={C.sub} />
           </Card>
@@ -342,7 +345,7 @@ export function ProviderScreen({ navigation, route }: any) {
           ) : (
             <Appear i={index}>
               <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: item.available ? 1 : 0.5 }}>
-                <EmojiBubble emoji={item.emoji} size={56} bg={t.soft} />
+                <ProductThumb p={item} size={56} bg={t.soft} />
                 <View style={{ flex: 1, gap: 2 }}>
                   <T w="bold" size={14.5}>{item.name}</T>
                   {!!item.desc && <T size={11.5} color={C.sub} numberOfLines={1}>{item.desc}</T>}
@@ -407,7 +410,7 @@ export function CartScreen({ navigation }: any) {
               <Appear key={g.provider.id} i={gi}>
                 <Card style={{ gap: 12 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <EmojiBubble emoji={g.provider.emoji} size={40} bg={TYPES[g.provider.type].soft} />
+                    <ProviderLogo p={g.provider} size={40} />
                     <View style={{ flex: 1 }}>
                       <T w="bold" size={15}>{g.provider.name}</T>
                       <T size={11.5} color={C.sub}>{TYPES[g.provider.type].single}</T>
@@ -659,6 +662,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
   const [busy, setBusy] = useState(false);
   if (!p) return <View style={{ flex: 1 }}><Header title="طلب مكتوب" onBack={() => navigation.goBack()} /><Empty title="المتجر غير موجود" /></View>;
   const pharmacy = p.type === 'pharmacy';
+  const maker = p.type === 'maker';
 
   const choose = async () => {
     if (!canPickImage) return toast('رفع الصور متاح حالياً من نسخة الويب', 'info');
@@ -671,39 +675,41 @@ export function RequestOrderScreen({ navigation, route }: any) {
     const r = await placeRequestOrder(me, { provider: p, text, image, phone, address });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
-    toast('تم إرسال طلبك للمتجر ✅');
+    toast(maker ? 'تم إرسال طلبك للصانع ✅' : 'تم إرسال طلبك للمتجر ✅');
     navigation.replace('OrderDetail', { id: r.orderId });
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={pharmacy ? 'اطلب من الصيدلية' : 'اطلب من السوبر ماركت'} subtitle={p.name} onBack={() => navigation.goBack()} />
+      <Header title={pharmacy ? 'اطلب من الصيدلية' : maker ? 'اطلب من الصانع' : 'اطلب من السوبر ماركت'} subtitle={p.name} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
         <Card style={{ gap: 6, backgroundColor: C.goldSoft }}>
           <T w="black" size={14} color={C.goldDeep}>إزاي بيشتغل؟</T>
-          <T size={12.5} color={C.dark3}>1) اكتب طلبك{pharmacy ? ' أو ارفع صورة الروشتة' : ''}.  2) المتجر يقبل الطلب ويحدد السعر.  3) توصلك الفاتورة وتوافق عليها.  4) المندوب يوصّل لحد باب بيتك. الدفع كاش عند الاستلام.</T>
+          <T size={12.5} color={C.dark3}>{maker
+            ? '1) اوصف اللي عايزه.  2) الصانع يقبل الطلب أو يعتذر.  3) لو قبل، بيحدد السعر ويوم وساعة ما يكون جاهز للتسليم.  4) توافق على الفاتورة والمندوب يستلمه في الموعد ويوصّله لك. الدفع كاش عند الاستلام.'
+            : `1) اكتب طلبك${pharmacy ? ' أو ارفع صورة الروشتة' : ''}.  2) المتجر يقبل الطلب ويحدد السعر.  3) توصلك الفاتورة وتوافق عليها.  4) المندوب يوصّل لحد باب بيتك. الدفع كاش عند الاستلام.`}</T>
         </Card>
         <Field
-          label="هتطلب إيه؟"
+          label={maker ? 'اوصف طلبك' : 'هتطلب إيه؟'}
           icon="create"
           value={text}
           onChangeText={setText}
           multiline
-          placeholder={pharmacy ? 'اكتب أسماء الأدوية وكمياتها' : 'اكتب الأصناف اللي عايزها وكمياتها، مثال: 2 كيلو سكر، علبة شاي'}
+          placeholder={maker ? 'مثال: تورتة عيد ميلاد ٢ كيلو بالشوكولاتة، أو شنطة كروشيه لونها بيج' : pharmacy ? 'اكتب أسماء الأدوية وكمياتها' : 'اكتب الأصناف اللي عايزها وكمياتها، مثال: 2 كيلو سكر، علبة شاي'}
         />
-        {pharmacy && (
+        {(pharmacy || maker) && (
           <View style={{ gap: 8 }}>
-            <T w="semi" size={13} color={C.dark3}>صورة الروشتة (اختياري)</T>
+            <T w="semi" size={13} color={C.dark3}>{maker ? 'صورة توضيحية (اختياري)' : 'صورة الروشتة (اختياري)'}</T>
             {image ? <Image source={{ uri: image }} style={{ width: '100%', height: 260, borderRadius: 14, backgroundColor: C.line }} resizeMode="contain" /> : null}
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Btn variant="soft" icon="camera" title={image ? 'تغيير الصورة' : 'ارفع صورة الروشتة'} style={{ flex: 1 }} onPress={choose} />
+              <Btn variant="soft" icon="camera" title={image ? 'تغيير الصورة' : maker ? 'ارفع صورة' : 'ارفع صورة الروشتة'} style={{ flex: 1 }} onPress={choose} />
               {image ? <Btn variant="danger" icon="trash" title="حذف" style={{ flex: 0.5 }} onPress={() => setImage(null)} /> : null}
             </View>
           </View>
         )}
         <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
         <Field label="العنوان التفصيلي" icon="location" value={address} onChangeText={setAddress} multiline />
-        <Btn title="إرسال الطلب للمتجر" icon="send" loading={busy} onPress={submit} />
+        <Btn title={maker ? 'إرسال الطلب للصانع' : 'إرسال الطلب للمتجر'} icon="send" loading={busy} onPress={submit} />
       </ScrollView>
     </View>
   );

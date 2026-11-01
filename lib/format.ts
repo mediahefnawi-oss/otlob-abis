@@ -33,6 +33,20 @@ export const TYPES: Record<
   supermarket: { label: 'السوبر ماركت', single: 'سوبر ماركت', icon: 'cart', emoji: '🛒', color: C.green, soft: C.greenSoft },
   pharmacy: { label: 'الصيدليات', single: 'صيدلية', icon: 'medkit', emoji: '💊', color: C.blue, soft: C.blueSoft },
   clinic: { label: 'حجز العيادات', single: 'عيادة', icon: 'pulse', emoji: '🩺', color: '#8A5CD1', soft: '#EFE6FB' },
+  store: { label: 'متاجر', single: 'متجر', icon: 'storefront', emoji: '🏬', color: '#0E9AA7', soft: '#DDF3F5' },
+  maker: { label: 'صُنّاع أبيس', single: 'صانع', icon: 'color-palette', emoji: '🧵', color: '#D6457F', soft: '#FBE3EC' },
+};
+
+/** "الخميس 5/11/2026 • 3:30 م" for a maker's ready day (YYYY-MM-DD) and hour (HH:mm). */
+export const readyLabel = (date?: string, time?: string) => {
+  if (!date) return '';
+  let out = prettyIso(date);
+  const m = /^(\d{2}):(\d{2})$/.exec(time || '');
+  if (m) {
+    const h = Number(m[1]);
+    out += ` • ${h % 12 || 12}:${m[2]} ${h >= 12 ? 'م' : 'ص'}`;
+  }
+  return out;
 };
 
 const RAW_ORDER_STATUS: Record<OrderStatus, { label: string; color: string; soft: string; icon: string }> = {

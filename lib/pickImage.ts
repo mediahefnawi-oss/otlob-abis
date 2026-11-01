@@ -6,7 +6,7 @@ import { Platform } from 'react-native';
  */
 export const canPickImage = Platform.OS === 'web' && typeof document !== 'undefined';
 
-function shrink(file: File): Promise<string | null> {
+function shrink(file: File, max: number): Promise<string | null> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onerror = () => resolve(null);
@@ -14,7 +14,7 @@ function shrink(file: File): Promise<string | null> {
       const img = new (window as any).Image();
       img.onerror = () => resolve(null);
       img.onload = () => {
-        const MAX = 1100;
+        const MAX = max;
         const scale = Math.min(1, MAX / Math.max(img.width, img.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.round(img.width * scale);
@@ -37,7 +37,7 @@ function shrink(file: File): Promise<string | null> {
   });
 }
 
-export function pickImage(): Promise<string | null> {
+export function pickImage(max = 1100): Promise<string | null> {
   if (!canPickImage) return Promise.resolve(null);
   return new Promise((resolve) => {
     const input = document.createElement('input');
@@ -45,7 +45,7 @@ export function pickImage(): Promise<string | null> {
     input.accept = 'image/*';
     input.onchange = async () => {
       const file = input.files && input.files[0];
-      resolve(file ? await shrink(file) : null);
+      resolve(file ? await shrink(file, max) : null);
     };
     input.click();
   });

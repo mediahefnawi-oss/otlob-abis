@@ -1,5 +1,5 @@
 export type Role = 'customer' | 'provider' | 'courier' | 'admin';
-export type ProviderType = 'restaurant' | 'supermarket' | 'pharmacy' | 'clinic';
+export type ProviderType = 'restaurant' | 'supermarket' | 'pharmacy' | 'clinic' | 'store' | 'maker';
 export type AccountStatus = 'active' | 'pending' | 'rejected' | 'suspended';
 
 export interface User {
@@ -50,6 +50,7 @@ export interface Provider {
   status: AccountStatus;
   open: boolean;
   specialty?: string;
+  logoV?: number; // 0 / missing = no logo; changes whenever the logo changes
   createdAt: number;
 }
 
@@ -64,6 +65,7 @@ export interface Product {
   desc: string;
   available: boolean;
   slots?: string[];
+  imageV?: number; // 0 / missing = no picture
 }
 
 export type OrderStatus =
@@ -115,6 +117,8 @@ export interface Order {
   courierPhone?: string;
   courierVehicle?: string;
   rejectReason?: string;
+  readyDate?: string; // maker orders: the day (YYYY-MM-DD) and hour (HH:mm) the order will be ready
+  readyTime?: string;
   createdAt: number;
   updatedAt: number;
   history: { status: OrderStatus; at: number }[];
@@ -153,6 +157,8 @@ export interface InvoicePart {
   items: OrderItem[];
   customText?: string;
   requestText?: string; // what the customer wrote when the shop priced a free-text request
+  readyDate?: string;
+  readyTime?: string;
   subtotal: number;
   deliveryFee: number;
 }

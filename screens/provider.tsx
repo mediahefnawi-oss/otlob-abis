@@ -6,6 +6,7 @@ import {
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
 import { QuoteButtons } from '../components/Quote';
+import { ProviderLogo, ProductThumb, ProductPicture, LogoPicker } from '../components/Brand';
 import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { useStore, useMe, orderAction, apptAction, saveProduct, deleteProduct, updateProvider, availableCouriers } from '../lib/store';
@@ -171,13 +172,14 @@ export function ProviderCatalogScreen() {
   const [emoji, setEmoji] = useState('🍔');
   const [desc, setDesc] = useState('');
   const [slots, setSlots] = useState<string[]>([]);
+  const [img, setImg] = useState<string | null | undefined>(undefined);
 
   const openNew = () => {
-    setEditing(null); setName(''); setPrice(''); setCategory(isClinic ? prov.specialty || 'باطنة' : ''); setEmoji(TYPES[prov.type].emoji); setDesc(''); setSlots(['10:00', '10:30', '11:00', '17:00', '17:30', '18:00']);
+    setEditing(null); setName(''); setPrice(''); setCategory(isClinic ? prov.specialty || 'باطنة' : ''); setEmoji(TYPES[prov.type].emoji); setDesc(''); setImg(undefined); setSlots(['10:00', '10:30', '11:00', '17:00', '17:30', '18:00']);
     setSheet(true);
   };
   const openEdit = (p: Product) => {
-    setEditing(p); setName(p.name); setPrice(String(p.price)); setCategory(p.category); setEmoji(p.emoji); setDesc(p.desc); setSlots(p.slots || []);
+    setEditing(p); setName(p.name); setPrice(String(p.price)); setCategory(p.category); setEmoji(p.emoji); setDesc(p.desc); setImg(undefined); setSlots(p.slots || []);
     setSheet(true);
   };
   const save = () => {
@@ -189,7 +191,7 @@ export function ProviderCatalogScreen() {
       id: editing?.id, providerId: prov.id, kind: isClinic ? 'doctor' : 'item', name: name.trim(), price: pr,
       emoji: isClinic ? '👨‍⚕️' : emoji, category: category.trim() || (isClinic ? 'عام' : 'عام'), desc: desc.trim(),
       available: editing ? editing.available : true, slots: isClinic ? [...slots].sort() : undefined,
-    });
+    }, isClinic ? undefined : img);
     setSheet(false);
     toast(editing ? 'تم تحديث البيانات' : isClinic ? 'تمت إضافة الطبيب' : 'تمت إضافة المنتج');
   };
@@ -207,7 +209,7 @@ export function ProviderCatalogScreen() {
           <Appear i={index}>
             <Card style={{ gap: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <EmojiBubble emoji={isClinic ? SPEC_EMOJI[item.category] || '👨‍⚕️' : item.emoji} size={52} bg={TYPES[prov.type].soft} />
+                {isClinic ? <EmojiBubble emoji={SPEC_EMOJI[item.category] || '👨‍⚕️'} size={52} bg={TYPES[prov.type].soft} /> : <ProductThumb p={item} size={52} bg={TYPES[prov.type].soft} />}
                 <View style={{ flex: 1 }}>
                   <T w="bold" size={14.5}>{item.name}</T>
                   <T size={12} color={C.sub}>{item.category}{isClinic ? ` • ${item.slots?.length || 0} موعد` : ''}</T>
@@ -238,6 +240,7 @@ export function ProviderCatalogScreen() {
           </View>
         ) : (
           <>
+            <ProductPicture value={img} existing={editing} onChange={(v) => setImg(v)} />
             <Field label="القسم" value={category} onChangeText={setCategory} icon="folder" placeholder="مثال: برجر، مشروبات، أدوية" />
             <View style={{ gap: 6 }}>
               <T w="semi" size={13} color={C.dark3}>الأيقونة</T>
@@ -322,7 +325,7 @@ export function ProviderProfileScreen({ navigation }: any) {
     <>
       <Card style={{ gap: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <EmojiBubble emoji={prov.emoji} size={56} bg={t.soft} />
+          <ProviderLogo p={prov} size={56} />
           <View style={{ flex: 1 }}>
             <T w="black" size={16}>{prov.name}</T>
             <T size={12} color={C.sub}>{t.single}{prov.specialty ? ` • ${prov.specialty}` : ''}</T>
@@ -345,6 +348,7 @@ export function ProviderProfileScreen({ navigation }: any) {
         </View>
       </Card>
       <Sheet visible={sheet} onClose={() => setSheet(false)} title="بيانات النشاط">
+        <LogoPicker p={prov} />
         <Field label="اسم النشاط" value={name} onChangeText={setName} icon="storefront" />
         <Field label="الوصف" value={desc} onChangeText={setDesc} icon="document-text" />
         <Field label="العنوان" value={address} onChangeText={setAddress} icon="location" />

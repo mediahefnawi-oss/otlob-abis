@@ -10,7 +10,7 @@ import {
   toast, confirmDialog, openWhats, callPhone, IconBtn, SectionTitle, AcctPill,
 } from '../components/ui';
 import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened } from '../lib/store';
-import { ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI } from '../lib/format';
+import { ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
 import { QuoteButtons, RequestPhoto } from '../components/Quote';
@@ -119,6 +119,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
         <Card style={{ gap: 12 }}>
           <T w="black" size={15}>بيانات الطلب</T>
           <Row icon="storefront" label="مقدم الخدمة" value={o.providerName} />
+          {!!o.readyDate && !['rejected', 'unavailable', 'cancelled'].includes(o.status) && <Row icon="calendar" label="جاهز للتسليم" value={readyLabel(o.readyDate, o.readyTime)} />}
           {provider && <Row icon="location" label="عنوان المتجر" value={provider.address} />}
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Row icon="person" label="اسم العميل" value={o.customerName} />
@@ -303,6 +304,7 @@ export function InvoiceScreen({ navigation, route }: any) {
         lines.push(`🏪 ${p.providerName}`);
         if (p.customText) lines.push(`  • ${p.customText}`);
         if (p.requestText) lines.push(`  📝 ${p.requestText}`);
+        if (p.readyDate) lines.push(`  📅 جاهز للتسليم: ${readyLabel(p.readyDate, p.readyTime)}`);
         p.items.forEach((i) => lines.push(`  • ${i.qty}× ${i.name} = ${money(i.price * i.qty)}`));
         lines.push(`  التوصيل: ${money(p.deliveryFee)}`, '');
       });
@@ -385,6 +387,7 @@ export function InvoiceScreen({ navigation, route }: any) {
                       <View style={{ padding: 12, gap: 8 }}>
                         {p.customText && <T size={13} color={C.dark3}>🎁 {p.customText}</T>}
                         {!!p.requestText && <T size={13} color={C.dark3}>📝 {p.requestText}</T>}
+                        {!!p.readyDate && <T size={13} w="semi" color={C.goldDeep}>📅 جاهز للتسليم: {readyLabel(p.readyDate, p.readyTime)}</T>}
                         {p.items.map((i) => (
                           <View key={i.productId} style={{ flexDirection: 'row' }}>
                             <T size={13} style={{ flex: 1 }}>{i.qty}× {i.name}</T>

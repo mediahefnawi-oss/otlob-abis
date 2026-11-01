@@ -166,3 +166,17 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+
+-- Provider logos and product pictures (apart from the catalog so the 4-second sync stays light).
+CREATE TABLE IF NOT EXISTS provider_logos (
+  provider_id BIGINT PRIMARY KEY REFERENCES providers(id) ON DELETE CASCADE,
+  image BYTEA NOT NULL,
+  mime TEXT NOT NULL DEFAULT 'image/jpeg',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS product_images (
+  product_id BIGINT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+  image BYTEA NOT NULL,
+  mime TEXT NOT NULL DEFAULT 'image/jpeg',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

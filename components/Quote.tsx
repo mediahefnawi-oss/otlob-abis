@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Image } from 'react-native';
+import { View, Image, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Btn, Sheet, Field, Card, toast, confirmDialog } from './ui';
+import { T, Btn, Sheet, Field, Card, Chip, toast, confirmDialog } from './ui';
 import { quoteOrder, orderImage } from '../lib/store';
-import { money } from '../lib/format';
+import { money, isoDay, prettyIso, readyLabel } from '../lib/format';
 import { Order } from '../lib/types';
 
 // accepts Arabic-Indic digits too (٣٥ → 35)
@@ -23,18 +23,27 @@ export function RequestPhoto({ o }: { o: Order }) {
     : <T size={12} color={C.sub}>جاري تحميل الصورة…</T>;
 }
 
-/** The shop accepts the request and writes its price. */
+const nextDays = () => Array.from({ length: 14 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return isoDay(d); });
+const HOURS = Array.from({ length: 32 }, (_, i) => `${String(8 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
+const hourLabel = (t: string) => { const h = Number(t.slice(0, 2)); return `${h % 12 || 12}:${t.slice(3)} ${h >= 12 ? 'م' : 'ص'}`; };
+
+/** The shop (or maker) accepts the request and writes its price. A maker also picks the day and hour it will be ready. */
 export function QuoteSheet({ o, visible, onClose }: { o: Order; visible: boolean; onClose: () => void }) {
   const [price, setPrice] = useState(o.status === 'quoted' ? String(o.subtotal) : '');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const isMaker = o.providerType === 'maker';
+  const days = nextDays();
+  const [day, setDay] = useState(o.readyDate && days.includes(o.readyDate) ? o.readyDate : '');
+  const [hour, setHour] = useState(o.readyTime || '');
   const p = Number(toEn(price));
   const valid = Number.isFinite(p) && p > 0;
 
   const submit = async () => {
     if (!valid) return toast('اكتب سعر الطلب', 'err');
     setBusy(true);
-    const r = await quoteOrder(o.id, { price: p, note: note.trim() });
+    if (isMaker && (!day || !hour)) return toast('حدد يوم وساعة جاهزية الطلب للتسليم', 'err');
+    const r = await quoteOrder(o.id, { price: p, note: note.trim(), ...(isMaker ? { readyDate: day, readyTime: hour } : {}) });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     onClose();
@@ -49,13 +58,26 @@ export function QuoteSheet({ o, visible, onClose }: { o: Order; visible: boolean
         <RequestPhoto o={o} />
       </View>
       <Field label="سعر الطلب (ج.م)" icon="cash" value={price} onChangeText={setPrice} keyboardType="numeric" placeholder="مثال: 135" />
+      {isMaker && (
+        <View style={{ gap: 8 }}>
+          <T w="bold" size={13}>يوم التسليم (جاهز للمندوب)</T>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {days.map((d) => <Chip key={d} label={d === days[0] ? 'اليوم' : prettyIso(d).split(' ').slice(0, 2).join(' ')} active={day === d} onPress={() => setDay(d)} />)}
+          </ScrollView>
+          <T w="bold" size={13}>الساعة</T>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {HOURS.map((h) => <Chip key={h} label={hourLabel(h)} active={hour === h} onPress={() => setHour(h)} />)}
+          </ScrollView>
+          {!!day && !!hour && <T size={12.5} color={C.goldDeep} w="semi">جاهز للتسليم: {readyLabel(day, hour)}</T>}
+        </View>
+      )}
       <Field label="ملاحظة للعميل (اختياري)" icon="create" value={note} onChangeText={setNote} placeholder="مثال: بدلنا الصنف الفلاني بالصنف ده" />
       <Card style={{ gap: 6 }}>
         <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>سعر الطلب</T><T w="bold">{valid ? money(p) : '—'}</T></View>
         <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>التوصيل (حسب منطقة العميل)</T><T w="bold">{money(o.deliveryFee)}</T></View>
         <View style={{ flexDirection: 'row' }}><T w="black" style={{ flex: 1 }}>الإجمالي على العميل</T><T w="black" color={C.goldDeep}>{valid ? money(p + o.deliveryFee) : '—'}</T></View>
       </Card>
-      <Btn title="قبول الطلب وإرسال الفاتورة" icon="checkmark" loading={busy} onPress={submit} />
+      <Btn title={isMaker ? 'قبول الطلب وتأكيد الموعد' : 'قبول الطلب وإرسال الفاتورة'} icon="checkmark" loading={busy} onPress={submit} />
     </Sheet>
   );
 }
@@ -65,14 +87,14 @@ export function QuoteButtons({ o }: { o: Order }) {
   const [open, setOpen] = useState(false);
   if (!o.request || !['pending', 'quoted'].includes(o.status)) return null;
   const unavailable = () => confirmDialog({
-    title: 'الأصناف غير متوفرة؟', message: 'ستصل العميل فاتورة تفيد بعدم توفر الطلب وينتهي الطلب.', danger: true, confirmText: 'إرسال',
+    title: o.providerType === 'maker' ? 'الاعتذار عن الطلب؟' : 'الأصناف غير متوفرة؟', message: o.providerType === 'maker' ? 'سيصل العميل إشعار باعتذارك عن الطلب وينتهي الطلب.' : 'ستصل العميل فاتورة تفيد بعدم توفر الطلب وينتهي الطلب.', danger: true, confirmText: 'إرسال',
     onConfirm: async () => { const r = await quoteOrder(o.id, { unavailable: true }); if (!r.ok) toast(r.error, 'err'); else toast('تم إبلاغ العميل'); },
   });
   return (
     <>
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Btn small icon="pricetag" title={o.status === 'quoted' ? 'تعديل السعر' : 'قبول وتحديد السعر'} style={{ flex: 2 }} onPress={() => setOpen(true)} />
-        <Btn small variant="danger" icon="close-circle" title="غير متوفر" style={{ flex: 1 }} onPress={unavailable} />
+        <Btn small icon="pricetag" title={o.status === 'quoted' ? 'تعديل السعر والموعد' : (o.providerType === 'maker' ? 'قبول وتحديد السعر والموعد' : 'قبول وتحديد السعر')} style={{ flex: 2 }} onPress={() => setOpen(true)} />
+        <Btn small variant="danger" icon="close-circle" title={o.providerType === 'maker' ? 'اعتذار' : 'غير متوفر'} style={{ flex: 1 }} onPress={unavailable} />
       </View>
       {o.status === 'quoted' && <T size={12} color={C.goldDeep} w="semi">بانتظار موافقة العميل على السعر ({money(o.total)})</T>}
       <QuoteSheet o={o} visible={open} onClose={() => setOpen(false)} />

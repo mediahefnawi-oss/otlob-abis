@@ -24,7 +24,7 @@ export function WelcomeScreen({ navigation }: any) {
           <T w="bold" size={17} color="#fff" align="center" style={{ marginTop: 6 }}>كل اللي محتاجه في أبيس.. لحد باب بيتك</T>
         </Animated.View>
         <Animated.View entering={FadeInDown.delay(300)} style={{ flexDirection: 'row', gap: 10, marginTop: 28, flexWrap: 'wrap', justifyContent: 'center' }}>
-          {(['restaurant', 'supermarket', 'pharmacy', 'clinic'] as ProviderType[]).map((k) => (
+          {(Object.keys(TYPES) as ProviderType[]).map((k) => (
             <View key={k} style={{ alignItems: 'center', gap: 6, width: 72 }}>
               <View style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: C.gold, backgroundColor: 'rgba(0,33,26,0.7)', alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name={TYPES[k].icon} size={24} color={C.gold} />

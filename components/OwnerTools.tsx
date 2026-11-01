@@ -5,10 +5,11 @@ import { T, Icon, Card, Btn, Sheet, Field, Chip, EmojiBubble, Toggle, SectionTit
 import { useStore, useMe, saveProduct, deleteProduct, updateProvider, adminCreateProvider } from '../lib/store';
 import { TYPES, money, SPECIALTIES, ALL_SLOTS, SPEC_EMOJI } from '../lib/format';
 import { Provider, Product, ProviderType } from '../lib/types';
+import { ProductThumb, ProductPicture, LogoPicker } from './Brand';
 
 const EMOJIS = ['🍔', '🍕', '🍗', '🥗', '🍟', '🥤', '🍰', '🥖', '🍅', '🥛', '🧴', '💊', '🩹', '🌡️', '🛒'];
 
-/* Add / edit a service (restaurant, supermarket, pharmacy, clinic) */
+/* Add / edit a service (restaurant, supermarket, pharmacy, clinic, store, maker) */
 export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { visible: boolean; onClose: () => void; provider?: Provider; onCreated?: (id: string) => void }) {
   const me = useMe()!;
   const [type, setType] = useState<ProviderType>('restaurant');
@@ -53,6 +54,8 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
     }
   };
   const t = provider?.type || type;
+  const { db } = useStore();
+  const live = provider ? db.providers.find((x) => x.id === provider.id) || provider : undefined;
   return (
     <Sheet visible={visible} onClose={onClose} title={provider ? 'تعديل الخدمة' : 'إضافة خدمة جديدة'}>
       {!provider && (
@@ -63,6 +66,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
           </View>
         </View>
       )}
+      {live && <LogoPicker p={live} />}
       <Field label="اسم الخدمة" icon="storefront" value={name} onChangeText={setName} />
       <Field label="الوصف" icon="document-text" value={desc} onChangeText={setDesc} />
       <Field label="العنوان" icon="location" value={address} onChangeText={setAddress} />
@@ -102,14 +106,15 @@ export function CatalogEditor({ prov }: { prov: Provider }) {
   const [emoji, setEmoji] = useState('🍔');
   const [desc, setDesc] = useState('');
   const [slots, setSlots] = useState<string[]>([]);
+  const [img, setImg] = useState<string | null | undefined>(undefined);
 
   const openNew = () => {
-    setEditing(null); setName(''); setPrice(''); setCategory(isClinic ? prov.specialty || 'باطنة' : ''); setEmoji(TYPES[prov.type].emoji); setDesc('');
+    setEditing(null); setName(''); setPrice(''); setCategory(isClinic ? prov.specialty || 'باطنة' : ''); setEmoji(TYPES[prov.type].emoji); setDesc(''); setImg(undefined);
     setSlots(['10:00', '10:30', '11:00', '17:00', '17:30', '18:00']);
     setSheet(true);
   };
   const openEdit = (p: Product) => {
-    setEditing(p); setName(p.name); setPrice(String(p.price)); setCategory(p.category); setEmoji(p.emoji); setDesc(p.desc); setSlots(p.slots || []);
+    setEditing(p); setName(p.name); setPrice(String(p.price)); setCategory(p.category); setEmoji(p.emoji); setDesc(p.desc); setImg(undefined); setSlots(p.slots || []);
     setSheet(true);
   };
   const save = () => {
@@ -121,7 +126,7 @@ export function CatalogEditor({ prov }: { prov: Provider }) {
       id: editing?.id, providerId: prov.id, kind: isClinic ? 'doctor' : 'item', name: name.trim(), price: pr,
       emoji: isClinic ? '👨‍⚕️' : emoji, category: category.trim() || 'عام', desc: desc.trim(),
       available: editing ? editing.available : true, slots: isClinic ? [...slots].sort() : undefined,
-    });
+    }, isClinic ? undefined : img);
     setSheet(false);
     toast(editing ? 'تم تحديث البيانات' : isClinic ? 'تمت إضافة الطبيب' : 'تمت إضافة المنتج');
   };
@@ -133,7 +138,7 @@ export function CatalogEditor({ prov }: { prov: Provider }) {
       {items.map((item) => (
         <Card key={item.id} style={{ gap: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <EmojiBubble emoji={isClinic ? SPEC_EMOJI[item.category] || '👨‍⚕️' : item.emoji} size={48} bg={TYPES[prov.type].soft} />
+            {isClinic ? <EmojiBubble emoji={SPEC_EMOJI[item.category] || '👨‍⚕️'} size={48} bg={TYPES[prov.type].soft} /> : <ProductThumb p={item} size={48} bg={TYPES[prov.type].soft} />}
             <View style={{ flex: 1 }}>
               <T w="bold" size={14}>{item.name}</T>
               <T size={11.5} color={C.sub}>{item.category}{isClinic ? ` • ${item.slots?.length || 0} موعد` : ''}</T>
@@ -162,6 +167,7 @@ export function CatalogEditor({ prov }: { prov: Provider }) {
           </View>
         ) : (
           <>
+            <ProductPicture value={img} existing={editing} onChange={(v) => setImg(v)} />
             <Field label="القسم" value={category} onChangeText={setCategory} icon="folder" placeholder="مثال: برجر، مشروبات، أدوية" />
             <View style={{ gap: 6 }}>
               <T w="semi" size={13} color={C.dark3}>الأيقونة</T>
