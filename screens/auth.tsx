@@ -54,8 +54,14 @@ export function WelcomeScreen({ navigation }: any) {
           </View>
           <Pressable onPress={() => openWhats('01004379508', 'مرحباً، أحتاج مساعدة في تطبيق أطلب أبيس')} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, paddingTop: 6 }}>
             <Icon name="logo-whatsapp" size={18} color="#25D366" />
-            <T size={12.5} color="#C9D8D2">دعم فني واتساب: 01004379508 — Eng/Ahmed El-hefnawi</T>
+            <T w="bold" size={13} color="#C9D8D2">01004379508</T>
           </Pressable>
+          <View style={{ alignItems: 'center', gap: 2, paddingTop: 8 }}>
+            <T size={10} color="#8FA89F" align="center" style={{ letterSpacing: 1.5 }}>DESIGNED & DEVELOPED BY</T>
+            <T w="black" size={13} color={C.gold} align="center" style={{ letterSpacing: 1 }}>ENG. AHMED EL-HEFNAWY</T>
+            <T size={11.5} color="#C9D8D2" align="center">تصميم وتطوير وبرمجة المهندس أحمد الحفناوي</T>
+            <T size={10} color="#8FA89F" align="center">© 2026 All Rights Reserved</T>
+          </View>
         </Animated.View>
       </View>
     </View>
