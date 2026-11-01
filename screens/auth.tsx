@@ -7,7 +7,7 @@ import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { C, R } from '../lib/theme';
 import { T, Btn, Field, Logo, Icon, Chip, Header, openWhats, toast, Card } from '../components/ui';
 import { login, register, logout, useStore, useMe } from '../lib/store';
-import { TYPES, SPECIALTIES } from '../lib/format';
+import { TYPES } from '../lib/format';
 import { ProviderType } from '../lib/types';
 
 import { RegionPicker } from '../components/Regions';
@@ -128,7 +128,6 @@ export function RegisterScreen({ navigation, route }: any) {
   const [ptype, setPtype] = useState<ProviderType>('restaurant');
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
-  const [spec, setSpec] = useState('باطنة');
   const [fee, setFee] = useState('15');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -144,7 +143,7 @@ export function RegisterScreen({ navigation, route }: any) {
     setErr('');
     const r = await register({
       name, phone, pass, role, address, vehicle, regionId: regionId || undefined,
-      provider: role === 'provider' ? { type: ptype, name: pname, desc: pdesc, specialty: ptype === 'clinic' ? spec : undefined, deliveryFee: 0 } : undefined,
+      provider: role === 'provider' ? { type: ptype, name: pname, desc: pdesc, deliveryFee: 0 } : undefined,
     });
     setBusy(false);
     if (!r.ok) setErr(r.error);
@@ -200,14 +199,6 @@ export function RegisterScreen({ navigation, route }: any) {
               </View>
               <Field label="اسم النشاط التجاري" icon="storefront" value={pname} onChangeText={setPname} placeholder={ptype === 'clinic' ? 'مثال: عيادة د. أحمد' : 'مثال: مطعم الأصيل'} />
               <Field label="وصف مختصر" icon="document-text" value={pdesc} onChangeText={setPdesc} placeholder="نبذة عن نشاطك" />
-              {ptype === 'clinic' ? (
-                <View style={{ gap: 6 }}>
-                  <T w="semi" size={13} color={C.dark3}>التخصص</T>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {SPECIALTIES.map((s) => <Chip key={s} label={s} active={spec === s} onPress={() => setSpec(s)} />)}
-                  </View>
-                </View>
-              ) : null}
             </>
           )}
           {!!err && (

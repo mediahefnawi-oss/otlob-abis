@@ -18,7 +18,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [fee, setFee] = useState('0');
-  const [spec, setSpec] = useState('باطنة');
+  const [spec, setSpec] = useState('');
   const [mName, setMName] = useState('');
   const [mPhone, setMPhone] = useState('');
   const [mPass, setMPass] = useState('');
@@ -31,7 +31,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
     setAddress(provider?.address || '');
     setPhone(provider?.phone || '');
     setFee(String(provider?.deliveryFee ?? 0));
-    setSpec(provider?.specialty || 'باطنة');
+    setSpec(provider?.specialty || '');
     setMName(''); setMPhone(''); setMPass('');
   }, [visible, provider?.id]);
 
@@ -41,7 +41,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
       updateProvider(provider.id, {
         name: name.trim(), desc: desc.trim(), address: address.trim(), phone: phone.trim() || provider.phone,
         deliveryFee: provider.type === 'clinic' ? 0 : Number(fee) || 0,
-        specialty: provider.type === 'clinic' ? spec : provider.specialty,
+        specialty: provider.type === 'clinic' ? spec.trim() : provider.specialty,
       });
       toast('تم حفظ التعديلات');
       onClose();
@@ -73,7 +73,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
       <Field label="هاتف الخدمة" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
       {t === 'clinic' ? (
         <View style={{ gap: 6 }}>
-          <T w="semi" size={13} color={C.dark3}>التخصص</T>
+          <Field label="التخصص (تكتبه أنت)" icon="pulse" value={spec} onChangeText={setSpec} placeholder="مثال: باطنة، أسنان، عيون…" />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {SPECIALTIES.map((s) => <Chip key={s} label={s} active={spec === s} onPress={() => setSpec(s)} />)}
           </View>

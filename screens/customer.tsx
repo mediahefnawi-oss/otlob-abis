@@ -58,6 +58,8 @@ export function HomeScreen({ navigation }: any) {
 
   const cats: ProviderType[] = ['restaurant', 'supermarket', 'pharmacy', 'clinic', 'store', 'maker'];
   // "الأعلى تقييماً": only the places the owner chose from the control panel
+  // "بالقرب منك": automatically the places in the customer's own area
+  const nearby = me.regionId ? provs.filter((p) => p.regionId === me.regionId && p.open !== undefined).sort((a, b) => Number(b.open) - Number(a.open)) : [];
   const top = provs.filter((p) => p.featured).sort((a, b) => b.rating - a.rating).slice(0, 12);
 
   return (
@@ -143,6 +145,25 @@ export function HomeScreen({ navigation }: any) {
               </LinearGradient>
             </Pressable>
           </Appear>
+
+          {nearby.length > 0 && <View style={{ marginTop: 18 }}>
+            <SectionTitle title="بالقرب منك" />
+            <FlatList
+              horizontal
+              data={nearby}
+              keyExtractor={(p) => p.id}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
+              renderItem={({ item }) => (
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: 150, alignItems: 'center', gap: 6 }}>
+                  <ProviderLogo p={item} size={64} />
+                  <T w="bold" size={13} align="center" numberOfLines={1}>{item.name}</T>
+                  <T size={11.5} color={C.sub} align="center" numberOfLines={1}>{TYPES[item.type].single}</T>
+                  <AreaTag p={item} />
+                </Card>
+              )}
+            />
+          </View>}
 
           {top.length > 0 && <View style={{ marginTop: 18 }}>
             <SectionTitle title="الأعلى تقييماً" action="عرض المطاعم" onAction={() => navigation.navigate('Category', { type: 'restaurant' })} />
@@ -244,11 +265,11 @@ export function CategoryScreen({ navigation, route }: any) {
             {type === 'clinic' ? (
               <FlatList
                 horizontal
-                data={['الكل', ...SPECIALTIES]}
+                data={['الكل', ...Array.from(new Set(db.providers.filter((p) => p.type === 'clinic' && p.status === 'active' && p.specialty).map((p) => p.specialty as string)))]}
                 keyExtractor={(x) => x}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: 8 }}
-                renderItem={({ item }) => <Chip label={item === 'الكل' ? item : `${SPEC_EMOJI[item]} ${item}`} active={spec === item} onPress={() => setSpec(item)} />}
+                renderItem={({ item }) => <Chip label={item === 'الكل' ? item : `${SPEC_EMOJI[item] || '🩺'} ${item}`} active={spec === item} onPress={() => setSpec(item)} />}
               />
             ) : (
               <View style={{ flexDirection: 'row', gap: 8 }}>
