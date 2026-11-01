@@ -317,3 +317,16 @@ BEGIN
     UPDATE app_settings SET commissions_seeded = TRUE WHERE id = 1;
   END IF;
 END $$;
+
+-- =====================================================================================
+-- Speed under load (indexes only; no data is touched)
+-- =====================================================================================
+CREATE INDEX IF NOT EXISTS idx_orders_open_offers ON orders(status, created_at DESC) WHERE courier_user_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_provider_delivered ON orders(provider_id, delivered_at) WHERE status = 'delivered';
+CREATE INDEX IF NOT EXISTS idx_orders_customer_created ON orders(customer_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_courier_created ON orders(courier_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_appts_provider_completed ON appointments(provider_id, completed_at) WHERE status = 'completed';
+CREATE INDEX IF NOT EXISTS idx_appts_customer_created ON appointments(customer_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_appts_slots ON appointments(appointment_date, status);
+CREATE INDEX IF NOT EXISTS idx_users_courier_online ON users(role, status, available);
+CREATE INDEX IF NOT EXISTS idx_messages_order ON messages(order_id, id);

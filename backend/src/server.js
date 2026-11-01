@@ -16,7 +16,7 @@ for (const key of required) {
 if (process.env.JWT_SECRET.length < 32) { console.error('JWT_SECRET must be at least 32 characters.'); process.exit(1); }
 
 const app = express();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'false' ? false : process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: process.env.VERCEL ? 3 : 10, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'false' ? false : process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: Number(process.env.DB_POOL_MAX) || (process.env.VERCEL ? 4 : 10), idleTimeoutMillis: 20000, connectionTimeoutMillis: 8000, statement_timeout: 15000, query_timeout: 20000, keepAlive: true });
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet());
@@ -28,11 +28,41 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
 app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin not allowed')); }, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization'] }));
 app.use(express.json({ limit: '2mb' })); // a request photo is shrunk by the app to well under 600 KB
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false }));
+// Creating orders / uploading pictures is never needed in bursts: a generous cap per address stops abuse without bothering real users.
+const writeLimiter = rateLimit({ windowMs: 10 * 60 * 1000, limit: 400, standardHeaders: true, legacyHeaders: false, skip: req => req.method === 'GET' || req.method === 'OPTIONS', message: { error: 'طلبات كثيرة جداً. انتظر قليلاً ثم حاول مرة أخرى' } });
+app.use('/api', writeLimiter);
+
+// ---- small in-memory caches (one per server instance): they spare PostgreSQL the thousands of identical questions that polling asks ----
+const memo = (ttl, max = 2000) => {
+  const m = new Map();
+  return {
+    get(k) { const e = m.get(k); if (e && Date.now() - e.at < ttl) return e.v; if (e) m.delete(k); return undefined; },
+    set(k, v) { if (m.size >= max) m.clear(); m.set(k, { v, at: Date.now() }); return v; },
+    clear() { m.clear(); },
+  };
+};
+const authMemo = memo(4000, 5000);     // who is this token (role / status)
+const settingsMemo = memo(2000, 4);    // maintenance mode + announcement
+const catalogMemo = memo(5000, 200);   // providers + products + regions + ads
+// anything that changes data empties the caches of this instance at once (other instances catch up within seconds)
+app.use('/api', (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'OPTIONS') res.on('finish', () => { authMemo.clear(); settingsMemo.clear(); catalogMemo.clear(); });
+  next();
+});
+// When the database is saturated, polite clients wait and retry instead of piling more work on it.
+app.use(['/api/sync', '/api/catalog', '/api/counters'], (req, res, next) => {
+  if (pool.waitingCount > 30) { res.set('Retry-After', '3'); return res.status(503).json({ error: 'الخادم مشغول حالياً، سيعاد المحاولة تلقائياً' }); }
+  next();
+});
+process.on('unhandledRejection', e => console.error('unhandledRejection:', e && e.message ? e.message : e));
+process.on('uncaughtException', e => console.error('uncaughtException:', e && e.message ? e.message : e));
 
 async function maintenanceState() {
+  const hit = settingsMemo.get('m');
+  if (hit) return hit;
   const r = await pool.query('SELECT app_enabled,maintenance_message FROM app_settings WHERE id=1');
   if (!r.rowCount) return { enabled: true, message: '' };
-  return { enabled: r.rows[0].app_enabled, message: r.rows[0].maintenance_message || 'التطبيق متوقف مؤقتًا للصيانة' };
+  return settingsMemo.set('m', { enabled: r.rows[0].app_enabled, message: r.rows[0].maintenance_message || 'التطبيق متوقف مؤقتًا للصيانة' });
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined });
@@ -54,9 +84,12 @@ async function authCore(req, res, next, allowInactive) {
   try {
     // Never trust a role embedded in an old token: account suspension and role
     // changes must take effect immediately for every protected API request.
-    const result = await pool.query('SELECT id, role, status FROM users WHERE id=$1', [claims.sub]);
-    if (!result.rowCount) return res.status(401).json({ error: 'الحساب غير موجود' });
-    const user = result.rows[0];
+    let user = authMemo.get(String(claims.sub));
+    if (!user) {
+      const result = await pool.query('SELECT id, role, status FROM users WHERE id=$1', [claims.sub]);
+      if (!result.rowCount) return res.status(401).json({ error: 'الحساب غير موجود' });
+      user = authMemo.set(String(claims.sub), result.rows[0]);
+    }
     if (!allowInactive && user.status !== 'active') return res.status(403).json({ error: 'الحساب غير مفعّل. تواصل مع الدعم' });
     req.auth = { ...claims, sub: String(user.id), role: user.role, status: user.status };
     return next();
@@ -71,8 +104,9 @@ async function optionalAuth(req, _res, next) {
   if (!h.startsWith('Bearer ')) return next();
   try {
     const claims = jwt.verify(h.slice(7), process.env.JWT_SECRET, { issuer: 'otlob-abis-api', audience: 'otlob-abis-app' });
-    const r = await pool.query('SELECT id, role, status FROM users WHERE id=$1', [claims.sub]);
-    if (r.rowCount) req.viewer = { id: String(r.rows[0].id), role: r.rows[0].role, status: r.rows[0].status };
+    let row = authMemo.get(String(claims.sub));
+    if (!row) { const r = await pool.query('SELECT id, role, status FROM users WHERE id=$1', [claims.sub]); if (r.rowCount) row = authMemo.set(String(claims.sub), r.rows[0]); }
+    if (row) req.viewer = { id: String(row.id), role: row.role, status: row.status };
   } catch {}
   next();
 }
@@ -88,7 +122,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261102;
+const SCHEMA_VERSION = 20261103;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -427,11 +461,13 @@ app.post('/api/push/unsubscribe', auth, asyncRoute(async (req, res) => {
 // Public runtime settings are read from PostgreSQL, so maintenance mode and announcements
 // apply consistently to every client using this API.
 async function loadSettings() {
+  const hit = settingsMemo.get('s');
+  if (hit) return hit;
   const r = await pool.query('SELECT app_enabled,maintenance_message,announcement,auto_assign,support_phone,support_name,updated_at FROM app_settings WHERE id=1');
   const x = r.rows[0];
   let loginImageV = 0;
   try { const li = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='login'"); if (li.rowCount) loginImageV = Number(li.rows[0].v); } catch { /* table not migrated yet */ }
-  return { loginImageV, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at };
+  return settingsMemo.set('s', { loginImageV, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 app.get('/api/settings', asyncRoute(async (_req, res) => {
   res.json({ settings: await loadSettings() });
@@ -493,8 +529,13 @@ async function listAds(viewer) {
 }
 app.get('/api/catalog', optionalAuth, asyncRoute(async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const [providers, products, regions, ads] = await Promise.all([listProviders(req.viewer), listProducts(req.viewer), listRegions(req.viewer), listAds(req.viewer).catch(() => [])]);
-  res.json({ providers, products, regions, ads });
+  // Same answer for every customer / courier / visitor; owners and providers see a bit more, so they get their own copies.
+  const v = req.viewer;
+  const key = v && (v.role === 'admin' || v.role === 'provider') ? `${v.role}:${v.id}` : 'public';
+  const hit = req.query.fresh ? undefined : catalogMemo.get(key);
+  if (hit) return res.json(hit);
+  const [providers, products, regions, ads] = await Promise.all([listProviders(v), listProducts(v), listRegions(v), listAds(v).catch(() => [])]);
+  res.json(catalogMemo.set(key, { providers, products, regions, ads }));
 }));
 
 // Owner of the service (or the app owner) edits the service details / open-closed switch.

@@ -312,9 +312,13 @@ function applySync(x: SyncPayload) {
     syncPushSubscription().catch(() => {});
   }
 }
+// Fingerprint of the last full answer: while it is unchanged the server replies with a few bytes and we skip all the work.
+let lastSyncTag: { uid: string; tag: string } | null = null;
 async function syncOrders() {
   if (pendingWrites > 0 || !state.userId) return;
-  applySync(await apiSync());
+  const x = await apiSync();
+  lastSyncTag = x.tag && state.userId ? { uid: state.userId, tag: x.tag } : null;
+  applySync(x);
 }
 
 async function syncCatalog() {
@@ -353,12 +357,20 @@ export async function syncRemote(withCatalog = true) {
     if (state.userId && (await hasApiToken())) {
       try {
         if (pendingWrites === 0) {
-          const x = await apiSync();
-          applySync(x);
+          const known = lastSyncTag && lastSyncTag.uid === state.userId ? lastSyncTag.tag : null;
+          const x = await apiSync(known);
           syncFails = 0;
+          if (x.unchanged) {
+            if (state.syncError) setState({ syncError: null });
+            if (state.userId) lastSyncTag = { uid: state.userId, tag: x.tag || known || '' };
+          } else {
+          lastSyncTag = x.tag && state.userId ? { uid: state.userId, tag: x.tag } : null;
+          applySync(x);
           const warn = x.warnings && x.warnings.length ? `بعض البيانات لم تُحمَّل (${x.warnings.join('، ')})` : null;
           if (state.syncError !== warn) setState({ syncError: warn });
-          if (x.user?.role === 'admin' && adminTick++ % 5 === 0) await syncAdminQueues();
+          }
+          const me = state.db.users.find((u) => u.id === state.userId);
+          if (me?.role === 'admin' && adminTick++ % 5 === 0) await syncAdminQueues();
         }
       } catch (e) {
         if (!(e instanceof ApiError && e.status === 401) && ++syncFails >= 2) {
@@ -422,11 +434,15 @@ export async function initStore() {
   // and a customer in a background tab hardly polls at all. The catalog changes slowly (every ~32s).
   setInterval(() => {
     syncTick++;
+    // After repeated failures back off (4s, 8s, 16s, 32s) instead of hammering a struggling server.
+    if (syncFails >= 3 && syncTick % Math.min(8, 2 ** (syncFails - 2)) !== 0) return;
     const me = state.db.users.find((u) => u.id === state.userId);
     const fast = !!me && (me.role === 'provider' || me.role === 'courier');
     const hidden = typeof document !== 'undefined' && document.hidden;
     if (!fast && (syncTick % 2 !== 0 || (hidden && syncTick % 8 !== 0))) return;
-    syncRemote(syncTick % 8 === 0);
+    // A little random delay so thousands of phones do not all ask at the same instant.
+    const withCatalog = syncTick % 8 === 0;
+    setTimeout(() => syncRemote(withCatalog), Math.floor(Math.random() * 1500));
   }, 4000);
   AppState.addEventListener('change', (st) => { if (st === 'active') syncRemote(); });
 }

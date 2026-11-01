@@ -202,9 +202,9 @@ export async function apiAdminDeleteRegion(id: string | number) {
 }
 
 /** Phase 4 (part B): orders, invoices, bookings and chat are central. */
-export type SyncPayload = { warnings?: string[]; couriersOnline?: number; settings: CentralSettings; user: ServerUser | null; orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
-export async function apiSync() {
-  return apiRequest<SyncPayload>('/api/sync');
+export type SyncPayload = { unchanged?: boolean; tag?: string; warnings?: string[]; couriersOnline?: number; settings: CentralSettings; user: ServerUser | null; orders: any[]; invoices: any[]; appointments: any[]; messages: any[]; bookedSlots: { doctorId: string; date: string; time: string }[] };
+export async function apiSync(tag?: string | null) {
+  return apiRequest<SyncPayload>(tag ? `/api/sync?tag=${encodeURIComponent(tag)}` : '/api/sync');
 }
 export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[] }) {
   return apiRequest<{ invoice: any; orders: any[]; address: string }>('/api/orders/checkout', { method: 'POST', body: JSON.stringify(input) });

@@ -4,6 +4,7 @@
  * The app mirrors /api/sync into its screens; every state change goes through one of the POST/PATCH routes below,
  * so the server alone decides who may do what (and who wins when two couriers tap "accept" together).
  */
+const crypto = require('crypto');
 const commissions = require('./commissions');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
   const num = v => Number(v) || 0;
@@ -184,7 +185,35 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   }
 
   /** One request refreshes the whole app: orders, invoices, bookings, chat. */
+  /**
+   * A tiny fingerprint of everything this user would receive. When the app sends the fingerprint it already has, the answer is
+   * just {unchanged:true}: no 300 orders / 1500 messages are read, serialised or sent, so polling stays cheap even with many users.
+   * Any trouble computing it simply falls back to the full answer.
+   */
+  async function syncTag(auth) {
+    const p = [Number(auth.sub)];
+    const so = orderScope(auth, p);
+    const sa = apptScope(auth, p);
+    const r = await pool.query(`WITH ord AS (SELECT o.id, o.status, o.updated_at, o.courier_user_id FROM orders o WHERE ${so} ORDER BY o.created_at DESC LIMIT 300),
+        apt AS (SELECT a.id, a.status, a.updated_at FROM appointments a WHERE ${sa} ORDER BY a.created_at DESC LIMIT 300)
+      SELECT
+        (SELECT md5(u::text) FROM users u WHERE u.id=$1) AS me,
+        (SELECT COALESCE(SUM(hashtextextended(ord.id::text||ord.status||ord.updated_at::text||COALESCE(ord.courier_user_id::text,''),0)::numeric),0)::text||':'||COUNT(*) FROM ord) AS o,
+        (SELECT COALESCE(SUM(hashtextextended(apt.id::text||apt.status||apt.updated_at::text,0)::numeric),0)::text||':'||COUNT(*) FROM apt) AS a,
+        (SELECT COUNT(*)||':'||COALESCE(MAX(m.id),0) FROM messages m WHERE m.order_id IN (SELECT id FROM ord)) AS m,
+        (SELECT updated_at::text FROM app_settings WHERE id=1) AS s,
+        (SELECT updated_at::text FROM site_images WHERE key='login') AS li,
+        (SELECT COUNT(*) FROM users WHERE role='courier' AND status='active' AND available=TRUE) AS c,
+        (SELECT COALESCE(SUM(hashtextextended(x.id::text||x.status||x.updated_at::text,0)::numeric),0)::text FROM appointments x WHERE x.status IN ('pending','confirmed') AND x.appointment_date >= CURRENT_DATE - 1) AS sl`, p);
+    return crypto.createHash('md5').update(JSON.stringify([auth.role, auth.status, r.rows[0]])).digest('hex');
+  }
+
   app.get('/api/sync', authAny, asyncRoute(async (req, res) => {
+    let tag = null;
+    if (req.auth.status === 'active') {
+      try { tag = await syncTag(req.auth); } catch (e) { console.error('sync tag failed:', e.message); }
+      if (tag && req.query.tag === tag) { res.set('Cache-Control', 'no-store'); return res.json({ unchanged: true, tag }); }
+    }
     const [settings, meRow] = await Promise.all([loadSettings(), pool.query('SELECT * FROM users WHERE id=$1', [Number(req.auth.sub)])]);
     const me = meRow.rows[0] ? cleanUser(meRow.rows[0]) : null;
     if (!me || req.auth.status !== 'active') {
@@ -222,7 +251,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const slots = { rows: slotRows };
     res.set('Cache-Control', 'no-store');
     res.json({
-      warnings, settings, user: me, couriersOnline: online,
+      warnings, tag: warnings.length ? undefined : tag || undefined, settings, user: me, couriersOnline: online,
       orders: orders.map(orderJson), invoices: invoices.map(invoiceJson), appointments: appts.map(apptJson), messages: messages.map(messageJson),
       bookedSlots: slots.rows.filter(s => s.doctor_product_id).map(s => ({ doctorId: String(s.doctor_product_id), date: s.d, time: s.t })),
     });
@@ -280,7 +309,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const finalOrders = [];
       for (const o of orders) {
         const d = { ...o.data, groupId: String(inv.rows[0].id), invoiceId: String(inv.rows[0].id) };
-        let row = (await db.query('UPDATE orders SET data=$1 WHERE id=$2 RETURNING *', [JSON.stringify(d), o.id])).rows[0];
+        let row = (await db.query('UPDATE orders SET updated_at=NOW(), data=$1 WHERE id=$2 RETURNING *', [JSON.stringify(d), o.id])).rows[0];
         await sysMsg(db, row.id, 'تم استلام طلبك وجاري التحضير 👨‍🍳');
         row = await tryAutoAssign(db, row);
         finalOrders.push(row);
@@ -318,7 +347,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         JSON.stringify({ number: `INV-${o.order_number}`, customerName: d.customerName, phone, address, parts: [
           { orderId: String(o.id), providerId: 'custom', providerName: CUSTOM_NAME, providerType: 'custom', items: [], customText: d.customText, subtotal: 0, deliveryFee: fee }] }),
       ])).rows[0];
-      o = (await db.query('UPDATE orders SET data=$1 WHERE id=$2 RETURNING *', [JSON.stringify({ ...o.data, groupId: String(inv.id), invoiceId: String(inv.id) }), o.id])).rows[0];
+      o = (await db.query('UPDATE orders SET updated_at=NOW(), data=$1 WHERE id=$2 RETURNING *', [JSON.stringify({ ...o.data, groupId: String(inv.id), invoiceId: String(inv.id) }), o.id])).rows[0];
       o = await tryAutoAssign(db, o);
       return { o, inv };
     });
