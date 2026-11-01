@@ -121,7 +121,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   const notify = (ids, title, body, tag) => {
     const list = (ids || []).filter(Boolean);
     if (!pushToUsers || !list.length) return Promise.resolve();
-    return pushToUsers(list, { title, body, tag, url: '/', requireInteraction: true }).catch(() => {});
+    // The customer must not wait for phones to be notified: give the push at most 1.5s, then answer (it keeps going on its own).
+    let t;
+    const slow = new Promise(r => { t = setTimeout(r, 1500); });
+    const job = pushToUsers(list, { title, body, tag, url: '/', requireInteraction: true }).catch(() => {});
+    return Promise.race([job, slow]).finally(() => clearTimeout(t));
   };
   async function onlineCourierIds() {
     return (await pool.query("SELECT id FROM users WHERE role='courier' AND status='active' AND available=TRUE")).rows.map(r => r.id);

@@ -189,3 +189,5 @@
 - التطبيق: تأخير عشوائي بسيط، وتباطؤ تدريجي عند فشل الاتصال.
 - متغير اختياري `DB_POOL_MAX`. ويُنصح بتغيير `DATABASE_URL` لعنوان Neon الـ pooled (إضافة `-pooler` بعد اسم الـ endpoint).
 - اختبارات: tests/sync.test.js (21).
+- الاحتياطي: `DATABASE_URL_BACKUP` (قراءة فقط تلقائيًا عند سقوط الأساسية)، و`EXPO_PUBLIC_API_URL_BACKUP` (تحويل التطبيق لسيرفر ثانٍ). التفاصيل في README_STANDBY_AR.md. اختبار: tests/failover.test.js.
+- تسريع إنشاء الطلب: انتظار التنبيهات حد أقصى 1.5 ثانية.

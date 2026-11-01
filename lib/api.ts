@@ -7,6 +7,9 @@ import * as SecureStore from 'expo-secure-store';
  * Do not put secrets in EXPO_PUBLIC_* variables; they are bundled into the client.
  */
 const API_BASE = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '');
+// Optional standby server (same code, same database): used automatically while the main one does not answer.
+const API_BACKUP = (process.env.EXPO_PUBLIC_API_URL_BACKUP || '').replace(/\/$/, '');
+let mainDownUntil = 0;
 const TOKEN_KEY = 'otlob_abis_api_token_v1';
 
 export class ApiError extends Error {
@@ -44,7 +47,24 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, aut
   // a request that never answers must not freeze the whole app (sync and saves wait for each other)
   const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = ctl ? setTimeout(() => ctl.abort(), 20000) : null;
-  try { response = await fetch(`${API_BASE}${path.startsWith('/') ? path : `/${path}`}`, { ...options, headers, signal: ctl?.signal }); }
+  const rel = path.startsWith('/') ? path : `/${path}`;
+  const isRead = !options.method || options.method.toUpperCase() === 'GET';
+  const useBackup = !!API_BACKUP && Date.now() < mainDownUntil;
+  const t0 = Date.now();
+  try {
+    try { response = await fetch(`${useBackup ? API_BACKUP : API_BASE}${rel}`, { ...options, headers, signal: ctl?.signal }); }
+    catch (err) {
+      // Main server unreachable: try the standby. Writes are retried only when the failure was instant (refused / no route),
+      // never after a long wait, so an order that may already have reached the main server is not sent twice.
+      if (!API_BACKUP || useBackup || !(isRead || Date.now() - t0 < 3000)) throw err;
+      mainDownUntil = Date.now() + 30000;
+      response = await fetch(`${API_BACKUP}${rel}`, { ...options, headers, signal: ctl?.signal });
+    }
+    if (API_BACKUP && !useBackup && [502, 503, 504].includes(response.status) && isRead) {
+      mainDownUntil = Date.now() + 30000;
+      try { response = await fetch(`${API_BACKUP}${rel}`, { ...options, headers, signal: ctl?.signal }); } catch {}
+    }
+  }
   catch { throw new ApiError('تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى.', 0); }
   finally { if (timer) clearTimeout(timer); }
   if (response.status === 204) return undefined as T;

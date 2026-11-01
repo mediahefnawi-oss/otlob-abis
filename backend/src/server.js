@@ -17,6 +17,34 @@ if (process.env.JWT_SECRET.length < 32) { console.error('JWT_SECRET must be at l
 
 const app = express();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'false' ? false : process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: Number(process.env.DB_POOL_MAX) || (process.env.VERCEL ? 4 : 10), idleTimeoutMillis: 20000, connectionTimeoutMillis: 8000, statement_timeout: 15000, query_timeout: 20000, keepAlive: true });
+// ---- standby database (optional): DATABASE_URL_BACKUP is a continuously-copied second database ----
+// While the main database does not answer, READ queries (catalog, orders, chat history...) are served from the standby, so the app keeps
+// working on screen. WRITES never go to the standby automatically (two databases accepting orders at once would split the data);
+// promoting the standby to main is a deliberate switch of DATABASE_URL.
+const standby = process.env.DATABASE_URL_BACKUP
+  ? new Pool({ connectionString: process.env.DATABASE_URL_BACKUP, ssl: process.env.DATABASE_SSL === 'false' ? false : process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined, max: 3, idleTimeoutMillis: 20000, connectionTimeoutMillis: 5000, statement_timeout: 15000, keepAlive: true })
+  : null;
+let mainDownUntil = 0;
+const connectionFailure = e => !!e && (['ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', '57P01', '57P02', '57P03', '53300'].includes(e.code)
+  || /connection terminated|timeout exceeded|connect ETIMEDOUT|Connection terminated|the database system is/i.test(String(e.message)));
+const isReadOnlySql = t => typeof t === 'string' && /^\s*(select|with)\b/i.test(t) && !/\b(insert|update|delete|truncate|alter|drop|create|nextval|pg_advisory)\b/i.test(t);
+if (standby) {
+  standby.on('error', err => console.error('Standby pool error:', err.message));
+  const mainQuery = pool.query.bind(pool);
+  pool.query = async function (text, params) {
+    if (typeof text !== 'string' || !isReadOnlySql(text)) return mainQuery(text, params);
+    if (Date.now() < mainDownUntil) {
+      try { return await standby.query(text, params); } catch { /* standby also failing: try the main one once more */ }
+    }
+    try { return await mainQuery(text, params); }
+    catch (e) {
+      if (!connectionFailure(e)) throw e;
+      mainDownUntil = Date.now() + 15000;   // stop waiting on the main database for a few seconds
+      console.error('Main database unreachable, reading from standby:', e.message);
+      return standby.query(text, params);
+    }
+  };
+}
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet());
@@ -200,7 +228,8 @@ app.use((_req, _res, next) => {
 
 app.get('/api/health', asyncRoute(async (_req, res) => {
   await pool.query('SELECT 1');
-  res.json({ ok: true, service: 'otlob-abis-api', database: 'connected', schema: schemaState });
+  // 'standby' = the main database is not answering and reads come from the copy (writes are paused): worth an alert
+  res.json({ ok: true, service: 'otlob-abis-api', database: standby && Date.now() < mainDownUntil ? 'standby' : 'connected', standbyConfigured: !!standby, schema: schemaState });
 }));
 
 app.post('/api/auth/register', asyncRoute(async (req, res) => {
