@@ -861,7 +861,7 @@ export async function setProviderLogo(providerId: string, image: string | null):
 /** Owner: put a place in / take it out of the customers' "الأعلى تقييماً" row. */
 export async function setProviderFeatured(providerId: string, featured: boolean): Promise<Result> {
   try {
-    await apiJson(`/api/admin/providers/${encodeURIComponent(providerId)}/featured`, { method: 'PATCH', body: JSON.stringify({ featured }) });
+    await apiJson(`/api/admin/providers/${encodeURIComponent(providerId)}/featured`, 'PATCH', { featured });
     mutate((db) => { db.providers = db.providers.map((p) => (p.id === providerId ? { ...p, featured } : p)); });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
@@ -869,7 +869,7 @@ export async function setProviderFeatured(providerId: string, featured: boolean)
 /** Owner: set the area a place is in. */
 export async function setProviderRegion(providerId: string, regionId: string): Promise<Result> {
   try {
-    await apiJson(`/api/admin/providers/${encodeURIComponent(providerId)}/region`, { method: 'PATCH', body: JSON.stringify({ regionId }) });
+    await apiJson(`/api/admin/providers/${encodeURIComponent(providerId)}/region`, 'PATCH', { regionId });
     const name = state.db.regions.find((r) => r.id === regionId)?.name;
     mutate((db) => { db.providers = db.providers.map((p) => (p.id === providerId ? { ...p, regionId, regionName: name } : p)); });
     return { ok: true };
