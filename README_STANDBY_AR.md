@@ -18,3 +18,12 @@
 
 ## تنبيه
 تفعيل Logical replication على Neon يعيد تشغيل القاعدة لحظات ولا يمكن التراجع عنه. اعمله وقت هادئ.
+
+## ما تم إعداده فعلًا (مجانًا)
+- مشروع Neon الاحتياطي: `Otlob-abis-standby` (لندن) — النسخ اللحظي شغال من `Otlob-abis` عبر `otlob_pub` / `otlob_sub`، وحساب قراءة فقط اسمه `standby_replicator`.
+- لو أضفت جداول أو أعمدة في إصدار جديد: طبّق نفس التغيير على القاعدة الاحتياطية أيضًا (النسخ اللحظي ينقل الصفوف فقط).
+
+## عند ترقية الاحتياطية لأساسية (طوارئ)
+شغّل مرة واحدة على الاحتياطية قبل تحويل `DATABASE_URL` إليها، لأن عدّادات الأرقام التسلسلية لا تُنسخ:
+`SELECT setval(pg_get_serial_sequence('orders','id'), COALESCE(MAX(id),1)) FROM orders;` وكرّرها لباقي الجداول (users, providers, products, messages, appointments, invoices, commission_entries ...) وأيضًا `order_number` و`invoice_number`.
+ثم أوقف النسخ: `ALTER SUBSCRIPTION otlob_sub DISABLE;`
