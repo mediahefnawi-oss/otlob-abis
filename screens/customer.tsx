@@ -136,7 +136,7 @@ export function HomeScreen({ navigation }: any) {
                   <Text style={{ fontSize: 38 }}>🎁</Text>
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <T w="black" size={20} color={C.dark}>اطلب إيه؟ تجيهولك</T>
+                  <T w="black" size={20} color={C.dark}>اطلب إيه؟ نجيبهولك</T>
                   <T size={12.5} color={C.dark3}>اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس</T>
                 </View>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center' }}>
@@ -188,15 +188,6 @@ export function HomeScreen({ navigation }: any) {
               )}
             />
           </View>}
-
-          <View style={{ marginTop: 14 }}>
-            <SectionTitle title="عيادات بالقرب منك" action="الكل" onAction={() => navigation.navigate('Category', { type: 'clinic' })} />
-            <View style={{ gap: 10 }}>
-              {provs.filter((p) => p.type === 'clinic').slice(0, 3).map((p, i) => (
-                <Appear key={p.id} i={i}><ProviderCard p={p} onPress={() => navigation.navigate('Provider', { id: p.id })} /></Appear>
-              ))}
-            </View>
-          </View>
         </ScrollView>
       )}
 
@@ -509,7 +500,7 @@ export function CustomOrderScreen({ navigation }: any) {
   };
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title="اطلب إيه؟ تجيهولك" onBack={() => navigation.goBack()} subtitle="اكتب طلبك وسيقوم المندوب بتوفيره لك" />
+      <Header title="اطلب إيه؟ نجيبهولك" onBack={() => navigation.goBack()} subtitle="اكتب طلبك وسيقوم المندوب بتوفيره لك" />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: 'center' }}><Text style={{ fontSize: 70 }}>🎁</Text></View>
