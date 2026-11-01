@@ -47,16 +47,17 @@ export function AdsCarousel() {
         <Animated.View key={ad.id} entering={FadeIn.duration(450)} style={{ flex: 1 }}>
           <Image source={{ uri: adImageUrl(ad) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
         </Animated.View>
-        {ads.length > 1 && (
-          <View style={{ position: 'absolute', bottom: 8, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-            {ads.map((a, k) => (
-              <Pressable key={a.id} onPress={() => setI(k)} hitSlop={6}>
-                <View style={{ width: k === i ? 18 : 7, height: 7, borderRadius: 4, backgroundColor: k === i ? C.gold : 'rgba(255,255,255,0.7)' }} />
-              </Pressable>
-            ))}
-          </View>
-        )}
       </Pressable>
+      {ads.length > 1 && (
+        // the dots sit under the picture so they never cover the banner's own icons
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 8 }}>
+          {ads.map((a, k) => (
+            <Pressable key={a.id} onPress={() => setI(k)} hitSlop={6}>
+              <View style={{ width: k === i ? 18 : 7, height: 7, borderRadius: 4, backgroundColor: k === i ? C.gold : C.line }} />
+            </Pressable>
+          ))}
+        </View>
+      )}
     </View>
   );
 }

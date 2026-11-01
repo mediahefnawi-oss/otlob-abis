@@ -21,6 +21,7 @@ export function T({
   return (
     <Text
       numberOfLines={numberOfLines}
+      maxFontSizeMultiplier={1.1} // the phone's "large text" setting must not break the layout
       style={[{ fontFamily: FONT[w], fontSize: size, color, textAlign: align || 'right', writingDirection: 'rtl' }, style]}
       {...rest}
     >
@@ -274,6 +275,7 @@ export function Field({ label, icon, ...p }: TextInputProps & { label?: string; 
       <View style={[styles.field, focus && { borderColor: C.gold, backgroundColor: '#fff' }, p.multiline && { alignItems: 'flex-start' }]}>
         {icon && <Icon name={icon} size={18} color={focus ? C.goldDeep : C.sub} style={p.multiline ? { marginTop: 12 } : undefined} />}
         <TextInput
+          maxFontSizeMultiplier={1.1}
           placeholderTextColor="#9AA8A2"
           onFocus={() => setFocus(true)}
           onBlur={() => setFocus(false)}
@@ -294,6 +296,7 @@ export const SearchBar = ({ value, onChange, placeholder }: { value: string; onC
   <View style={styles.search}>
     <Icon name="search" size={19} color={C.sub} />
     <TextInput
+      maxFontSizeMultiplier={1.1}
       value={value}
       onChangeText={onChange}
       placeholder={placeholder}

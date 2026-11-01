@@ -490,6 +490,7 @@ export function ChatScreen({ navigation, route }: any) {
             )} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <TextInput
+                maxFontSizeMultiplier={1.1}
                 value={text}
                 onChangeText={setText}
                 placeholder="اكتب رسالتك..."
