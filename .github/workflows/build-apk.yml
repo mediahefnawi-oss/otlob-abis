@@ -52,10 +52,51 @@ jobs:
           else console.log('No google-services.json: the app is built without phone notifications');
           fs.writeFileSync('app.json',JSON.stringify(a,null,2));
           "
+      - name: Signing key (made once, then reused so every new version installs over the old one)
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSPHRASE }}
+        run: |
+          if [ -z "$KS_PASS" ]; then echo "Add the repository secret KEYSTORE_PASSPHRASE first"; exit 1; fi
+          if [ -f signing/release.keystore.enc ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -pass env:KS_PASS -in signing/release.keystore.enc -out /tmp/release.keystore
+            echo "Existing signing key restored"
+          else
+            keytool -genkeypair -keystore /tmp/release.keystore -storepass "$KS_PASS" -keypass "$KS_PASS" -alias otlob -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Otlob Abis"
+            mkdir -p signing
+            openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:KS_PASS -in /tmp/release.keystore -out signing/release.keystore.enc
+            git config user.name "bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add signing/release.keystore.enc
+            git commit -m "Signing key (encrypted)"
+            git push
+            echo "New signing key created and saved (encrypted)"
+          fi
       - name: Create the Android project
         run: npx expo prebuild --platform android --no-install --clean
+      - name: Sign the release with our key
+        run: |
+          cat >> android/app/build.gradle <<'EOF'
+
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file('/tmp/release.keystore')
+                      storePassword System.getenv('KS_PASS')
+                      keyAlias 'otlob'
+                      keyPassword System.getenv('KS_PASS')
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          EOF
       - name: Build the APK
         working-directory: android
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSPHRASE }}
         run: ./gradlew assembleRelease --no-daemon
       - name: Name the file
         run: cp android/app/build/outputs/apk/release/*.apk otlob-abis.apk
