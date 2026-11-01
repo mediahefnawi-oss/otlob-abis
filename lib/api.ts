@@ -122,6 +122,14 @@ export async function apiSetUserStatus(id: string | number, status: 'active' | '
   );
 }
 
+export async function apiDeleteCourier(id: string | number) {
+  return apiRequest<{ ok: boolean }>(`/api/admin/couriers/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+}
+
+export async function apiSetUserFlag(id: string | number, flag: string, note: string) {
+  return apiRequest<{ ok: boolean; flag: string; note: string }>(`/api/admin/users/${encodeURIComponent(String(id))}/flag`, { method: 'PATCH', body: JSON.stringify({ flag, note }) });
+}
+
 /** Catalog and order endpoints used by the central-store migration. */
 export async function apiHealth() {
   return apiRequest<{ ok: boolean; service: string; database: string }>('/api/health', {}, false);
@@ -168,7 +176,7 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; vehicle?: string; available?: boolean; availableSince?: number };
+export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');

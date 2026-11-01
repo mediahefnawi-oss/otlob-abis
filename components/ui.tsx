@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { C, R, FONT, shadow } from '../lib/theme';
-import { ORDER_STATUS, APPT_STATUS, ACCOUNT_STATUS } from '../lib/format';
+import { ORDER_STATUS, APPT_STATUS, ACCOUNT_STATUS, FLAGS } from '../lib/format';
 
 /* ---------- text ---------- */
 type W = 'regular' | 'semi' | 'bold' | 'black';
@@ -208,6 +208,7 @@ export const Pill = ({ label, color, soft, icon }: { label: string; color: strin
 );
 export const OrderPill = ({ s }: { s: keyof typeof ORDER_STATUS }) => <Pill label={ORDER_STATUS[s].label} color={ORDER_STATUS[s].color} soft={ORDER_STATUS[s].soft} icon={ORDER_STATUS[s].icon} />;
 export const ApptPill = ({ s }: { s: keyof typeof APPT_STATUS }) => <Pill label={APPT_STATUS[s].label} color={APPT_STATUS[s].color} soft={APPT_STATUS[s].soft} />;
+export const FlagPill = ({ flag }: { flag?: string }) => (flag && FLAGS[flag] ? <Pill label={FLAGS[flag].label} color={FLAGS[flag].color} soft={FLAGS[flag].soft} icon={FLAGS[flag].icon} /> : null);
 export const AcctPill = ({ s }: { s: string }) => <Pill label={ACCOUNT_STATUS[s].label} color={ACCOUNT_STATUS[s].color} soft={ACCOUNT_STATUS[s].soft} />;
 
 export const EmojiBubble = ({ emoji, size = 52, bg = C.goldSoft }: { emoji: string; size?: number; bg?: string }) => (

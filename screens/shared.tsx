@@ -7,11 +7,11 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { C, R, shadow, FONT } from '../lib/theme';
 import {
   T, Icon, Card, Btn, Header, Empty, Row, OrderPill, ApptPill, Pill, IconBubble, EmojiBubble, Sheet, Field, Logo,
-  toast, confirmDialog, openWhats, callPhone, IconBtn, SectionTitle, AcctPill,
+  toast, confirmDialog, openWhats, callPhone, IconBtn, SectionTitle, AcctPill, FlagPill,
 } from '../components/ui';
 import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened } from '../lib/store';
 import { CommissionTrail } from '../components/Finance';
-import { ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
+import { FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
 import { QuoteButtons, MakerOrderButtons, RequestPhoto } from '../components/Quote';
@@ -138,6 +138,13 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             </View>
           ) : null}
         </Card>
+
+        {me.role !== 'customer' && !!o.customerFlag && (
+          <Card style={{ gap: 6, borderWidth: 1.5, borderColor: FLAGS[o.customerFlag]?.color || C.line }}>
+            <FlagPill flag={o.customerFlag} />
+            {!!o.customerFlagNote && <T size={12.5} color={C.dark3}>{o.customerFlagNote}</T>}
+          </Card>
+        )}
 
         {/* items */}
         <Card style={{ gap: 10 }}>

@@ -82,6 +82,13 @@ export const ACCOUNT_STATUS: Record<string, { label: string; color: string; soft
   suspended: { label: 'موقوف', color: C.red, soft: C.redSoft },
 };
 
+/** The owner's labels on customer accounts. */
+export const FLAGS: Record<string, { label: string; icon: string; color: string; soft: string }> = {
+  trusted: { label: 'حساب معتمد', icon: 'shield-checkmark', color: C.green, soft: C.greenSoft },
+  watch: { label: 'تحت المراقبة', icon: 'eye', color: C.goldDeep, soft: C.goldSoft },
+  fraud: { label: 'حساب احتيالي', icon: 'warning', color: C.red, soft: C.redSoft },
+};
+
 export const SPECIALTIES = ['باطنة', 'أطفال', 'أسنان', 'عيون', 'نساء وتوليد', 'عظام', 'جلدية'];
 export const SPEC_EMOJI: Record<string, string> = {
   باطنة: '🩺',

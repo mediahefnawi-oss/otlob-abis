@@ -4,7 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { C, shadow } from '../lib/theme';
 import {
   T, Icon, Toggle, IconBtn, Sheet, Card, Btn, Header, Empty, Segmented, Stat, Appear, Chip, EmojiBubble, IconBubble, Pill, AcctPill, OrderPill, Field,
-  toast, confirmDialog, SectionTitle, Row, callPhone, openWhats,
+  toast, confirmDialog, SectionTitle, Row, callPhone, openWhats, FlagPill,
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
 import { ProviderLogo } from '../components/Brand';
@@ -12,9 +12,9 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminResetPassword, setProviderFeatured, setProviderRegion,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag,
 } from '../lib/store';
-import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS } from '../lib/format';
+import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS } from '../lib/format';
 import { RegionsManager, RegionPicker } from '../components/Regions';
 import { LoginImageManager, AppIconManager, CatIconsManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
@@ -92,6 +92,15 @@ export function AdminDashboardScreen({ navigation, go }: any) {
       <Header title="لوحة الإدارة" subtitle={`مرحباً ${me.name}`} />
       <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }}>
         <AppSwitch />
+
+        <Card onPress={() => navigation.navigate('AdminCustomers')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <IconBubble icon="people" color={C.goldDeep} bg={C.goldSoft} size={46} />
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={15}>إدارة العملاء</T>
+            <T size={12} color={C.sub}>إيقاف الحسابات ووضع علامات (معتمد / مراقبة / احتيالي)</T>
+          </View>
+          <Icon name="chevron-back" size={18} color={C.sub} />
+        </Card>
 
         {(pendingProv.length > 0 || pendingCour.length > 0) && (
           <Appear>
@@ -454,4 +463,121 @@ export function AdminSettingsScreen({ navigation }: any) {
     </>
   );
   return <ProfileScreen navigation={navigation} extra={extra} title="الإعدادات" />;
+}
+
+
+/* ---------------- Customers: suspend + label ---------------- */
+const FLAG_FILTERS = [
+  { key: 'all', label: 'الكل' },
+  { key: 'trusted', label: 'معتمد' },
+  { key: 'watch', label: 'مراقبة' },
+  { key: 'fraud', label: 'احتيالي' },
+  { key: 'suspended', label: 'موقوف' },
+];
+
+export function AdminCustomersScreen({ navigation }: any) {
+  const rc = useRC();
+  const { db } = useStore();
+  const [q, setQ] = useState('');
+  const [f, setF] = useState('all');
+  const regionOf = (id?: string | null) => db.regions.find((x) => x.id === id)?.name || '';
+  const all = db.users.filter((u) => u.role === 'customer');
+  const list = all
+    .filter((u) => (f === 'all' ? true : f === 'suspended' ? u.status === 'suspended' : u.accountFlag === f))
+    .filter((u) => !q.trim() || u.name.includes(q.trim()) || (u.phone || '').includes(q.trim()))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const cnt = (k: string) => (k === 'all' ? all.length : k === 'suspended' ? all.filter((u) => u.status === 'suspended').length : all.filter((u) => u.accountFlag === k).length);
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="إدارة العملاء" subtitle={`${all.length} عميل`} onBack={() => navigation.goBack()} />
+      <View style={{ padding: 16, paddingBottom: 4, gap: 10 }}>
+        <Field icon="search" placeholder="بحث بالاسم أو رقم الهاتف" value={q} onChangeText={setQ} />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {FLAG_FILTERS.map((x) => <Chip key={x.key} label={x.label} active={f === x.key} count={x.key === 'all' ? undefined : cnt(x.key)} onPress={() => setF(x.key)} />)}
+        </ScrollView>
+      </View>
+      <FlatList
+        data={list}
+        keyExtractor={(u) => u.id}
+        refreshControl={rc}
+        contentContainerStyle={{ padding: 16, gap: 10 }}
+        ListEmptyComponent={<Empty icon="people" title="لا يوجد عملاء" />}
+        renderItem={({ item }) => {
+          const n = db.orders.filter((o) => o.customerId === item.id).length;
+          return (
+            <Card onPress={() => navigation.navigate('AdminCustomer', { id: item.id })} style={{ gap: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <IconBubble icon="person" color={C.dark3} bg={C.goldSoft} size={44} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <T w="bold" size={15}>{item.name}</T>
+                  <T size={11.5} color={C.sub}>{item.phone}{regionOf(item.regionId) ? ` • ${regionOf(item.regionId)}` : ''} • {n} طلب</T>
+                </View>
+                {item.status !== 'active' && <AcctPill s={item.status} />}
+              </View>
+              {!!item.accountFlag && <FlagPill flag={item.accountFlag} />}
+            </Card>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+export function AdminCustomerScreen({ navigation, route }: any) {
+  const { db } = useStore();
+  const user = db.users.find((u) => u.id === route.params.id);
+  const [flag, setFlag] = useState(user?.accountFlag || '');
+  const [note, setNote] = useState(user?.flagNote || '');
+  const [busy, setBusy] = useState(false);
+  if (!user) return <View style={{ flex: 1 }}><Header title="العميل" onBack={() => navigation.goBack()} /><Empty title="غير موجود" /></View>;
+  const orders = db.orders.filter((o) => o.customerId === user.id).sort((a, b) => b.createdAt - a.createdAt);
+  const dirty = flag !== (user.accountFlag || '') || (flag && note.trim() !== (user.flagNote || ''));
+  const save = async () => {
+    setBusy(true);
+    await done(setCustomerFlag(user.id, flag, note.trim()), flag ? 'تم حفظ العلامة ✅' : 'تم إزالة العلامة', 'ok');
+    setBusy(false);
+  };
+  const suspended = user.status === 'suspended';
+  const toggleSuspend = () =>
+    confirmDialog({
+      title: suspended ? 'إعادة تفعيل الحساب؟' : 'إيقاف الحساب؟',
+      message: suspended ? 'سيتمكن العميل من استخدام التطبيق مرة أخرى.' : 'لن يتمكن العميل من الدخول أو الطلب حتى تعيد تفعيله.',
+      danger: !suspended,
+      confirmText: suspended ? 'إعادة التفعيل' : 'إيقاف الحساب',
+      onConfirm: () => { done(setUserStatus(user.id, suspended ? 'active' : 'suspended'), suspended ? 'تم تفعيل الحساب ✅' : 'تم إيقاف الحساب', suspended ? 'ok' : 'info'); },
+    });
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title={user.name} subtitle="عميل" onBack={() => navigation.goBack()} right={<AcctPill s={user.status} />} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+        <Card style={{ gap: 8 }}>
+          <T size={13} color={C.sub}>الهاتف: {user.phone}</T>
+          {!!db.regions.find((x) => x.id === user.regionId) && <T size={13} color={C.sub}>المنطقة: {db.regions.find((x) => x.id === user.regionId)!.name}</T>}
+          <T size={13} color={C.sub}>عدد الطلبات: {orders.length} • المكتملة: {orders.filter((o) => o.status === 'delivered').length}</T>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn small variant="green" icon="call" title="اتصال" style={{ flex: 1 }} onPress={() => callPhone(user.phone)} />
+            <Btn small variant="green" icon="logo-whatsapp" title="واتساب" style={{ flex: 1 }} onPress={() => openWhats(user.phone)} />
+          </View>
+        </Card>
+
+        <Card style={{ gap: 12 }}>
+          <T w="bold" size={15}>علامة الحساب</T>
+          <T size={12} color={C.sub}>تظهر لمقدمي الخدمات والمناديب على طلبات هذا العميل (ولا يراها العميل).</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {Object.keys(FLAGS).map((k) => <Chip key={k} label={FLAGS[k].label} icon={FLAGS[k].icon} active={flag === k} onPress={() => setFlag(k)} />)}
+            <Chip label="بدون علامة" active={flag === ''} onPress={() => setFlag('')} />
+          </View>
+          {!!flag && <Field label="ملاحظة تظهر لهم (اختياري)" placeholder="مثال: رفض الاستلام مرتين" value={note} onChangeText={setNote} multiline maxLength={200} />}
+          <Btn title="حفظ العلامة" icon="checkmark" disabled={busy || !dirty} onPress={save} />
+        </Card>
+
+        <Btn variant={suspended ? 'green' : 'danger'} icon={suspended ? 'play' : 'ban'} title={suspended ? 'إعادة تفعيل الحساب' : 'إيقاف الحساب'} onPress={toggleSuspend} />
+
+        <SectionTitle title="طلبات العميل" />
+        {orders.length === 0 ? <T size={13} color={C.sub}>لا توجد طلبات.</T> : orders.slice(0, 15).map((o) => (
+          <OrderCard key={o.id} o={o} perspective="admin" onPress={() => navigation.navigate('OrderDetail', { id: o.id })} />
+        ))}
+      </ScrollView>
+    </View>
+  );
 }

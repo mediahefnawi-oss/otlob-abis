@@ -5,7 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 import {
-  ApiError, ServerUser, apiLogin, apiRegister, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
+  ApiError, ServerUser, apiDeleteCourier, apiLogin, apiSetUserFlag, apiRegister, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
@@ -111,6 +111,8 @@ const fromServer = (s: ServerUser, old?: User): User => ({
   address: s.address || '',
   status: s.status as AccountStatus,
   regionId: s.regionId ?? null,
+  accountFlag: s.accountFlag || '',
+  flagNote: s.flagNote || '',
   createdAt: s.createdAt ? Date.parse(s.createdAt) || Date.now() : old?.createdAt ?? Date.now(),
 });
 
@@ -119,7 +121,7 @@ function mirrorUser(s: ServerUser) {
   const next = fromServer(s, old);
   const same = old && old.name === next.name && old.phone === next.phone && old.role === next.role
     && old.address === next.address && old.status === next.status && (old.regionId ?? null) === (next.regionId ?? null)
-    && old.available === next.available && old.vehicle === next.vehicle;
+    && old.available === next.available && old.vehicle === next.vehicle && (old.accountFlag || '') === (next.accountFlag || '') && (old.flagNote || '') === (next.flagNote || '');
   if (same) return;
   mutate((db) => {
     db.users = old ? db.users.map((u) => (u.id === s.id ? next : u)) : [...db.users, next];
@@ -940,6 +942,16 @@ export async function setUserStatus(userId: string, status: AccountStatus): Prom
   });
   return { ok: true };
 }
+/** Owner: label a customer account (trusted / watch / fraud, '' = none). Shops and couriers then see it on that customer's orders. */
+export async function setCustomerFlag(userId: string, flag: string, note: string): Promise<Result> {
+  try { await apiSetUserFlag(userId, flag, note); }
+  catch (e) { return { ok: false, error: errMsg(e) }; }
+  mutate((db) => {
+    db.users = db.users.map((u) => (u.id === userId ? { ...u, accountFlag: flag, flagNote: flag ? note : '' } : u));
+    db.orders = db.orders.map((o) => (o.customerId === userId && !['delivered', 'cancelled', 'rejected', 'unavailable'].includes(o.status) ? { ...o, customerFlag: flag || undefined, customerFlagNote: flag ? note : undefined } : o));
+  });
+  return { ok: true };
+}
 /** Owner-only. Saved on the server first, so every user sees the change on their next sync. */
 export async function updateSettings(patch: Partial<Settings>): Promise<Result> {
   try {
@@ -1034,7 +1046,7 @@ export async function adminDeleteProvider(providerId: string): Promise<Result> {
 
 export async function adminDeleteCourier(userId: string): Promise<Result> {
   if (isServerId(userId)) {
-    try { await apiSetUserStatus(userId, 'suspended'); }
+    try { await apiDeleteCourier(userId); }
     catch (e) { return { ok: false, error: errMsg(e) }; }
   }
   mutate((db) => {

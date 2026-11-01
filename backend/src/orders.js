@@ -58,6 +58,25 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const row = r.rows[0] || {};
     return row.name ? { id: row.region_id, name: row.name, fee: Number(row.delivery_fee) } : null;
   }
+  /** The owner's label on the customer (trusted / watch / fraud), copied onto the order so shops and couriers see it. */
+  async function flagData(db, userId) {
+    try {
+      const r = await db.query('SELECT account_flag, flag_note FROM users WHERE id=$1', [userId]);
+      const x = r.rows[0];
+      return x && x.account_flag ? { customerFlag: x.account_flag, customerFlagNote: x.flag_note || '' } : {};
+    } catch { return {}; } // column not migrated yet: never block an order because of a label
+  }
+  // shops, couriers and the owner see the label; the customer never does
+  const orderJsonFor = (r, role) => {
+    const o = orderJson(r);
+    const d = r.data || {};
+    return role === 'customer' || !d.customerFlag ? o : { ...o, customerFlag: d.customerFlag, customerFlagNote: d.customerFlagNote || undefined };
+  };
+  const apptJsonFor = (r, role) => {
+    const a = apptJson(r);
+    const d = r.data || {};
+    return role === 'customer' || !d.customerFlag ? a : { ...a, customerFlag: d.customerFlag, customerFlagNote: d.customerFlagNote || undefined };
+  };
   /** The area the provider registered in (the owner's area): shown to the courier as "from area X to area Y". */
   async function providerRegionName(db, providerId) {
     const r = await db.query('SELECT g.name FROM providers p JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE p.id=$1', [providerId]);
@@ -263,7 +282,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     res.set('Cache-Control', 'no-store');
     res.json({
       warnings, tag: warnings.length ? undefined : tag || undefined, settings, user: me, couriersOnline: online,
-      orders: orders.map(orderJson), invoices: invoices.map(invoiceJson), appointments: appts.map(apptJson), messages: messages.map(messageJson),
+      orders: orders.map(r => orderJsonFor(r, req.auth.role)), invoices: invoices.map(invoiceJson), appointments: appts.map(r => apptJsonFor(r, req.auth.role)), messages: messages.map(messageJson),
       bookedSlots: slots.rows.filter(s => s.doctor_product_id).map(s => ({ doctorId: String(s.doctor_product_id), date: s.d, time: s.t })),
     });
   }));
@@ -302,7 +321,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         const fee = g.p.ptype === 'clinic' ? 0 : region ? region.fee : Number(g.p.pfee);
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
-          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id),
+          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub))),
           // a maker decides first (ready now / a day and hour / apologise); every other shop starts preparing at once
           history: g.p.ptype === 'maker' ? [{ status: 'pending', at: Date.now() }] : [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
         };
@@ -353,7 +372,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const fee = region ? region.fee : FALLBACK_CUSTOM_FEE;
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: CUSTOM_NAME, providerType: 'custom', providerOwnerId: '', items: [],
-        customText: text.slice(0, 1000), subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined,
+        customText: text.slice(0, 1000), subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub))),
         history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
       };
       let o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,NULL,\'accepted\',$2,$3,$4) RETURNING *',
@@ -394,7 +413,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const fee = region ? region.fee : Number(prov.delivery_fee);
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
-        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id),
+        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub))),
         request: { text, hasImage: !!image }, history: [{ status: 'pending', at: Date.now() }],
       };
       const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',
@@ -469,7 +488,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return { order: r.rows[0], invoice: inv };
     });
     await notify([out.order.customer_user_id], out.order.status === 'unavailable' ? 'الأصناف غير متوفرة' : 'المتجر حدد سعر طلبك 🧾', out.order.status === 'unavailable' ? ((out.order.data || {}).providerName || '') : `${Number(out.order.total)} ج.م شامل التوصيل — راجع الفاتورة ووافق`, `order-${out.order.id}`);
-    res.json({ order: orderJson(out.order), invoice: invoiceJson(out.invoice) });
+    res.json({ order: orderJsonFor(out.order, req.auth.role), invoice: invoiceJson(out.invoice) });
   }));
 
   /** The request photo, only for people who belong to that order. */
@@ -587,7 +606,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return next;
     });
     await notifyAction(action, out, role);
-    res.json({ order: orderJson(out) });
+    res.json({ order: orderJsonFor(out, role) });
   }));
 
   /* ---------- chat ---------- */
@@ -636,7 +655,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
          VALUES($1,$2,$3,$4,$5,'pending',$6,$7) RETURNING id`,
         [Number(req.auth.sub), doc.pid, doc.id, date, time, Number(doc.price), JSON.stringify({
           patientName, phone, clinicName: doc.pname, clinicOwnerId: String(doc.owner_user_id), clinicAddress: doc.paddr || '', doctorName: doc.name,
-          specialty: (doc.data && doc.data.category) || '', notes: String(b.notes || '').slice(0, 500) })]);
+          specialty: (doc.data && doc.data.category) || '', notes: String(b.notes || '').slice(0, 500), ...(await flagData(pool, Number(req.auth.sub))) })]);
       const a = await pool.query(`${APPT_SQL} WHERE a.id=$1`, [r.rows[0].id]);
       await notify([doc.owner_user_id], 'حجز جديد 📅', `${patientName} — ${date} ${time}`, `appt-${r.rows[0].id}`);
       res.status(201).json({ appointment: apptJson(a.rows[0]) });
@@ -679,6 +698,6 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return (await db.query(`${APPT_SQL} WHERE a.id=$1`, [id])).rows[0];
     });
     if (['confirm', 'reject'].includes(action)) await notify([out.customer_user_id], action === 'confirm' ? 'تم تأكيد حجزك ✅' : 'اعتذرت العيادة عن الحجز', `${(out.data || {}).clinicName || ''} — ${out.date_str} ${out.appointment_time}`, `appt-${out.id}`);
-    res.json({ appointment: apptJson(out) });
+    res.json({ appointment: apptJsonFor(out, (req.auth || {}).role) });
   }));
 };

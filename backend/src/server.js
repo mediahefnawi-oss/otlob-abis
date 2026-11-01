@@ -150,7 +150,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261104;
+const SCHEMA_VERSION = 20261106;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -356,12 +356,43 @@ app.patch('/api/me/password', auth, asyncRoute(async (req, res) => {
 
 // Owner tools: list accounts (e.g. pending couriers), reset a password, create a service with its manager account.
 app.get('/api/admin/users', auth, roles('admin'), asyncRoute(async (req, res) => {
-  const values = []; let sql = 'SELECT * FROM users WHERE 1=1';
+  const values = []; let sql = 'SELECT * FROM users WHERE deleted_at IS NULL';
   if (req.query.role) { values.push(String(req.query.role)); sql += ` AND role=$${values.length}`; }
   if (req.query.status) { values.push(String(req.query.status)); sql += ` AND status=$${values.length}`; }
   sql += ' ORDER BY created_at DESC LIMIT 500';
   const r = await pool.query(sql, values);
-  res.json({ users: r.rows.map(cleanUser) });
+  res.json({ users: r.rows.map(row => ({ ...cleanUser(row), accountFlag: row.account_flag || '', flagNote: row.flag_note || '' })) });
+}));
+// Deleting a courier: orders keep pointing at the account, so it is suspended and hidden for good (never listed again).
+app.delete('/api/admin/couriers/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف المندوب غير صالح' });
+  const r = await pool.query("UPDATE users SET deleted_at=NOW(), status='suspended' WHERE id=$1 AND role='courier' AND deleted_at IS NULL RETURNING id", [id]);
+  if (!r.rowCount) return res.status(404).json({ error: 'المندوب غير موجود' });
+  res.json({ ok: true });
+}));
+// The owner labels a customer account (trusted / watch / fraud). The label is copied onto that customer's open orders
+// and bookings so the shops and couriers handling them see it; the customer never sees it.
+app.patch('/api/admin/users/:id/flag', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  const flag = String((req.body || {}).flag || '');
+  const note = String((req.body || {}).note || '').trim().slice(0, 200);
+  if (!id || !['', 'trusted', 'watch', 'fraud'].includes(flag)) return res.status(400).json({ error: 'اختر علامة صالحة للحساب' });
+  const db = await pool.connect();
+  let out = false;
+  try {
+    await db.query('BEGIN');
+    const u = await db.query("UPDATE users SET account_flag=$1, flag_note=$2 WHERE id=$3 AND role='customer' RETURNING id", [flag, flag ? note : '', id]);
+    if (u.rowCount) {
+      const patch = JSON.stringify({ customerFlag: flag, customerFlagNote: flag ? note : '' });
+      await db.query("UPDATE orders SET data = data || $2::jsonb, updated_at=NOW() WHERE customer_user_id=$1 AND status NOT IN ('delivered','cancelled','rejected','unavailable')", [id, patch]);
+      await db.query("UPDATE appointments SET data = data || $2::jsonb, updated_at=NOW() WHERE customer_user_id=$1 AND status IN ('pending','confirmed')", [id, patch]);
+      out = true;
+    }
+    await db.query('COMMIT');
+  } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; } finally { db.release(); }
+  if (!out) return res.status(404).json({ error: 'حساب العميل غير موجود' });
+  res.json({ ok: true, flag, note: flag ? note : '' });
 }));
 app.patch('/api/admin/users/:id/password', auth, roles('admin'), asyncRoute(async (req, res) => {
   const id = positiveId(req.params.id); const pw = req.body && req.body.password;

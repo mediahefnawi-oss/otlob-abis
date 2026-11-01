@@ -17,6 +17,9 @@ export interface User {
   availableSince?: number;
   // delivery area: the customer's area, or the courier's current area
   regionId?: string | null;
+  // owner's label on a customer account (only the owner's app receives these)
+  accountFlag?: string;
+  flagNote?: string;
 }
 
 export interface Ad {
@@ -121,6 +124,8 @@ export interface Order {
   courierPhone?: string;
   courierVehicle?: string;
   rejectReason?: string;
+  customerFlag?: string; // the owner's label on the customer (shops and couriers only): trusted / watch / fraud
+  customerFlagNote?: string;
   readyDate?: string; // maker orders: the day (YYYY-MM-DD) and hour (HH:mm) the order will be ready
   readyTime?: string;
   createdAt: number;
@@ -131,6 +136,8 @@ export interface Order {
 export type ApptStatus = 'pending' | 'confirmed' | 'rejected' | 'completed' | 'cancelled';
 
 export interface Appointment {
+  customerFlag?: string;
+  customerFlagNote?: string;
   id: string;
   number: number;
   customerId: string;

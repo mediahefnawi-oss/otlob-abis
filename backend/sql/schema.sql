@@ -333,3 +333,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_order ON messages(order_id, id);
 
 -- Download link of the Android app (the owner edits it from the panel)
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS apk_url TEXT NOT NULL DEFAULT '';
+
+-- Owner's label on a customer account, shown to shops and couriers on that customer's orders ('' = none, 'trusted', 'watch', 'fraud')
+ALTER TABLE users ADD COLUMN IF NOT EXISTS account_flag TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS flag_note TEXT NOT NULL DEFAULT '';

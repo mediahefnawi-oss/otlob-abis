@@ -25,7 +25,7 @@ import { OrderDetailScreen, ApptDetailScreen, InvoiceScreen, ChatScreen, Support
 import { ProviderOrdersScreen, ProviderCatalogScreen, ProviderInvoicesScreen, ProviderProfileScreen } from './screens/provider';
 import { CourierWorkScreen, CourierOrdersScreen, CourierProfileScreen } from './screens/courier';
 import {
-  AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen,
+  AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen,
 } from './screens/admin';
 import { AdminFinanceScreen } from './components/Finance';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
@@ -130,6 +130,8 @@ function Root() {
         <Stack.Screen name="Invoice" component={InvoiceScreen} />
         <Stack.Screen name="Chat" component={ChatScreen} />
         <Stack.Screen name="AdminDetail" component={AdminDetailScreen} />
+        <Stack.Screen name="AdminCustomers" component={AdminCustomersScreen} />
+        <Stack.Screen name="AdminCustomer" component={AdminCustomerScreen} />
       </>
     );
   }

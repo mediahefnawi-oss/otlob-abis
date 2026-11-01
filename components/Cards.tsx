@@ -5,7 +5,7 @@ import { View } from 'react-native';
 import { Provider, Order, Appointment, Invoice } from '../lib/types';
 import { C } from '../lib/theme';
 import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
-import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill } from './ui';
+import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill, FlagPill } from './ui';
 
 /** "في منطقتك" when the place is in the customer's own area, otherwise "منطقة X". */
 export function AreaTag({ p }: { p: Pick<Provider, 'regionId' | 'regionName'> }) {
@@ -81,6 +81,7 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
       {!!o.readyDate && o.status !== 'rejected' && o.status !== 'unavailable' && o.status !== 'cancelled' && (
         <View style={{ flexDirection: 'row' }}><Pill label={`جاهز للتسليم: ${readyLabel(o.readyDate, o.readyTime)}`} color={TYPES.maker.color} soft={TYPES.maker.soft} icon="calendar" /></View>
       )}
+      {perspective !== 'customer' && !!o.customerFlag && <View style={{ flexDirection: 'row' }}><FlagPill flag={o.customerFlag} /></View>}
       {o.regionName && perspective !== 'customer' && (
         <View style={{ flexDirection: 'row' }}><Pill label={`المنطقة: ${o.regionName}`} color={C.goldDeep} soft={C.goldSoft} icon="map" /></View>
       )}
@@ -120,6 +121,7 @@ export function ApptCard({ a, onPress, perspective, children }: { a: Appointment
         </View>
         <ApptPill s={a.status} />
       </View>
+      {perspective !== 'customer' && !!a.customerFlag && <View style={{ flexDirection: 'row' }}><FlagPill flag={a.customerFlag} /></View>}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <Icon name="calendar" size={14} color={C.goldDeep} />
