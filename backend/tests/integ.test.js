@@ -1,0 +1,41 @@
+const { Pool } = require('./shim');
+let pass = 0, bad = 0; const ok = (c, m) => { if (c) pass++; else { bad++; console.log('  FAIL:', m); } };
+const routes = {}; const app = {};
+for (const m of ['get', 'post', 'patch', 'put', 'delete']) app[m] = (p, ...c) => { routes[`${m.toUpperCase()} ${p}`] = c; };
+const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const positiveId = v => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : null; };
+const pass1 = (req, res, next) => next();
+(async () => {
+  const pool = new Pool();
+  const q = (t, p) => pool.query(t, p);
+  require('../src/orders.js')(app, { pool, auth: pass1, authAny: pass1, roles: () => pass1, asyncRoute, positiveId,
+    maintenanceState: async () => ({ enabled: true }), loadSettings: async () => ({}), cleanUser: x => x, pushToUsers: async () => {} });
+  const call = async (key, as, params, body) => {
+    const chain = routes[key]; const out = { status: 200, json: null };
+    const req = { auth: as, params, body: body || {}, query: {} };
+    const res = { status(c) { out.status = c; return this; }, json(j) { out.json = j; return this; } };
+    let err = null; chain[chain.length - 1](req, res, e => { err = e; });
+    const t0 = Date.now(); while (!err && out.json === null && Date.now() - t0 < 8000) await new Promise(r => setTimeout(r, 2));
+    if (err) throw err; return out;
+  };
+  const u = async (n, role) => (await q("INSERT INTO users(name, phone, password_hash, role, status, available) VALUES($1,$2,'x',$3,'active',TRUE) RETURNING id", [n, '011' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'), role])).rows[0].id;
+  const cust = await u('ع', 'customer'), cour = await u('م', 'courier'), po = await u('ص', 'provider'), cpo = await u('د', 'provider');
+  const p = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'supermarket','س','01000000000','active',TRUE) RETURNING id", [po])).rows[0].id;
+  const clinic = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'clinic','ع','01000000000','active',TRUE) RETURNING id", [cpo])).rows[0].id;
+  const o = (await q("INSERT INTO orders(customer_user_id, provider_id, courier_user_id, status, total, data) VALUES($1,$2,$3,'arrived',250,$4) RETURNING id", [cust, p, cour, JSON.stringify({ subtotal: 230, deliveryFee: 20, history: [] })])).rows[0].id;
+  const r = await call('POST /api/orders/:id/action', { sub: String(cour), role: 'courier' }, { id: String(o) }, { action: 'deliver' });
+  ok(r.status === 200 && r.json.order.status === 'delivered', 'deliver action works through the real route: ' + JSON.stringify(r.json));
+  const e = (await q('SELECT kind, amount, base_amount FROM commission_entries WHERE order_id=$1 ORDER BY kind', [o])).rows;
+  ok(e.length === 2 && Number(e[0].amount) === 5 && Number(e[1].amount) === 23 && Number(e[1].base_amount) === 230, 'ledger via real deliver route: ' + JSON.stringify(e));
+  const dd = (await q('SELECT delivered_at FROM orders WHERE id=$1', [o])).rows[0].delivered_at;
+  ok(!!dd, 'delivered_at stamped');
+  const r2 = await call('POST /api/orders/:id/action', { sub: String(cour), role: 'courier' }, { id: String(o) }, { action: 'deliver' });
+  ok(r2.status === 409 || r2.status === 400, 'second deliver refused (' + r2.status + ')');
+  ok((await q('SELECT 1 FROM commission_entries WHERE order_id=$1', [o])).rowCount === 2, 'still two entries');
+  const a = (await q("INSERT INTO appointments(customer_user_id, provider_id, appointment_date, appointment_time, status, fee, data) VALUES($1,$2,CURRENT_DATE,'10:00','confirmed',200,$3) RETURNING id", [cust, clinic, JSON.stringify({})])).rows[0].id;
+  const ra = await call('POST /api/appointments/:id/action', { sub: String(cpo), role: 'provider' }, { id: String(a) }, { action: 'complete' });
+  ok(ra.status === 200, 'complete booking route: ' + JSON.stringify(ra.json).slice(0, 100));
+  const ea = (await q('SELECT amount FROM commission_entries WHERE appointment_id=$1', [a])).rows;
+  ok(ea.length === 1 && Number(ea[0].amount) === 15, 'clinic booking commission 15 via real route');
+  console.log(`${pass} passed, ${bad} failed`); await pool.end(); process.exit(bad ? 1 : 0);
+})().catch(e => { console.error('CRASH', e); process.exit(2); });

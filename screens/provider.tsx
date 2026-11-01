@@ -7,6 +7,7 @@ import {
 import { OrderCard, ApptCard } from '../components/Cards';
 import { QuoteButtons } from '../components/Quote';
 import { ProviderLogo, ProductThumb, ProductPicture, LogoPicker } from '../components/Brand';
+import { ProviderFinanceCard } from '../components/Finance';
 import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { useStore, useMe, orderAction, apptAction, saveProduct, deleteProduct, updateProvider, availableCouriers } from '../lib/store';
@@ -347,6 +348,7 @@ export function ProviderProfileScreen({ navigation }: any) {
           <Stat icon="star" label="التقييم" value={prov.rating ? prov.rating.toFixed(1) : '—'} color={C.goldDeep} soft={C.goldSoft} />
         </View>
       </Card>
+      <ProviderFinanceCard providerId={prov.id} />
       <Sheet visible={sheet} onClose={() => setSheet(false)} title="بيانات النشاط">
         <LogoPicker p={prov} />
         <Field label="اسم النشاط" value={name} onChangeText={setName} icon="storefront" />

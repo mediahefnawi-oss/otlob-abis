@@ -17,6 +17,7 @@ import {
   Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region, Ad,
 } from './types';
 import { buildSeed } from './seed';
+import { apiJson } from './finance';
 import { hash, normPhone } from './format';
 
 const DB_KEY = 'abis_db_v3';
@@ -130,7 +131,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0]);
 
 function applySettings(c: CentralSettings) {
   const next: Settings = {
@@ -140,6 +141,7 @@ function applySettings(c: CentralSettings) {
     autoAssign: c.autoAssign,
     supportPhone: c.supportPhone,
     supportName: c.supportName,
+    loginImageV: c.loginImageV || 0,
   };
   if (settingsKey(next) === settingsKey(state.db.settings)) return;
   mutate((db) => {
@@ -1101,6 +1103,15 @@ export async function orderImage(orderId: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** Owner: set (data URL) or remove (null) the picture of the first / login screen. */
+export async function setLoginImage(image: string | null): Promise<Result> {
+  try {
+    const r = await apiJson<{ loginImageV: number }>('/api/admin/login-image', image ? 'PUT' : 'DELETE', image ? { image } : undefined);
+    mutate((db) => { db.settings = { ...db.settings, loginImageV: r.loginImageV }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 
 /* ---------- announcements board (owner) ---------- */

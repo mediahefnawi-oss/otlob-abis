@@ -27,6 +27,7 @@ import { CourierWorkScreen, CourierOrdersScreen, CourierProfileScreen } from './
 import {
   AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen,
 } from './screens/admin';
+import { AdminFinanceScreen } from './components/Finance';
 
 setStoreErrorHandler((msg) => toast(msg, 'err'));
 setStoreNoticeHandler((msg) => toast(msg, 'ok'));
@@ -73,6 +74,7 @@ function Main({ navigation }: any) {
     tabs = [
       { key: 'dash', label: 'الرئيسية', icon: 'stats-chart', render: (go) => <AdminDashboardScreen navigation={navigation} go={go} /> },
       { key: 'orders', label: 'الطلبات', icon: 'receipt', render: () => <AdminOrdersScreen navigation={navigation} /> },
+      { key: 'finance', label: 'المالية', icon: 'cash', render: () => <AdminFinanceScreen /> },
       { key: 'providers', label: 'الخدمات', icon: 'storefront', badge: pend, render: () => <AdminProvidersScreen navigation={navigation} /> },
       { key: 'couriers', label: 'المناديب', icon: 'bicycle', badge: pendC, render: () => <AdminCouriersScreen navigation={navigation} /> },
       { key: 'settings', label: 'الإعدادات', icon: 'settings', render: () => <AdminSettingsScreen navigation={navigation} /> },

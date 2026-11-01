@@ -78,6 +78,7 @@ export type CentralSettings = {
   autoAssign: boolean;
   supportPhone: string;
   supportName: string;
+  loginImageV?: number;
   updatedAt?: string;
 };
 
@@ -242,6 +243,7 @@ export async function apiOrderImage(orderId: string | number) {
 
 /** Announcements board (the owner manages it; everybody sees the active ones). */
 export type ServerAd = { id: string; title: string; link: string; active: boolean; sortOrder: number; v: number };
+export const loginImageUrl = (v: number) => `${API_BASE}/api/login-image?v=${v}`;
 export const adImageUrl = (ad: { id: string; v: number }) => `${API_BASE}/api/ads/${encodeURIComponent(ad.id)}/image?v=${ad.v}`;
 export async function apiAdminCreateAd(input: { title: string; link: string; image: string }) {
   return apiRequest<{ ad: ServerAd }>('/api/admin/ads', { method: 'POST', body: JSON.stringify(input) });

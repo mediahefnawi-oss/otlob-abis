@@ -26,7 +26,7 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   process.exit(1);
 }
 app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin not allowed')); }, methods: ['GET','POST','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization'] }));
-app.use(express.json({ limit: '1mb' })); // a request photo is shrunk by the app to well under 600 KB
+app.use(express.json({ limit: '2mb' })); // a request photo is shrunk by the app to well under 600 KB
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false }));
 
 async function maintenanceState() {
@@ -88,7 +88,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261101;
+const SCHEMA_VERSION = 20261102;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -429,7 +429,9 @@ app.post('/api/push/unsubscribe', auth, asyncRoute(async (req, res) => {
 async function loadSettings() {
   const r = await pool.query('SELECT app_enabled,maintenance_message,announcement,auto_assign,support_phone,support_name,updated_at FROM app_settings WHERE id=1');
   const x = r.rows[0];
-  return { appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at };
+  let loginImageV = 0;
+  try { const li = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='login'"); if (li.rowCount) loginImageV = Number(li.rows[0].v); } catch { /* table not migrated yet */ }
+  return { loginImageV, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at };
 }
 app.get('/api/settings', asyncRoute(async (_req, res) => {
   res.json({ settings: await loadSettings() });
@@ -443,7 +445,7 @@ app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, re
     boolField(b.appEnabled,current.app_enabled), textField(b.maintenanceMessage,current.maintenance_message), textField(b.announcement,current.announcement), boolField(b.autoAssign,current.auto_assign), textField(b.supportPhone,current.support_phone,40), textField(b.supportName,current.support_name,100)
   ]);
   const x = r.rows[0];
-  res.json({ settings: { appEnabled:x.app_enabled, maintenanceMessage:x.maintenance_message, announcement:x.announcement, autoAssign:x.auto_assign, supportPhone:x.support_phone, supportName:x.support_name, updatedAt:x.updated_at } });
+  res.json({ settings: await loadSettings() });
 }));
 
 // Appointment records are server-owned and visible only to the customer, clinic owner, or admin.
@@ -635,6 +637,7 @@ app.delete('/api/products/:id/image', auth, roles('provider','admin'), asyncRout
 }));
 
 // Orders, invoices, bookings and chat live in orders.js
+require('./commissions')(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {

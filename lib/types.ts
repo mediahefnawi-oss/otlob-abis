@@ -204,6 +204,7 @@ export interface Settings {
   autoAssign: boolean;
   supportPhone: string;
   supportName: string;
+  loginImageV?: number; // 0 / missing = the original picture
 }
 
 export interface DB {

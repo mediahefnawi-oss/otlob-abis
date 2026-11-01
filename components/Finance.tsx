@@ -1,0 +1,542 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, ScrollView, Image } from 'react-native';
+import { C } from '../lib/theme';
+import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
+import { useStore, setLoginImage } from '../lib/store';
+import { TYPES, money, fmtDateTime, isoDay, DAYS } from '../lib/format';
+import { ProviderType } from '../lib/types';
+import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
+import { loginImageUrl } from '../lib/api';
+import { pickImage, canPickImage } from '../lib/pickImage';
+import { useRC } from '../screens/customer';
+
+const toEn = (s: string) => s.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٫,]/g, '.');
+const TYPE_KEYS = Object.keys(TYPES) as ProviderType[];
+const COUNTER_LABEL: Record<string, string> = { sales: 'المبيعات', orders: 'الطلبات', profit: 'الأرباح' };
+const run = async (p: Promise<any>, okMsg: string) => {
+  try { await p; toast(okMsg); return true; } catch (e: any) { toast(e?.message || 'تعذر تنفيذ العملية', 'err'); return false; }
+};
+const Wrap = ({ children }: { children: React.ReactNode }) => <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{children}</View>;
+const Label = ({ children }: { children: string }) => <T w="semi" size={13} color={C.dark3}>{children}</T>;
+
+/* ---------- who does it apply to (all / a section / one provider) ---------- */
+type Scope = { scope: 'all' | 'type' | 'provider'; providerType: ProviderType; providerId: string };
+const newScope = (): Scope => ({ scope: 'all', providerType: 'restaurant', providerId: '' });
+function ScopePicker({ value, onChange, allLabel = 'الجميع' }: { value: Scope; onChange: (s: Scope) => void; allLabel?: string }) {
+  const { db } = useStore();
+  const provs = db.providers.filter((p) => p.status === 'active' || p.status === 'suspended');
+  return (
+    <View style={{ gap: 8 }}>
+      <Wrap>
+        <Chip label={allLabel} active={value.scope === 'all'} onPress={() => onChange({ ...value, scope: 'all' })} />
+        <Chip label="قسم" active={value.scope === 'type'} onPress={() => onChange({ ...value, scope: 'type' })} />
+        <Chip label="مقدم خدمة" active={value.scope === 'provider'} onPress={() => onChange({ ...value, scope: 'provider' })} />
+      </Wrap>
+      {value.scope === 'type' && <Wrap>{TYPE_KEYS.map((k) => <Chip key={k} label={TYPES[k].label} icon={TYPES[k].icon} active={value.providerType === k} onPress={() => onChange({ ...value, providerType: k })} />)}</Wrap>}
+      {value.scope === 'provider' && (
+        <Wrap>{provs.map((p) => <Chip key={p.id} label={p.name} active={value.providerId === p.id} onPress={() => onChange({ ...value, providerId: p.id })} />)}</Wrap>
+      )}
+    </View>
+  );
+}
+const scopeBody = (s: Scope) => ({ scope: s.scope, providerType: s.scope === 'type' ? s.providerType : undefined, providerId: s.scope === 'provider' ? s.providerId : undefined });
+const scopeText = (x: any, provName: (id: string) => string) =>
+  x.scope === 'all' ? 'الجميع' : x.scope === 'type' ? `قسم: ${TYPES[x.providerType as ProviderType]?.label || x.providerType}` : `مقدم الخدمة: ${provName(x.providerId)}`;
+
+/* ============================== rules ============================== */
+function RuleSheet({ rule, visible, onClose, onSaved }: { rule?: any; visible: boolean; onClose: () => void; onSaved: () => void }) {
+  const { db } = useStore();
+  const [target, setTarget] = useState<'provider' | 'courier'>('provider');
+  const [sc, setSc] = useState<Scope>(newScope());
+  const [courierId, setCourierId] = useState('');
+  const [kind, setKind] = useState<'percent' | 'fixed'>('fixed');
+  const [value, setValue] = useState('');
+  const [min, setMin] = useState('');
+  const [from, setFrom] = useState('');
+  const [fromDirty, setFromDirty] = useState(false);
+  const [note, setNote] = useState('');
+  const [active, setActive] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const couriers = db.users.filter((u) => u.role === 'courier');
+  useEffect(() => {
+    if (!visible) return;
+    setTarget(rule?.target || 'provider');
+    setSc(rule && rule.target === 'provider' ? { scope: rule.scope, providerType: rule.providerType || 'restaurant', providerId: rule.providerId || '' } : newScope());
+    setCourierId(rule?.courierUserId || '');
+    setKind(rule?.kind || 'fixed'); setValue(rule ? String(rule.value) : ''); setMin(rule && rule.minAmount ? String(rule.minAmount) : '');
+    setFrom(rule ? isoDay(new Date(rule.effectiveFrom)) : ''); setFromDirty(false); setNote(rule?.note || ''); setActive(rule ? rule.active : true);
+  }, [visible, rule?.id]);
+  const dayIn = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return isoDay(d); };
+  const save = async () => {
+    const v = Number(toEn(value));
+    if (!Number.isFinite(v) || v < 0 || value.trim() === '') return toast('اكتب قيمة العمولة', 'err');
+    const body: any = { kind, value: v, minAmount: Number(toEn(min)) || 0, active, note: note.trim() };
+    if (!rule) {
+      body.target = target;
+      if (target === 'provider') Object.assign(body, scopeBody(sc));
+      else { body.scope = courierId ? 'courier' : 'all'; if (courierId) body.courierUserId = courierId; }
+    } else if (target === 'provider') Object.assign(body, scopeBody(sc));
+    else { body.scope = courierId ? 'courier' : 'all'; if (courierId) body.courierUserId = courierId; }
+    if (fromDirty && from) body.effectiveFrom = from;
+    setBusy(true);
+    const okk = await run(apiJson(rule ? `/api/admin/commissions/rules/${rule.id}` : '/api/admin/commissions/rules', rule ? 'PATCH' : 'POST', body), rule ? 'تم تعديل القاعدة' : 'تمت إضافة القاعدة');
+    setBusy(false);
+    if (okk) { onSaved(); onClose(); }
+  };
+  return (
+    <Sheet visible={visible} onClose={onClose} title={rule ? 'تعديل قاعدة عمولة' : 'قاعدة عمولة جديدة'}>
+      {!rule && (
+        <View style={{ gap: 6 }}>
+          <Label>تُطبّق على</Label>
+          <Wrap>
+            <Chip label="مقدمو الخدمة" icon="storefront" active={target === 'provider'} onPress={() => setTarget('provider')} />
+            <Chip label="المناديب (خصم من مستحقاتهم)" icon="bicycle" active={target === 'courier'} onPress={() => setTarget('courier')} />
+          </Wrap>
+        </View>
+      )}
+      <View style={{ gap: 6 }}>
+        <Label>النطاق</Label>
+        {target === 'provider' ? <ScopePicker value={sc} onChange={setSc} allLabel="كل مقدمي الخدمة" /> : (
+          <Wrap>
+            <Chip label="كل المناديب" active={!courierId} onPress={() => setCourierId('')} />
+            {couriers.map((u) => <Chip key={u.id} label={u.name} active={courierId === u.id} onPress={() => setCourierId(u.id)} />)}
+          </Wrap>
+        )}
+      </View>
+      <View style={{ gap: 6 }}>
+        <Label>نوع العمولة</Label>
+        <Wrap>
+          <Chip label="مبلغ ثابت لكل طلب" icon="cash" active={kind === 'fixed'} onPress={() => setKind('fixed')} />
+          <Chip label="نسبة مئوية" icon="analytics" active={kind === 'percent'} onPress={() => setKind('percent')} />
+        </Wrap>
+      </View>
+      <Field label={kind === 'percent' ? 'النسبة (%) من قيمة المنتجات' : 'المبلغ (ج.م)'} icon="pricetag" value={value} onChangeText={setValue} keyboardType="numeric" placeholder={kind === 'percent' ? 'مثال: 10' : 'مثال: 15'} />
+      <Field label="الحد الأدنى لقيمة الطلب ليكون مؤهلاً (اختياري)" icon="arrow-up" value={min} onChangeText={setMin} keyboardType="numeric" placeholder="0 = كل الطلبات" />
+      <View style={{ gap: 6 }}>
+        <Label>تاريخ السريان (الطلبات المكتملة بعده فقط)</Label>
+        <Wrap>
+          <Chip label="من الآن" active={!fromDirty && !rule} onPress={() => { setFrom(''); setFromDirty(false); }} />
+          <Chip label="غداً" onPress={() => { setFrom(dayIn(1)); setFromDirty(true); }} />
+          <Chip label="بعد أسبوع" onPress={() => { setFrom(dayIn(7)); setFromDirty(true); }} />
+          <Chip label="بعد شهر" onPress={() => { setFrom(dayIn(30)); setFromDirty(true); }} />
+        </Wrap>
+        <Field value={from} onChangeText={(t) => { setFrom(t); setFromDirty(true); }} placeholder="YYYY-MM-DD" icon="calendar" />
+        <T size={11.5} color={C.sub}>العمولات المحتسبة سابقاً لا تتغير أبداً بتعديل القاعدة.</T>
+      </View>
+      <Field label="ملاحظة (اختياري)" icon="create" value={note} onChangeText={setNote} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <T w="bold" size={14} style={{ flex: 1 }}>القاعدة مفعّلة</T>
+        <Toggle value={active} onValueChange={setActive} />
+      </View>
+      <Btn title="حفظ القاعدة" icon="checkmark" loading={busy} onPress={save} />
+    </Sheet>
+  );
+}
+
+function RulesTab() {
+  const { db } = useStore();
+  const [rules, setRules] = useState<any[]>([]);
+  const [edit, setEdit] = useState<any>(null);
+  const [open, setOpen] = useState(false);
+  const load = useCallback(() => { apiJson<{ rules: any[] }>('/api/admin/commissions/rules').then((r) => setRules(r.rules)).catch(() => {}); }, []);
+  useEffect(() => { load(); }, [load]);
+  const provName = (id: string) => db.providers.find((p) => p.id === id)?.name || `#${id}`;
+  const courName = (id?: string) => db.users.find((u) => u.id === id)?.name || `#${id}`;
+  const now = Date.now();
+  const toggle = (r: any, v: boolean) => run(apiJson(`/api/admin/commissions/rules/${r.id}`, 'PATCH', { active: v }), v ? 'تم تفعيل القاعدة' : 'تم إيقاف القاعدة').then(load);
+  const del = (r: any) => confirmDialog({ title: 'حذف القاعدة؟', message: 'لن تتأثر العمولات المحتسبة سابقاً. سيُسجَّل الحذف في السجل.', danger: true, confirmText: 'حذف', onConfirm: () => { run(apiJson(`/api/admin/commissions/rules/${r.id}`, 'DELETE'), 'تم حذف القاعدة').then(load); } });
+  const group = (target: 'provider' | 'courier') => rules.filter((r) => r.target === target);
+  const card = (r: any) => (
+    <Card key={r.id} style={{ gap: 8, opacity: r.active ? 1 : 0.6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <T w="black" size={14.5}>{r.target === 'courier' ? (r.scope === 'courier' ? `المندوب: ${courName(r.courierUserId)}` : 'كل المناديب') : scopeText(r, provName)}</T>
+          <T size={13} color={C.goldDeep} w="bold">{ruleSummary(r.kind, r.value, r.minAmount, r.target)}</T>
+        </View>
+        <Toggle value={r.active} onValueChange={(v) => toggle(r, v)} />
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        <Pill label={r.effectiveFrom > now ? `يسري من ${fmtDateTime(r.effectiveFrom)}` : r.effectiveFrom < Date.parse('2001-01-01') ? 'افتراضية' : `يسري منذ ${fmtDateTime(r.effectiveFrom)}`} color={r.effectiveFrom > now ? C.blue : C.sub} soft={r.effectiveFrom > now ? C.blueSoft : C.line} icon="calendar" />
+        {!!r.note && r.note !== 'افتراضي' && <Pill label={r.note} color={C.sub} soft={C.line} />}
+      </View>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn small variant="soft" icon="create" title="تعديل" style={{ flex: 1 }} onPress={() => { setEdit(r); setOpen(true); }} />
+        <Btn small variant="soft" icon="trash" title="حذف" style={{ flex: 1 }} onPress={() => del(r)} />
+      </View>
+    </Card>
+  );
+  return (
+    <View style={{ gap: 12 }}>
+      <Card style={{ backgroundColor: C.goldSoft, gap: 4 }}>
+        <T w="black" size={14} color={C.goldDeep}>كيف تُحتسب العمولة؟</T>
+        <T size={12.5} color={C.dark3}>تُسجَّل مرة واحدة عند تسليم الطلب أو إتمام الحجز. الأخص يغلب الأعم: مقدم خدمة محدد ← قسم ← الجميع. اختر القاعدة الأحدث التي بدأ سريانها.</T>
+      </Card>
+      <SectionTitle title="مقدمو الخدمة" action="+ قاعدة جديدة" onAction={() => { setEdit(null); setOpen(true); }} />
+      {group('provider').map(card)}
+      <SectionTitle title="خصم المناديب" />
+      {group('courier').map(card)}
+      {!rules.length && <Empty icon="cash" title="لا توجد قواعد" text="أضف قاعدة عمولة" />}
+      <RuleSheet rule={edit} visible={open} onClose={() => setOpen(false)} onSaved={load} />
+    </View>
+  );
+}
+
+/* ============================== reports / dues ============================== */
+function ReportsTab() {
+  const [period, setPeriod] = useState<'day' | 'month'>('day');
+  const [range, setRange] = useState(30);
+  const [rows, setRows] = useState<any[]>([]);
+  const [ov, setOv] = useState<any>(null);
+  const load = useCallback(() => {
+    const from = new Date(); from.setDate(from.getDate() - range);
+    apiJson<any>(`/api/admin/commissions/report?period=${period}&from=${isoDay(from)}`).then((r) => setRows(r.rows)).catch(() => {});
+    apiJson<any>('/api/admin/commissions/overview').then(setOv).catch(() => {});
+  }, [period, range]);
+  useEffect(() => { load(); }, [load]);
+  const byPeriod: Record<string, any[]> = {};
+  rows.forEach((r) => { (byPeriod[r.period] = byPeriod[r.period] || []).push(r); });
+  const tot = (k: string) => ov?.totals?.find((t: any) => t.kind === k) || { gross: 0, adjustments: 0, net: 0, due: 0, settled: 0 };
+  const settle = (b: any) => confirmDialog({
+    title: 'تسوية المستحقات؟', message: `سيتم تسجيل سداد ${money(b.due)} من ${b.name} وإقفال هذه المستحقات.`, confirmText: 'تأكيد السداد',
+    onConfirm: () => { run(apiJson('/api/admin/commissions/settle', 'POST', b.kind === 'provider' ? { providerId: b.id } : { courierId: b.id }), 'تم تسجيل السداد').then(load); },
+  });
+  const fmtPeriod = (p: string) => (period === 'month' ? p.slice(0, 7) : `${DAYS[new Date(p + 'T12:00:00').getDay()]} ${p}`);
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Stat icon="cash" label="صافي الشهر الحالي" value={money(ov?.month || 0)} color={C.goldDeep} soft={C.goldSoft} />
+        <Stat icon="alert-circle" label="مستحقات غير مسددة" value={money(tot('provider').due + tot('courier').due)} color={C.red} soft={C.redSoft} />
+      </View>
+      <Card style={{ gap: 8 }}>
+        <T w="black" size={14.5}>الإجمالي التراكمي (لا يتأثر بتصفير العدادات)</T>
+        {(['provider', 'courier'] as const).map((k) => (
+          <View key={k} style={{ gap: 2 }}>
+            <T w="bold" size={13}>{k === 'provider' ? 'عمولات مقدمي الخدمة' : 'خصومات المناديب'}</T>
+            <T size={12} color={C.sub}>المحتسب {money(tot(k).gross)} • التسويات {money(tot(k).adjustments)} • الصافي {money(tot(k).net)}</T>
+            <T size={12} color={C.sub}>مسدد {money(tot(k).settled)} • غير مسدد {money(tot(k).due)}</T>
+          </View>
+        ))}
+      </Card>
+      <SectionTitle title="المستحقات حسب الحساب" />
+      {(ov?.balances || []).filter((b: any) => b.due !== 0).length === 0 && <T size={12.5} color={C.sub}>لا توجد مستحقات غير مسددة.</T>}
+      {(ov?.balances || []).filter((b: any) => b.due !== 0).map((b: any) => (
+        <Card key={b.kind + b.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Icon name={b.kind === 'provider' ? 'storefront' : 'bicycle'} size={22} color={C.goldDeep} />
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={14}>{b.name}</T>
+            <T size={11.5} color={C.sub}>{b.kind === 'provider' ? 'عمولة المنصة' : 'خصم من المندوب'} • {b.count} عملية • سُدد سابقاً {money(b.settled)}</T>
+          </View>
+          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+            <T w="black" size={15} color={b.due > 0 ? C.red : C.green}>{money(b.due)}</T>
+            {b.due > 0 && <Btn small title="تسوية" onPress={() => settle(b)} />}
+          </View>
+        </Card>
+      ))}
+      <SectionTitle title="التقرير" />
+      <Segmented value={period} onChange={(k) => setPeriod(k as any)} options={[{ key: 'day', label: 'يومي' }, { key: 'month', label: 'شهري' }]} />
+      <Wrap>{[[7, 'أسبوع'], [30, '30 يوم'], [90, '3 شهور'], [365, 'سنة']].map(([n, l]) => <Chip key={String(n)} label={String(l)} active={range === n} onPress={() => setRange(n as number)} />)}</Wrap>
+      {Object.keys(byPeriod).length === 0 && <Empty icon="analytics" title="لا توجد عمولات في هذه الفترة" />}
+      {Object.keys(byPeriod).map((p) => (
+        <Card key={p} style={{ gap: 6 }}>
+          <T w="black" size={14}>{fmtPeriod(p)}</T>
+          {byPeriod[p].map((r) => (
+            <View key={r.kind} style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <T size={12.5} style={{ flex: 1 }}>{r.kind === 'provider' ? 'مقدمو الخدمة' : 'المناديب'} • {r.count} عملية{r.adjustments ? ` • تسويات ${money(r.adjustments)}` : ''}</T>
+              <T w="black" size={14} color={C.goldDeep}>{money(r.net)}</T>
+            </View>
+          ))}
+        </Card>
+      ))}
+    </View>
+  );
+}
+
+/* ============================== counters ============================== */
+const CounterPick = ({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) => (
+  <Wrap>{['sales', 'orders', 'profit'].map((k) => (
+    <Chip key={k} label={COUNTER_LABEL[k]} icon={value.includes(k) ? 'checkmark-circle' : undefined} active={value.includes(k)} onPress={() => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k])} />
+  ))}</Wrap>
+);
+const FREQ: Record<string, string> = { once: 'مرة واحدة', daily: 'يومياً', weekly: 'أسبوعياً', monthly: 'شهرياً' };
+
+function ScheduleSheet({ visible, onClose, onSaved }: { visible: boolean; onClose: () => void; onSaved: () => void }) {
+  const [sc, setSc] = useState<Scope>(newScope());
+  const [counters, setCounters] = useState<string[]>(['sales']);
+  const [freq, setFreq] = useState<'once' | 'daily' | 'weekly' | 'monthly'>('monthly');
+  const [time, setTime] = useState('00:00');
+  const [dow, setDow] = useState(5);
+  const [dom, setDom] = useState('1');
+  const [date, setDate] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (visible) { setSc(newScope()); setCounters(['sales']); setFreq('monthly'); setTime('00:00'); setDom('1'); setDate(''); } }, [visible]);
+  const save = async () => {
+    const body: any = { ...scopeBody(sc), counters, frequency: freq, time: toEn(time).trim() };
+    if (freq === 'weekly') body.dayOfWeek = dow;
+    if (freq === 'monthly') body.dayOfMonth = Number(toEn(dom));
+    if (freq === 'once') body.date = toEn(date).trim();
+    setBusy(true);
+    const okk = await run(apiJson('/api/admin/counters/schedules', 'POST', body), 'تمت جدولة التصفير');
+    setBusy(false);
+    if (okk) { onSaved(); onClose(); }
+  };
+  return (
+    <Sheet visible={visible} onClose={onClose} title="جدولة تصفير تلقائي">
+      <View style={{ gap: 6 }}><Label>ما الذي يُصفَّر؟</Label><ScopePicker value={sc} onChange={setSc} /></View>
+      <View style={{ gap: 6 }}><Label>العدادات</Label><CounterPick value={counters} onChange={setCounters} /></View>
+      <View style={{ gap: 6 }}>
+        <Label>التكرار</Label>
+        <Wrap>{Object.keys(FREQ).map((k) => <Chip key={k} label={FREQ[k]} active={freq === k} onPress={() => setFreq(k as any)} />)}</Wrap>
+      </View>
+      {freq === 'weekly' && <Wrap>{DAYS.map((d, i) => <Chip key={d} label={d} active={dow === i} onPress={() => setDow(i)} />)}</Wrap>}
+      {freq === 'monthly' && <Field label="يوم الشهر (1-31)" icon="calendar" value={dom} onChangeText={setDom} keyboardType="numeric" />}
+      {freq === 'once' && <Field label="التاريخ" icon="calendar" value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />}
+      <Field label="الساعة (بتوقيت القاهرة)" icon="time" value={time} onChangeText={setTime} placeholder="00:00" />
+      <T size={11.5} color={C.sub}>التصفير يخص العدادات المعروضة فقط، ولا يحذف أي طلب أو فاتورة أو عمولة.</T>
+      <Btn title="حفظ الجدولة" icon="checkmark" loading={busy} onPress={save} />
+    </Sheet>
+  );
+}
+
+function CountersTab() {
+  const { db } = useStore();
+  const data = useCounters('admin', 8000);
+  const [sc, setSc] = useState<Scope>(newScope());
+  const [counters, setCounters] = useState<string[]>(['sales', 'orders', 'profit']);
+  const [note, setNote] = useState('');
+  const [hist, setHist] = useState<{ resets: any[]; schedules: any[] }>({ resets: [], schedules: [] });
+  const [sheet, setSheet] = useState(false);
+  const load = useCallback(() => { apiJson<any>('/api/admin/counters/resets').then(setHist).catch(() => {}); }, []);
+  useEffect(() => { load(); }, [load]);
+  const provName = (id?: string) => db.providers.find((p) => p.id === id)?.name || `#${id}`;
+  const tgt = (x: any) => (x.scope === 'all' ? 'الجميع' : x.scope === 'type' ? `قسم ${TYPES[x.providerType as ProviderType]?.label}` : provName(x.providerId));
+  const doReset = () => {
+    if (!counters.length) return toast('اختر عداداً واحداً على الأقل', 'err');
+    if (sc.scope === 'provider' && !sc.providerId) return toast('اختر مقدم الخدمة', 'err');
+    confirmDialog({
+      title: 'تصفير العدادات؟', danger: true, confirmText: 'تصفير الآن',
+      message: `سيتم تصفير (${counters.map((c) => COUNTER_LABEL[c]).join('، ')}) لـ ${sc.scope === 'all' ? 'الجميع' : sc.scope === 'type' ? TYPES[sc.providerType].label : provName(sc.providerId)}. لن يُحذف أي طلب أو فاتورة أو عمولة.`,
+      onConfirm: () => { run(apiJson('/api/admin/counters/reset', 'POST', { ...scopeBody(sc), counters, note }), 'تم تصفير العدادات').then(() => { load(); refreshCounters(); }); },
+    });
+  };
+  const t = data?.totals;
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Stat icon="cash" label="المبيعات" value={money(t?.sales || 0)} color={C.goldDeep} soft={C.goldSoft} />
+        <Stat icon="receipt" label="الطلبات" value={t?.orders || 0} color={C.blue} soft={C.blueSoft} />
+        <Stat icon="trending-up" label="الأرباح" value={money(t?.profit || 0)} />
+      </View>
+      <Card style={{ gap: 8 }}>
+        <T w="black" size={14.5}>حسب القسم</T>
+        {TYPE_KEYS.map((k) => (
+          <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Icon name={TYPES[k].icon} size={16} color={TYPES[k].color} />
+            <T size={12.5} style={{ flex: 1 }}>{TYPES[k].label}</T>
+            <T size={12} color={C.sub}>{money(data?.types[k]?.sales || 0)} • {data?.types[k]?.orders || 0} طلب • ربح {money(data?.types[k]?.profit || 0)}</T>
+          </View>
+        ))}
+      </Card>
+      <Card style={{ gap: 12 }}>
+        <T w="black" size={15}>تصفير يدوي</T>
+        <T size={12} color={C.sub}>يصفّر الأرقام المعروضة فقط. الطلبات والفواتير والعمولات والمستحقات تبقى كما هي.</T>
+        <ScopePicker value={sc} onChange={setSc} />
+        <CounterPick value={counters} onChange={setCounters} />
+        <Field label="ملاحظة (اختياري)" icon="create" value={note} onChangeText={setNote} />
+        <Btn title="تصفير الآن" variant="danger" icon="refresh" onPress={doReset} />
+      </Card>
+      <SectionTitle title="التصفير التلقائي" action="+ جدولة" onAction={() => setSheet(true)} />
+      {hist.schedules.length === 0 && <T size={12.5} color={C.sub}>لا توجد جدولة.</T>}
+      {hist.schedules.map((s) => (
+        <Card key={s.id} style={{ gap: 6, opacity: s.enabled ? 1 : 0.6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <T w="bold" size={14}>{tgt(s)} • {s.counters.map((c: string) => COUNTER_LABEL[c]).join('، ')}</T>
+              <T size={12} color={C.sub}>{FREQ[s.frequency]}{s.frequency === 'weekly' ? ` (${DAYS[s.dayOfWeek]})` : s.frequency === 'monthly' ? ` (يوم ${s.dayOfMonth})` : s.frequency === 'once' ? ` (${s.date})` : ''} الساعة {s.time}</T>
+              <T size={11.5} color={C.sub}>{s.nextRunAt ? `التالي: ${fmtDateTime(s.nextRunAt)}` : 'انتهت'}{s.lastRunAt ? ` • آخر تنفيذ: ${fmtDateTime(s.lastRunAt)}` : ''}</T>
+            </View>
+            <Toggle value={s.enabled} onValueChange={(v) => { run(apiJson(`/api/admin/counters/schedules/${s.id}`, 'PATCH', { enabled: v }), v ? 'تم تشغيل الجدولة' : 'تم إيقاف الجدولة').then(load); }} />
+          </View>
+          <Btn small variant="soft" icon="trash" title="حذف الجدولة" onPress={() => confirmDialog({ title: 'حذف الجدولة؟', message: tgt(s), danger: true, confirmText: 'حذف', onConfirm: () => { run(apiJson(`/api/admin/counters/schedules/${s.id}`, 'DELETE'), 'تم الحذف').then(load); } })} />
+        </Card>
+      ))}
+      <SectionTitle title="سجل التصفير" />
+      {hist.resets.length === 0 && <T size={12.5} color={C.sub}>لم يتم التصفير بعد.</T>}
+      {hist.resets.slice(0, 20).map((r) => (
+        <Card key={r.id} style={{ gap: 2 }}>
+          <T w="bold" size={13.5}>{tgt(r)} • {r.counters.map((c: string) => COUNTER_LABEL[c]).join('، ')}</T>
+          <T size={11.5} color={C.sub}>{fmtDateTime(r.at)} • {r.source === 'schedule' ? 'تلقائي' : 'يدوي'}{r.note ? ` • ${r.note}` : ''}</T>
+        </Card>
+      ))}
+      <ScheduleSheet visible={sheet} onClose={() => setSheet(false)} onSaved={load} />
+    </View>
+  );
+}
+
+/* ============================== audit ============================== */
+const ACTION: Record<string, string> = {
+  'rule.create': 'إضافة قاعدة عمولة', 'rule.update': 'تعديل قاعدة عمولة', 'rule.delete': 'حذف قاعدة عمولة', 'commission.reverse': 'تسوية إلغاء / مرتجع', 'commission.settle': 'تسوية مستحقات',
+  'counters.reset.manual': 'تصفير يدوي', 'counters.reset.schedule': 'تصفير تلقائي', 'counters.schedule.create': 'إضافة جدولة', 'counters.schedule.update': 'تعديل جدولة', 'counters.schedule.delete': 'حذف جدولة',
+  'login-image.set': 'تغيير صورة الدخول', 'login-image.remove': 'حذف صورة الدخول',
+};
+function AuditTab() {
+  const [log, setLog] = useState<any[]>([]);
+  useEffect(() => { apiJson<{ log: any[] }>('/api/admin/audit?limit=100').then((r) => setLog(r.log)).catch(() => {}); }, []);
+  const brief = (x: any) => {
+    const a = x.after || {}; const b = x.before || {};
+    if (x.action.startsWith('rule.')) { const r = x.action === 'rule.delete' ? b : a; return `${r.kind === 'percent' ? r.value + '%' : r.value + ' ج.م'}${x.action === 'rule.update' && b.value !== undefined ? ` (كانت ${b.kind === 'percent' ? b.value + '%' : b.value + ' ج.م'}${b.active !== a.active ? `، ${a.active ? 'تفعيل' : 'إيقاف'}` : ''})` : ''}`; }
+    if (x.action === 'commission.settle') return `${money(a.amount || 0)} • ${a.entries} عملية`;
+    if (x.action.startsWith('counters.reset')) return `${(a.counters || []).map((c: string) => COUNTER_LABEL[c]).join('، ')}`;
+    return '';
+  };
+  return (
+    <View style={{ gap: 8 }}>
+      {log.length === 0 && <Empty icon="document-text" title="لا يوجد سجل بعد" />}
+      {log.map((x) => (
+        <Card key={x.id} style={{ gap: 2 }}>
+          <T w="bold" size={13.5}>{ACTION[x.action] || x.action}</T>
+          {!!brief(x) && <T size={12.5} color={C.dark3}>{brief(x)}</T>}
+          <T size={11.5} color={C.sub}>{x.actor} • {fmtDateTime(x.at)}{x.note ? ` • ${x.note}` : ''}</T>
+        </Card>
+      ))}
+    </View>
+  );
+}
+
+/* ============================== the owner's screen ============================== */
+export function AdminFinanceScreen() {
+  const rc = useRC();
+  const [seg, setSeg] = useState('rules');
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="العمولات والعدادات" subtitle="كل الإعدادات تُحفظ مركزياً وتسري فوراً">
+        <View style={{ marginTop: 12 }}>
+          <Segmented value={seg} onChange={setSeg} options={[{ key: 'rules', label: 'القواعد' }, { key: 'reports', label: 'التقارير' }, { key: 'counters', label: 'العدادات' }, { key: 'audit', label: 'السجل' }]} />
+        </View>
+      </Header>
+      <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
+        {seg === 'rules' && <RulesTab />}
+        {seg === 'reports' && <ReportsTab />}
+        {seg === 'counters' && <CountersTab />}
+        {seg === 'audit' && <AuditTab />}
+      </ScrollView>
+    </View>
+  );
+}
+
+/* ============================== order / booking: trail + return ============================== */
+/** Owner only: the commission lines of one order / booking and a documented return / cancellation. */
+export function CommissionTrail({ orderId, appointmentId }: { orderId?: string; appointmentId?: string }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [refund, setRefund] = useState('');
+  const [courierToo, setCourierToo] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    apiJson<{ entries: any[] }>(`/api/admin/commissions/entries?${orderId ? `orderId=${orderId}` : `appointmentId=${appointmentId}`}`).then((r) => setRows(r.entries)).catch(() => {});
+  }, [orderId, appointmentId]);
+  useEffect(() => { load(); }, [load]);
+  if (!rows.length) return null;
+  const net = rows.reduce((s, r) => s + r.amount, 0);
+  const submit = async () => {
+    setBusy(true);
+    const okk = await run(apiJson('/api/admin/commissions/reverse', 'POST', { orderId, appointmentId, note: reason, refundAmount: refund.trim() ? Number(toEn(refund)) : undefined, reverseCourier: courierToo }), 'تم تسجيل التسوية');
+    setBusy(false);
+    if (okk) { setOpen(false); setReason(''); setRefund(''); load(); }
+  };
+  return (
+    <Card style={{ gap: 8 }}>
+      <T w="black" size={15}>العمولة (للإدارة)</T>
+      {rows.map((r) => (
+        <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <T size={12.5} style={{ flex: 1 }}>{r.type === 'adjustment' ? `تسوية: ${r.note}` : r.kind === 'provider' ? `عمولة الخدمة (${r.rule?.kind === 'percent' ? r.rule.value + '%' : 'ثابتة'})` : 'خصم المندوب'}</T>
+          <T w="bold" size={13} color={r.amount < 0 ? C.red : C.dark}>{money(r.amount)}</T>
+          <Pill label={r.status === 'settled' ? 'مسدد' : 'مستحق'} color={r.status === 'settled' ? C.green : C.goldDeep} soft={r.status === 'settled' ? C.greenSoft : C.goldSoft} />
+        </View>
+      ))}
+      <T w="black" size={13.5}>الصافي: {money(net)}</T>
+      <Btn small variant="soft" icon="return-down-back" title="تسوية إلغاء / مرتجع" onPress={() => setOpen(true)} />
+      <Sheet visible={open} onClose={() => setOpen(false)} title="تسوية إلغاء / مرتجع">
+        <T size={12.5} color={C.sub}>تُسجَّل تسوية بالسالب مقابل العمولة، ولا يُعدَّل أو يُحذف أي سجل سابق.</T>
+        <Field label="السبب (مطلوب)" icon="create" value={reason} onChangeText={setReason} />
+        <Field label="قيمة المرتجع من المنتجات (اتركه فارغاً لمرتجع كامل)" icon="cash" value={refund} onChangeText={setRefund} keyboardType="numeric" />
+        {!!orderId && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <T size={13} style={{ flex: 1 }}>عكس خصم المندوب أيضاً</T>
+            <Toggle value={courierToo} onValueChange={setCourierToo} />
+          </View>
+        )}
+        <Btn title="تسجيل التسوية" variant="danger" icon="checkmark" loading={busy} onPress={submit} />
+      </Sheet>
+    </Card>
+  );
+}
+
+/* ============================== provider / courier cards ============================== */
+/** Provider: counters (reset-aware) + what the platform takes. */
+export function ProviderFinanceCard({ providerId }: { providerId: string }) {
+  const counters = useCounters('provider');
+  const mine = useMyCommission('provider');
+  const c = counters?.providers[providerId];
+  const rule = mine?.rules.find((r) => r.providerId === providerId) || mine?.rules[0];
+  if (!c && !mine) return null;
+  return (
+    <Card style={{ gap: 10 }}>
+      <T w="black" size={15}>حساباتي</T>
+      {c && (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Stat icon="cash" label="المبيعات" value={money(c.sales)} color={C.goldDeep} soft={C.goldSoft} />
+          <Stat icon="receipt" label="الطلبات" value={c.orders} color={C.blue} soft={C.blueSoft} />
+          <Stat icon="trending-up" label="الصافي" value={money(c.net)} />
+        </View>
+      )}
+      {mine && (
+        <View style={{ gap: 4 }}>
+          {rule && <T size={12.5} color={C.dark3}>عمولة المنصة: {ruleSummary(rule.kind, rule.value, rule.minAmount)}</T>}
+          <T size={12.5} color={C.dark3}>مستحق للمنصة: <T w="black" size={13} color={mine.due > 0 ? C.red : C.green}>{money(mine.due)}</T> • هذا الشهر {money(mine.month)}</T>
+        </View>
+      )}
+    </Card>
+  );
+}
+/** Courier: the platform deduction per delivered order and what is owed. */
+export function CourierFinanceCard() {
+  const mine = useMyCommission('courier');
+  if (!mine) return null;
+  const rule = mine.rules[0];
+  return (
+    <Card style={{ gap: 4 }}>
+      <T w="black" size={15}>خصم المنصة</T>
+      {rule && <T size={12.5} color={C.dark3}>{ruleSummary(rule.kind, rule.value, rule.minAmount, 'courier')}</T>}
+      <T size={12.5} color={C.dark3}>إجمالي الخصم غير المسدد: <T w="black" size={13} color={mine.due > 0 ? C.red : C.green}>{money(mine.due)}</T> • هذا الشهر {money(mine.month)}</T>
+    </Card>
+  );
+}
+
+/* ============================== login picture (owner settings) ============================== */
+export function LoginImageManager() {
+  const { db } = useStore();
+  const v = db.settings.loginImageV || 0;
+  const [busy, setBusy] = useState(false);
+  if (!canPickImage) return null;
+  const choose = async () => {
+    const img = await pickImage(1280);
+    if (!img) return toast('تعذر قراءة الصورة، جرّب صورة أخرى', 'err');
+    setBusy(true);
+    const r = await setLoginImage(img);
+    setBusy(false);
+    toast(r.ok ? 'تم تغيير صورة واجهة الدخول' : r.error, r.ok ? 'ok' : 'err');
+  };
+  const remove = () => confirmDialog({ title: 'حذف الصورة؟', message: 'ستعود الصورة الأصلية للتطبيق.', danger: true, confirmText: 'حذف', onConfirm: async () => { const r = await setLoginImage(null); toast(r.ok ? 'تمت العودة للصورة الأصلية' : r.error, r.ok ? 'ok' : 'err'); } });
+  return (
+    <Card style={{ gap: 10 }}>
+      <T w="black" size={15}>صورة واجهة تسجيل الدخول</T>
+      <T size={12} color={C.sub}>تظهر في الشاشة الأولى للتطبيق عند كل المستخدمين فور حفظها.</T>
+      {v > 0 ? <Image source={{ uri: loginImageUrl(v) }} style={{ width: '100%', height: 170, borderRadius: 14, backgroundColor: C.line }} resizeMode="cover" /> : <T size={12.5} color={C.sub}>الصورة الحالية: الصورة الأصلية للتطبيق.</T>}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn variant="soft" icon="camera" title={v > 0 ? 'تغيير الصورة' : 'رفع صورة'} style={{ flex: 1 }} loading={busy} onPress={choose} />
+        {v > 0 && <Btn variant="danger" icon="trash" title="حذف" style={{ flex: 0.5 }} onPress={remove} />}
+      </View>
+    </Card>
+  );
+}

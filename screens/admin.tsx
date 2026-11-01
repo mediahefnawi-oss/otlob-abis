@@ -16,6 +16,8 @@ import {
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS } from '../lib/format';
 import { RegionsManager } from '../components/Regions';
+import { LoginImageManager } from '../components/Finance';
+import { useCounters } from '../lib/finance';
 import { AdsManager } from '../components/Ads';
 import { ProviderType, AccountStatus } from '../lib/types';
 
@@ -70,6 +72,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
   const couriers = db.users.filter((u) => u.role === 'courier' && u.status === 'active');
   const avail = availableCouriers(db).length;
   const revenue = delivered.reduce((s, o) => s + o.total, 0);
+  const counters = useCounters('admin'); // server-side, honours the owner's counter resets
 
   const bars = useMemo(() => {
     const arr: { label: string; n: number }[] = [];
@@ -106,12 +109,13 @@ export function AdminDashboardScreen({ navigation, go }: any) {
         )}
 
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="receipt" label="إجمالي الطلبات" value={orders.length} />
+          <Stat icon="receipt" label="إجمالي الطلبات" value={counters ? counters.totals.orders : orders.length} />
           <Stat icon="checkmark-done" label="المكتملة" value={delivered.length} color={C.blue} soft={C.blueSoft} />
           <Stat icon="bicycle" label="قيد التنفيذ" value={active.length} color={C.orange} soft={C.orangeSoft} />
         </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="cash" label="إجمالي المبيعات" value={money(revenue)} color={C.goldDeep} soft={C.goldSoft} />
+          <Stat icon="cash" label="إجمالي المبيعات" value={money(counters ? counters.totals.sales : revenue)} color={C.goldDeep} soft={C.goldSoft} />
+          <Stat icon="trending-up" label="أرباح المنصة" value={money(counters ? counters.totals.profit : 0)} color={C.green} soft={C.greenSoft} />
           <Stat icon="calendar" label="حجوزات العيادات" value={db.appointments.length} color="#8A5CD1" soft="#EFE6FB" />
         </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -316,6 +320,8 @@ export function AdminDetailScreen({ navigation, route }: any) {
   const [newPw, setNewPw] = useState('');
   const delivered = orders.filter((o) => o.status === 'delivered');
   const revenue = delivered.reduce((s, o) => s + (prov ? o.subtotal : o.deliveryFee), 0);
+  const counters = useCounters('admin');
+  const pc = prov && counters ? counters.providers[prov.id] : undefined;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -337,10 +343,16 @@ export function AdminDetailScreen({ navigation, route }: any) {
           </View>
         </Card>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="receipt" label={prov?.type === 'clinic' ? 'حجوزات' : 'طلبات'} value={prov?.type === 'clinic' ? appts.length : orders.length} />
-          <Stat icon="checkmark-done" label="مكتملة" value={prov?.type === 'clinic' ? appts.filter((a) => a.status === 'completed').length : delivered.length} color={C.blue} soft={C.blueSoft} />
-          <Stat icon="cash" label={prov ? 'المبيعات' : 'الأرباح'} value={prov?.type === 'clinic' ? money(appts.filter((a) => ['confirmed', 'completed'].includes(a.status)).reduce((s, a) => s + a.fee, 0)) : money(revenue)} color={C.goldDeep} soft={C.goldSoft} />
+          <Stat icon="receipt" label={prov?.type === 'clinic' ? 'حجوزات' : 'طلبات'} value={pc ? pc.orders : prov?.type === 'clinic' ? appts.length : orders.length} />
+          <Stat icon="checkmark-done" label="مكتملة" value={pc ? pc.done : prov?.type === 'clinic' ? appts.filter((a) => a.status === 'completed').length : delivered.length} color={C.blue} soft={C.blueSoft} />
+          <Stat icon="cash" label={prov ? 'المبيعات' : 'الأرباح'} value={pc ? money(pc.sales) : prov?.type === 'clinic' ? money(appts.filter((a) => ['confirmed', 'completed'].includes(a.status)).reduce((s, a) => s + a.fee, 0)) : money(revenue)} color={C.goldDeep} soft={C.goldSoft} />
         </View>
+        {pc && (
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Stat icon="trending-up" label="عمولة المنصة منه" value={money(pc.commission)} color={C.green} soft={C.greenSoft} />
+            <Stat icon="bicycle" label="خصم مناديبه" value={money(pc.courierCut)} color={C.orange} soft={C.orangeSoft} />
+          </View>
+        )}
         <Card style={{ gap: 10 }}>
           <T w="black" size={15}>إجراءات الإدارة</T>
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -398,6 +410,7 @@ export function AdminSettingsScreen({ navigation }: any) {
       <AppSwitch />
       <RegionsManager />
       <AdsManager />
+      <LoginImageManager />
       <Card style={{ gap: 12 }}>
         <T w="black" size={15}>إعدادات التطبيق</T>
         <Field label="رسالة الصيانة (عند إيقاف التطبيق)" value={msg} onChangeText={setMsg} multiline icon="construct" />

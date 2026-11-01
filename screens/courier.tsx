@@ -3,6 +3,7 @@ import { View, FlatList, ScrollView, Pressable } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, shadow } from '../lib/theme';
+import { CourierFinanceCard } from '../components/Finance';
 import { T, Icon, Card, Btn, Header, Empty, Segmented, Appear, Stat, confirmDialog, toast, SectionTitle } from '../components/ui';
 import { OrderCard } from '../components/Cards';
 import { useRC } from './customer';
@@ -68,6 +69,7 @@ export function CourierWorkScreen({ go }: any) {
           <Stat icon="checkmark-done" label="تم تسليمها اليوم" value={doneToday.length} />
           <Stat icon="bicycle" label="جارية الآن" value={mine.length} color={C.orange} soft={C.orangeSoft} />
         </View>
+        <CourierFinanceCard />
         <Card style={{ gap: 8 }}>
           <RegionPicker value={me.regionId} onChange={async (id) => { const r = await updateProfile({ regionId: id }); if (!r.ok) toast(r.error, 'err'); else toast('تم تحديد منطقتك'); }} label="أنا الآن في منطقة" />
         </Card>

@@ -180,3 +180,140 @@ CREATE TABLE IF NOT EXISTS product_images (
   mime TEXT NOT NULL DEFAULT 'image/jpeg',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- =====================================================================================
+-- Commissions, counters reset, audit log, login picture (all controlled from the owner's panel)
+-- =====================================================================================
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+UPDATE orders SET delivered_at = updated_at WHERE status = 'delivered' AND delivered_at IS NULL;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+UPDATE appointments SET completed_at = updated_at WHERE status = 'completed' AND completed_at IS NULL;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS commissions_seeded BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS commission_rules (
+  id BIGSERIAL PRIMARY KEY,
+  target TEXT NOT NULL CHECK (target IN ('provider','courier')),
+  scope TEXT NOT NULL CHECK (scope IN ('all','type','provider','courier')),
+  provider_type TEXT,
+  provider_id BIGINT,
+  courier_user_id BIGINT,
+  kind TEXT NOT NULL CHECK (kind IN ('percent','fixed')),
+  value NUMERIC(10,2) NOT NULL CHECK (value >= 0),
+  min_amount NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (min_amount >= 0),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  note TEXT NOT NULL DEFAULT '',
+  created_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_comm_rules_target ON commission_rules(target, active);
+
+CREATE TABLE IF NOT EXISTS commission_settlements (
+  id BIGSERIAL PRIMARY KEY,
+  party TEXT NOT NULL CHECK (party IN ('provider','courier')),
+  provider_id BIGINT,
+  courier_user_id BIGINT,
+  amount NUMERIC(12,2) NOT NULL,
+  entries_count INT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- The ledger: one accrual per (order or booking, kind); cancellations / returns are separate negative adjustments.
+CREATE TABLE IF NOT EXISTS commission_entries (
+  id BIGSERIAL PRIMARY KEY,
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('accrual','adjustment')),
+  kind TEXT NOT NULL CHECK (kind IN ('provider','courier')),
+  order_id BIGINT,
+  appointment_id BIGINT,
+  provider_id BIGINT,
+  courier_user_id BIGINT,
+  base_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  amount NUMERIC(12,2) NOT NULL,
+  rule_id BIGINT,
+  rule_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  parent_id BIGINT REFERENCES commission_entries(id),
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'due' CHECK (status IN ('due','settled')),
+  settlement_id BIGINT REFERENCES commission_settlements(id),
+  created_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_comm_order ON commission_entries(order_id, kind) WHERE entry_type = 'accrual' AND order_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_comm_appt ON commission_entries(appointment_id, kind) WHERE entry_type = 'accrual' AND appointment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_comm_provider ON commission_entries(provider_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comm_courier ON commission_entries(courier_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comm_parent ON commission_entries(parent_id);
+CREATE INDEX IF NOT EXISTS idx_comm_created ON commission_entries(created_at);
+
+-- Counter resets only move the "since" line of the displayed counters; no order / invoice / commission row is touched.
+CREATE TABLE IF NOT EXISTS counter_resets (
+  id BIGSERIAL PRIMARY KEY,
+  scope TEXT NOT NULL CHECK (scope IN ('all','type','provider')),
+  provider_type TEXT,
+  provider_id BIGINT,
+  counters TEXT[] NOT NULL,
+  reset_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','schedule')),
+  schedule_id BIGINT,
+  note TEXT NOT NULL DEFAULT '',
+  created_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_counter_resets_at ON counter_resets(reset_at DESC);
+CREATE TABLE IF NOT EXISTS counter_schedules (
+  id BIGSERIAL PRIMARY KEY,
+  scope TEXT NOT NULL CHECK (scope IN ('all','type','provider')),
+  provider_type TEXT,
+  provider_id BIGINT,
+  counters TEXT[] NOT NULL,
+  frequency TEXT NOT NULL CHECK (frequency IN ('once','daily','weekly','monthly')),
+  run_time TEXT NOT NULL DEFAULT '00:00',
+  day_of_week SMALLINT,
+  day_of_month SMALLINT,
+  run_date DATE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  next_run_at TIMESTAMPTZ,
+  last_run_at TIMESTAMPTZ,
+  created_by BIGINT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id BIGSERIAL PRIMARY KEY,
+  actor_user_id BIGINT,
+  actor_name TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL DEFAULT '',
+  entity_id TEXT NOT NULL DEFAULT '',
+  before JSONB,
+  after JSONB,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS site_images (
+  key TEXT PRIMARY KEY,
+  image BYTEA NOT NULL,
+  mime TEXT NOT NULL DEFAULT 'image/jpeg',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Default commissions (seeded once; afterwards the owner edits them from the panel).
+DO $$
+BEGIN
+  IF NOT (SELECT commissions_seeded FROM app_settings WHERE id = 1) THEN
+    INSERT INTO commission_rules(target, scope, provider_type, kind, value, effective_from, note) VALUES
+      ('provider','type','supermarket','percent',10,'2000-01-01','افتراضي'),
+      ('provider','type','pharmacy','percent',10,'2000-01-01','افتراضي'),
+      ('provider','type','restaurant','fixed',15,'2000-01-01','افتراضي'),
+      ('provider','type','clinic','fixed',15,'2000-01-01','افتراضي'),
+      ('provider','type','maker','fixed',15,'2000-01-01','افتراضي'),
+      ('provider','type','store','fixed',15,'2000-01-01','افتراضي'),
+      ('courier','all',NULL,'fixed',5,'2000-01-01','افتراضي');
+    UPDATE app_settings SET commissions_seeded = TRUE WHERE id = 1;
+  END IF;
+END $$;

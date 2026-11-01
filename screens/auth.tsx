@@ -11,12 +11,17 @@ import { TYPES, SPECIALTIES } from '../lib/format';
 import { ProviderType } from '../lib/types';
 
 import { RegionPicker } from '../components/Regions';
+import { loginImageUrl } from '../lib/api';
 
 export function WelcomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const loginV = useStore().db.settings.loginImageV || 0; // the owner can replace this picture from the control panel
   return (
     <View style={{ flex: 1, backgroundColor: C.dark }}>
-      <Image source={require('../assets/brand/scene.png')} style={[StyleSheet.absoluteFill, { top: '28%' }]} contentFit="cover" contentPosition="bottom" />
+      <Image
+        source={loginV > 0 ? { uri: loginImageUrl(loginV) } : require('../assets/brand/scene.png')}
+        style={[StyleSheet.absoluteFill, { top: loginV > 0 ? 0 : '28%' }]} contentFit="cover" contentPosition={loginV > 0 ? 'center' : 'bottom'}
+      />
       <LinearGradient colors={[C.dark, 'rgba(0,33,26,0.55)', 'rgba(0,33,26,0.2)', 'rgba(0,33,26,0.92)']} locations={[0, 0.35, 0.6, 1]} style={StyleSheet.absoluteFill} />
       <View style={{ flex: 1, paddingTop: insets.top + 30, paddingBottom: insets.bottom + 20, paddingHorizontal: 24, alignItems: 'center', maxWidth: 520, width: '100%', alignSelf: 'center' }}>
         <Animated.View entering={FadeIn.duration(700)} style={{ alignItems: 'center' }}>

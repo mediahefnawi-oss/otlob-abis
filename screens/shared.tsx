@@ -10,6 +10,7 @@ import {
   toast, confirmDialog, openWhats, callPhone, IconBtn, SectionTitle, AcctPill,
 } from '../components/ui';
 import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened } from '../lib/store';
+import { CommissionTrail } from '../components/Finance';
 import { ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
@@ -114,6 +115,8 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             {me.role !== 'courier' && !!(courier?.phone || o.courierPhone) && <IconBtn icon="call" bg={C.greenSoft} color={C.green} onPress={() => callPhone((courier?.phone || o.courierPhone)!)} />}
           </Card>
         )}
+
+        {me.role === 'admin' && o.status === 'delivered' && <CommissionTrail orderId={o.id} />}
 
         {/* parties */}
         <Card style={{ gap: 12 }}>
@@ -263,6 +266,7 @@ export function ApptDetailScreen({ navigation, route }: any) {
           <Row icon="cash" label="رسوم الكشف" value={money(a.fee)} color={C.goldDeep} />
           {!!a.notes && <Row icon="create" label="ملاحظات" value={a.notes} />}
         </Card>
+        {me.role === 'admin' && a.status === 'completed' && <CommissionTrail appointmentId={a.id} />}
         {a.status === 'pending' && me.role === 'customer' && <T size={12.5} color={C.sub} align="center">بانتظار تأكيد العيادة، وستصلك فاتورة الحجز فور القبول.</T>}
         <View style={{ gap: 10 }}>
           {isOwner && a.status === 'pending' && (

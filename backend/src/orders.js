@@ -4,6 +4,7 @@
  * The app mirrors /api/sync into its screens; every state change goes through one of the POST/PATCH routes below,
  * so the server alone decides who may do what (and who wins when two couriers tap "accept" together).
  */
+const commissions = require('./commissions');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
   const num = v => Number(v) || 0;
   const ms = d => new Date(d).getTime();
@@ -516,6 +517,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'deliver':
           need(isMyDelivery); state('on_the_way', 'arrived');
           next = await moveOrder(db, row, 'delivered');
+          await commissions.onOrderDelivered(db, next);
           await sysMsg(db, id, 'تم تسليم الطلب بنجاح. بالهناء والشفاء 💚');
           break;
         default: throw fail(400, 'إجراء غير معروف');
@@ -611,6 +613,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         dataNow.invoiceId = String(inv.rows[0].id);
       }
       await db.query('UPDATE appointments SET status=$1, data=$2, updated_at=NOW() WHERE id=$3', [status, JSON.stringify(dataNow), id]);
+      if (status === 'completed') await commissions.onApptCompleted(db, a);
       return (await db.query(`${APPT_SQL} WHERE a.id=$1`, [id])).rows[0];
     });
     if (['confirm', 'reject'].includes(action)) await notify([out.customer_user_id], action === 'confirm' ? 'تم تأكيد حجزك ✅' : 'اعتذرت العيادة عن الحجز', `${(out.data || {}).clinicName || ''} — ${out.date_str} ${out.appointment_time}`, `appt-${out.id}`);
