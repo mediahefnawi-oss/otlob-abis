@@ -94,7 +94,11 @@ function flashTitle(text: string) {
 }
 
 export function alertNewOrder(title: string, body: string) {
-  if (!isWeb) return;
+  if (!isWeb) {
+    // phone app: strong vibration while the app is open
+    try { require('react-native').Vibration.vibrate([0, 400, 150, 400, 150, 400]); } catch {}
+    return;
+  }
   playNewOrderSound();
   try { (navigator as any).vibrate?.([250, 120, 250, 120, 250]); } catch {}
   flashTitle(title);

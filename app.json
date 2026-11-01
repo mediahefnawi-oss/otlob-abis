@@ -7,7 +7,8 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.otlobabis.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -16,7 +17,16 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.otlobabis.app",
+      "versionCode": 1,
+      "permissions": [
+        "INTERNET",
+        "VIBRATE",
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -24,18 +34,6 @@
       "backgroundColor": "#00211A",
       "themeColor": "#00211A"
     },
-    "extra": {
-      "eas": {
-        "projectId": "552f0665-e30d-4f11-9ea9-97bc22a22809"
-      }
-    },
-    "updates": {
-      "url": "https://u.expo.dev/552f0665-e30d-4f11-9ea9-97bc22a22809"
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "owner": "arcadalabs",
     "platforms": [
       "ios",
       "android",
@@ -45,6 +43,10 @@
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#00211A"
-    }
+    },
+    "scheme": "otlobabis",
+    "plugins": [
+      "expo-secure-store"
+    ]
   }
 }

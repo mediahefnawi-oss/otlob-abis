@@ -550,6 +550,34 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     });
     res.json({ loginImageV: v });
   }));
+  /* ---------- the app's icon: stored here, used when the Android app is built (see build-apk.yml) ---------- */
+  app.get('/api/app-icon', asyncRoute(async (_req, res) => {
+    const r = await pool.query("SELECT image, mime FROM site_images WHERE key='app_icon'");
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime);
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(r.rows[0].image);
+  }));
+  app.put('/api/admin/app-icon', ...admin, guard(async (req, res) => {
+    const s = String((req.body || {}).image || '');
+    const m = /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/.exec(s);
+    if (!m || s.length > MAX_LOGIN_IMAGE) throw fail(400, 'ارفع صورة مربعة صالحة (PNG أو JPG) بحجم أصغر');
+    const v = await withTx(async db => {
+      const r = await db.query("INSERT INTO site_images(key, image, mime, updated_at) VALUES('app_icon',$1,$2,NOW()) ON CONFLICT (key) DO UPDATE SET image=EXCLUDED.image, mime=EXCLUDED.mime, updated_at=NOW() RETURNING (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v",
+        [Buffer.from(m[2], 'base64'), m[1]]);
+      await audit(db, me(req), 'app-icon.set', 'site_image', 'app_icon', null, { bytes: Buffer.byteLength(m[2], 'base64') });
+      return Number(r.rows[0].v);
+    });
+    res.json({ appIconV: v });
+  }));
+  app.delete('/api/admin/app-icon', ...admin, guard(async (req, res) => {
+    await withTx(async db => {
+      await db.query("DELETE FROM site_images WHERE key='app_icon'");
+      await audit(db, me(req), 'app-icon.remove', 'site_image', 'app_icon', null, null);
+    });
+    res.json({ appIconV: 0 });
+  }));
   app.delete('/api/admin/login-image', ...admin, guard(async (req, res) => {
     await withTx(async db => {
       await db.query("DELETE FROM site_images WHERE key='login'");

@@ -209,6 +209,8 @@ export interface Settings {
   supportPhone: string;
   supportName: string;
   loginImageV?: number; // 0 / missing = the original picture
+  appIconV?: number; // 0 / missing = the built-in icon
+  apkUrl?: string; // download link of the Android app
 }
 
 export interface DB {

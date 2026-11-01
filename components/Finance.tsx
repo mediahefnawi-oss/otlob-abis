@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, Image } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
-import { useStore, setLoginImage } from '../lib/store';
+import { useStore, setLoginImage, setAppIcon, updateSettings } from '../lib/store';
 import { TYPES, money, fmtDateTime, isoDay, DAYS } from '../lib/format';
 import { ProviderType } from '../lib/types';
 import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
-import { loginImageUrl } from '../lib/api';
+import { loginImageUrl, appIconUrl } from '../lib/api';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useRC } from '../screens/customer';
 
@@ -537,6 +537,39 @@ export function LoginImageManager() {
         <Btn variant="soft" icon="camera" title={v > 0 ? 'تغيير الصورة' : 'رفع صورة'} style={{ flex: 1 }} loading={busy} onPress={choose} />
         {v > 0 && <Btn variant="danger" icon="trash" title="حذف" style={{ flex: 0.5 }} onPress={remove} />}
       </View>
+    </Card>
+  );
+}
+
+/** Owner: the icon of the Android app (used the next time the app is built) + its download link. */
+export function AppIconManager() {
+  const { db } = useStore();
+  const v = db.settings.appIconV || 0;
+  const [busy, setBusy] = useState(false);
+  const [url, setUrl] = useState(db.settings.apkUrl || '');
+  const choose = async () => {
+    const img = await pickImage(1024);
+    if (!img) return toast('تعذر قراءة الصورة، جرّب صورة أخرى', 'err');
+    setBusy(true);
+    const r = await setAppIcon(img);
+    setBusy(false);
+    toast(r.ok ? 'تم حفظ أيقونة التطبيق. ستظهر في النسخة القادمة من الأندرويد' : r.error, r.ok ? 'ok' : 'err');
+  };
+  const remove = () => confirmDialog({ title: 'حذف الأيقونة؟', message: 'ستعود الأيقونة الأصلية في النسخة القادمة.', danger: true, confirmText: 'حذف', onConfirm: async () => { const r = await setAppIcon(null); toast(r.ok ? 'تمت العودة للأيقونة الأصلية' : r.error, r.ok ? 'ok' : 'err'); } });
+  const saveUrl = async () => { const r = await updateSettings({ apkUrl: url.trim() }); toast(r.ok ? 'تم حفظ رابط التحميل' : r.error, r.ok ? 'ok' : 'err'); };
+  return (
+    <Card style={{ gap: 10 }}>
+      <T w="black" size={15}>تطبيق الأندرويد</T>
+      <T size={12} color={C.sub}>الأيقونة بتتثبت وقت بناء التطبيق: بعد ما ترفعها شغّل بناء الأندرويد (build-apk) من جديد عشان تظهر على الموبايلات.</T>
+      {v > 0 ? <Image source={{ uri: appIconUrl(v) }} style={{ width: 96, height: 96, borderRadius: 22, backgroundColor: C.line, alignSelf: 'flex-start' }} resizeMode="cover" /> : <T size={12.5} color={C.sub}>الأيقونة الحالية: الأيقونة الأصلية.</T>}
+      {canPickImage && (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Btn variant="soft" icon="camera" title={v > 0 ? 'تغيير الأيقونة (صورة مربعة)' : 'رفع أيقونة (صورة مربعة)'} style={{ flex: 1 }} loading={busy} onPress={choose} />
+          {v > 0 && <Btn variant="danger" icon="trash" title="حذف" style={{ flex: 0.5 }} onPress={remove} />}
+        </View>
+      )}
+      <Field label="رابط تحميل التطبيق (يظهر للعملاء)" icon="download" value={url} onChangeText={setUrl} placeholder="https://..." autoCapitalize="none" />
+      <Btn title="حفظ الرابط" icon="checkmark" onPress={saveUrl} />
     </Card>
   );
 }

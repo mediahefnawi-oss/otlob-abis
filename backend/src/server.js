@@ -150,7 +150,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261103;
+const SCHEMA_VERSION = 20261104;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -201,14 +201,37 @@ async function ensureSchema() {
 let webpush = null;
 try { webpush = require('web-push'); } catch (e) { console.warn('web-push is not installed: push notifications are off'); }
 const pushEnabled = !!(webpush && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+// Phone app (Android): notifications go through Firebase Cloud Messaging. Needs FIREBASE_SERVICE_ACCOUNT (the service-account JSON, as text).
+let fcm = null;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    const admin = require('firebase-admin');
+    admin.initializeApp({ credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
+    fcm = admin.messaging();
+  } catch (e) { console.warn('Firebase push is off:', e.message); }
+}
 if (pushEnabled) webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
 /** Sends one notification to every device of the given users. Never throws (a failed push must not fail an order). */
 async function pushToUsers(userIds, payload) {
-  if (!pushEnabled || !userIds || !userIds.length) return;
+  if ((!pushEnabled && !fcm) || !userIds || !userIds.length) return;
   try {
     const subs = (await pool.query('SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1::bigint[])', [[...new Set(userIds.map(Number))]])).rows;
     const body = JSON.stringify(payload);
-    await Promise.allSettled(subs.map(s => Promise.race([
+    const device = subs.filter(s => String(s.endpoint).startsWith('fcm:'));
+    await Promise.allSettled(device.map(s => Promise.race([
+      !fcm ? Promise.resolve() : fcm.send({
+        token: String(s.endpoint).slice(4),
+        notification: { title: String(payload.title || ''), body: String(payload.body || '') },
+        data: { tag: String(payload.tag || ''), url: String(payload.url || '/') },
+        android: { priority: 'high', ttl: 3600 * 1000, notification: { channelId: 'orders', sound: 'default', tag: String(payload.tag || '') || undefined } },
+      }).catch(async e => {
+        if (e && /registration-token-not-registered|invalid-registration-token|invalid-argument/.test(String(e.code || e.message))) await pool.query('DELETE FROM push_subscriptions WHERE id=$1', [s.id]);
+        else console.error('fcm push failed:', e && (e.code || e.message));
+      }),
+      new Promise(r => setTimeout(r, 4000)),
+    ])));
+    if (!pushEnabled) return;
+    await Promise.allSettled(subs.filter(s => !String(s.endpoint).startsWith('fcm:')).map(s => Promise.race([
       webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: 3600, urgency: 'high' }).catch(async e => {
         if (e && (e.statusCode === 404 || e.statusCode === 410)) await pool.query('DELETE FROM push_subscriptions WHERE id=$1', [s.id]); // the device unsubscribed
         else console.error('push failed:', e && (e.statusCode || e.message));
@@ -484,6 +507,13 @@ app.post('/api/push/subscribe', auth, asyncRoute(async (req, res) => {
   await pool.query('INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth) VALUES($1,$2,$3,$4) ON CONFLICT (endpoint) DO UPDATE SET user_id=EXCLUDED.user_id, p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth', [Number(req.auth.sub), endpoint, p256dh, authKey]);
   res.status(201).json({ ok: true });
 }));
+// Android app: the phone's Firebase token (stored like a web subscription, with an "fcm:" prefix).
+app.post('/api/push/subscribe-device', auth, asyncRoute(async (req, res) => {
+  const token = String((req.body || {}).token || '');
+  if (token.length < 20 || token.length > 400 || /\s/.test(token)) return res.status(400).json({ error: 'رمز الجهاز غير صالح' });
+  await pool.query("INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth) VALUES($1,$2,'fcm','fcm') ON CONFLICT (endpoint) DO UPDATE SET user_id=EXCLUDED.user_id", [Number(req.auth.sub), `fcm:${token}`]);
+  res.status(201).json({ ok: true });
+}));
 app.post('/api/push/unsubscribe', auth, asyncRoute(async (req, res) => {
   await pool.query('DELETE FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2', [String((req.body || {}).endpoint || ''), Number(req.auth.sub)]);
   res.json({ ok: true });
@@ -494,11 +524,13 @@ app.post('/api/push/unsubscribe', auth, asyncRoute(async (req, res) => {
 async function loadSettings() {
   const hit = settingsMemo.get('s');
   if (hit) return hit;
-  const r = await pool.query('SELECT app_enabled,maintenance_message,announcement,auto_assign,support_phone,support_name,updated_at FROM app_settings WHERE id=1');
+  const r = await pool.query('SELECT app_enabled,maintenance_message,announcement,auto_assign,support_phone,support_name,apk_url,updated_at FROM app_settings WHERE id=1');
   const x = r.rows[0];
   let loginImageV = 0;
   try { const li = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='login'"); if (li.rowCount) loginImageV = Number(li.rows[0].v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { loginImageV, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  let appIconV = 0;
+  try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
+  return settingsMemo.set('s', { loginImageV, appIconV, apkUrl: x.apk_url || '', appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 app.get('/api/settings', asyncRoute(async (_req, res) => {
   res.json({ settings: await loadSettings() });
@@ -508,8 +540,8 @@ app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, re
   const current = (await pool.query('SELECT * FROM app_settings WHERE id=1')).rows[0];
   const boolField = (v, old) => typeof v === 'boolean' ? v : old;
   const textField = (v, old, max=500) => typeof v === 'string' ? v.trim().slice(0,max) : old;
-  const r = await pool.query(`UPDATE app_settings SET app_enabled=$1,maintenance_message=$2,announcement=$3,auto_assign=$4,support_phone=$5,support_name=$6,updated_at=NOW() WHERE id=1 RETURNING *`, [
-    boolField(b.appEnabled,current.app_enabled), textField(b.maintenanceMessage,current.maintenance_message), textField(b.announcement,current.announcement), boolField(b.autoAssign,current.auto_assign), textField(b.supportPhone,current.support_phone,40), textField(b.supportName,current.support_name,100)
+  const r = await pool.query(`UPDATE app_settings SET app_enabled=$1,maintenance_message=$2,announcement=$3,auto_assign=$4,support_phone=$5,support_name=$6,apk_url=$7,updated_at=NOW() WHERE id=1 RETURNING *`, [
+    boolField(b.appEnabled,current.app_enabled), textField(b.maintenanceMessage,current.maintenance_message), textField(b.announcement,current.announcement), boolField(b.autoAssign,current.auto_assign), textField(b.supportPhone,current.support_phone,40), textField(b.supportName,current.support_name,100), (() => { const u = textField(b.apkUrl, current.apk_url, 500); return u === '' || /^https:\/\/[^\s]+$/i.test(u) ? u : current.apk_url; })()
   ]);
   const x = r.rows[0];
   res.json({ settings: await loadSettings() });

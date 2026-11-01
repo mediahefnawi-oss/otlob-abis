@@ -12,10 +12,12 @@ import { ProviderType } from '../lib/types';
 
 import { RegionPicker } from '../components/Regions';
 import { loginImageUrl } from '../lib/api';
+import { Linking } from 'react-native';
 
 export function WelcomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
-  const loginV = useStore().db.settings.loginImageV || 0; // the owner can replace this picture from the control panel
+  const { db } = useStore();
+  const loginV = db.settings.loginImageV || 0; // the owner can replace this picture from the control panel
   return (
     <View style={{ flex: 1, backgroundColor: C.dark }}>
       <Image
@@ -52,6 +54,12 @@ export function WelcomeScreen({ navigation }: any) {
               <T w="bold" size={12.5} color="#fff">انضم كمندوب</T>
             </Pressable>
           </View>
+          {Platform.OS === 'web' && !!db.settings.apkUrl && (
+            <Pressable onPress={() => Linking.openURL(db.settings.apkUrl as string)} style={[styles.joinBtn, { flex: 0, alignSelf: 'stretch' }]}>
+              <Icon name="download" size={18} color={C.gold} />
+              <T w="bold" size={12.5} color="#fff">حمّل تطبيق الأندرويد</T>
+            </Pressable>
+          )}
           <Pressable onPress={() => openWhats('01004379508', 'مرحباً، أحتاج مساعدة في تطبيق أطلب أبيس')} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, paddingTop: 6 }}>
             <Icon name="logo-whatsapp" size={18} color="#25D366" />
             <T w="bold" size={13} color="#C9D8D2">01004379508</T>

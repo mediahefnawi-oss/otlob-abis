@@ -16,7 +16,7 @@ import {
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS } from '../lib/format';
 import { RegionsManager, RegionPicker } from '../components/Regions';
-import { LoginImageManager } from '../components/Finance';
+import { LoginImageManager, AppIconManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { AdsManager } from '../components/Ads';
 import { ProviderType, AccountStatus } from '../lib/types';
@@ -424,6 +424,7 @@ export function AdminSettingsScreen({ navigation }: any) {
       <RegionsManager />
       <AdsManager />
       <LoginImageManager />
+      <AppIconManager />
       <Card style={{ gap: 12 }}>
         <T w="black" size={15}>إعدادات التطبيق</T>
         <Field label="رسالة الصيانة (عند إيقاف التطبيق)" value={msg} onChangeText={setMsg} multiline icon="construct" />

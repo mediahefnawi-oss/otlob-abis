@@ -99,6 +99,8 @@ export type CentralSettings = {
   supportPhone: string;
   supportName: string;
   loginImageV?: number;
+  appIconV?: number;
+  apkUrl?: string;
   updatedAt?: string;
 };
 
@@ -263,6 +265,7 @@ export async function apiOrderImage(orderId: string | number) {
 
 /** Announcements board (the owner manages it; everybody sees the active ones). */
 export type ServerAd = { id: string; title: string; link: string; active: boolean; sortOrder: number; v: number };
+export const appIconUrl = (v: number) => `${API_BASE}/api/app-icon?v=${v}`;
 export const loginImageUrl = (v: number) => `${API_BASE}/api/login-image?v=${v}`;
 export const adImageUrl = (ad: { id: string; v: number }) => `${API_BASE}/api/ads/${encodeURIComponent(ad.id)}/image?v=${ad.v}`;
 export async function apiAdminCreateAd(input: { title: string; link: string; image: string }) {
@@ -293,6 +296,9 @@ export async function apiPushKey() {
 }
 export async function apiPushSubscribe(subscription: unknown) {
   return apiRequest<{ ok: boolean }>('/api/push/subscribe', { method: 'POST', body: JSON.stringify({ subscription }) });
+}
+export async function apiPushSubscribeDevice(token: string) {
+  return apiRequest<{ ok: boolean }>('/api/push/subscribe-device', { method: 'POST', body: JSON.stringify({ token }) });
 }
 export async function apiPushUnsubscribe(endpoint: string) {
   return apiRequest<{ ok: boolean }>('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });

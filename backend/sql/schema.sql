@@ -330,3 +330,6 @@ CREATE INDEX IF NOT EXISTS idx_appts_customer_created ON appointments(customer_u
 CREATE INDEX IF NOT EXISTS idx_appts_slots ON appointments(appointment_date, status);
 CREATE INDEX IF NOT EXISTS idx_users_courier_online ON users(role, status, available);
 CREATE INDEX IF NOT EXISTS idx_messages_order ON messages(order_id, id);
+
+-- Download link of the Android app (the owner edits it from the panel)
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS apk_url TEXT NOT NULL DEFAULT '';

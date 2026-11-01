@@ -131,7 +131,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '']);
 
 function applySettings(c: CentralSettings) {
   const next: Settings = {
@@ -142,6 +142,8 @@ function applySettings(c: CentralSettings) {
     supportPhone: c.supportPhone,
     supportName: c.supportName,
     loginImageV: c.loginImageV || 0,
+    appIconV: c.appIconV || 0,
+    apkUrl: c.apkUrl || '',
   };
   if (settingsKey(next) === settingsKey(state.db.settings)) return;
   mutate((db) => {
@@ -1143,6 +1145,15 @@ export async function setLoginImage(image: string | null): Promise<Result> {
   try {
     const r = await apiJson<{ loginImageV: number }>('/api/admin/login-image', image ? 'PUT' : 'DELETE', image ? { image } : undefined);
     mutate((db) => { db.settings = { ...db.settings, loginImageV: r.loginImageV }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+
+/** Owner: set (data URL) or remove (null) the app icon used for the next Android build. */
+export async function setAppIcon(image: string | null): Promise<Result> {
+  try {
+    const r = await apiJson<{ appIconV: number }>('/api/admin/app-icon', image ? 'PUT' : 'DELETE', image ? { image } : undefined);
+    mutate((db) => { db.settings = { ...db.settings, appIconV: r.appIconV }; });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
