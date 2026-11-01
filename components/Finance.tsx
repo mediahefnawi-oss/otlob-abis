@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, Image } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
-import { useStore, setLoginImage, setAppIcon, updateSettings } from '../lib/store';
+import { useStore, setLoginImage, setAppIcon, setCatIcon, updateSettings } from '../lib/store';
 import { TYPES, money, fmtDateTime, isoDay, DAYS } from '../lib/format';
 import { ProviderType } from '../lib/types';
 import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
-import { loginImageUrl, appIconUrl } from '../lib/api';
+import { loginImageUrl, appIconUrl, catIconUrl } from '../lib/api';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useRC } from '../screens/customer';
 
@@ -570,6 +570,41 @@ export function AppIconManager() {
       )}
       <Field label="رابط تحميل التطبيق (يظهر للعملاء)" icon="download" value={url} onChangeText={setUrl} placeholder="https://..." autoCapitalize="none" />
       <Btn title="حفظ الرابط" icon="checkmark" onPress={saveUrl} />
+    </Card>
+  );
+}
+
+/** Owner: a logo / visual identity for each service icon on the customers' home screen. */
+export function CatIconsManager() {
+  const { db } = useStore();
+  const [busy, setBusy] = useState('');
+  const vs = db.settings.catIconV || {};
+  const choose = async (t: ProviderType) => {
+    const img = await pickImage(512);
+    if (!img) return toast('تعذر قراءة الصورة، جرّب صورة أخرى', 'err');
+    setBusy(t);
+    const r = await setCatIcon(t, img);
+    setBusy('');
+    toast(r.ok ? 'تم حفظ الأيقونة وتظهر للعملاء الآن' : r.error, r.ok ? 'ok' : 'err');
+  };
+  const remove = (t: ProviderType) => confirmDialog({ title: 'حذف الصورة؟', message: 'ستعود الأيقونة الأصلية.', danger: true, confirmText: 'حذف', onConfirm: async () => { const r = await setCatIcon(t, null); toast(r.ok ? 'تمت العودة للأيقونة الأصلية' : r.error, r.ok ? 'ok' : 'err'); } });
+  return (
+    <Card style={{ gap: 12 }}>
+      <T w="black" size={15}>أيقونات الأقسام (الهوية البصرية)</T>
+      <T size={12} color={C.sub}>ارفع لوجو أو صورة مربعة لكل قسم، وتظهر بدل الأيقونة في الصفحة الرئيسية للعملاء.</T>
+      {TYPE_KEYS.map((t) => {
+        const v = vs[t] || 0;
+        return (
+          <View key={t} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: C.dark, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              {v > 0 ? <Image source={{ uri: catIconUrl(t, v) }} style={{ width: 54, height: 54 }} resizeMode="cover" /> : <Icon name={TYPES[t].icon} size={24} color={C.gold} />}
+            </View>
+            <T w="bold" size={13.5} style={{ flex: 1 }}>{TYPES[t].label}</T>
+            {canPickImage && <Btn small variant="soft" icon="image" title={v > 0 ? 'تغيير' : 'رفع صورة'} loading={busy === t} onPress={() => choose(t)} />}
+            {v > 0 && <Btn small variant="danger" icon="trash" title="" onPress={() => remove(t)} />}
+          </View>
+        );
+      })}
     </Card>
   );
 }

@@ -210,6 +210,7 @@ export interface Settings {
   supportName: string;
   loginImageV?: number; // 0 / missing = the original picture
   appIconV?: number; // 0 / missing = the built-in icon
+  catIconV?: Record<string, number>; // the owner's picture for each service icon on the home screen (type -> version)
   apkUrl?: string; // download link of the Android app
 }
 

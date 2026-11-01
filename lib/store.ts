@@ -131,7 +131,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '']);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.catIconV || {}]);
 
 function applySettings(c: CentralSettings) {
   const next: Settings = {
@@ -143,6 +143,7 @@ function applySettings(c: CentralSettings) {
     supportName: c.supportName,
     loginImageV: c.loginImageV || 0,
     appIconV: c.appIconV || 0,
+    catIconV: c.catIconV || {},
     apkUrl: c.apkUrl || '',
   };
   if (settingsKey(next) === settingsKey(state.db.settings)) return;
@@ -655,7 +656,7 @@ export async function placeCustomOrder(me: User, info: { text: string; phone: st
 
 export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver' | 'approve_quote' | 'decline_quote';
 
-export function orderAction(orderId: string, action: OrderAction, by: User, reason?: string): Result {
+export function orderAction(orderId: string, action: OrderAction, by: User, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string }): Result {
   const o = state.db.orders.find((x) => x.id === orderId);
   if (!o) return { ok: false, error: 'الطلب غير موجود' };
   if (action === 'cancel' && ['picked_up', 'on_the_way', 'arrived', 'delivered'].includes(o.status)) return { ok: false, error: 'لا يمكن إلغاء الطلب الآن' };
@@ -675,8 +676,8 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
         setStatus(db, orderId, 'cancelled', { rejectReason: 'رفض العميل الفاتورة' });
         break;
       case 'accept':
-        setStatus(db, orderId, 'accepted');
-        sysMsg(db, orderId, 'تم قبول طلبك وجاري التحضير 👨‍🍳');
+        setStatus(db, orderId, extra?.ready ? 'ready' : 'accepted', extra?.readyDate ? { readyDate: extra.readyDate, readyTime: extra.readyTime } : {});
+        sysMsg(db, orderId, extra?.ready ? 'الصانع قبل طلبك وهو جاهز للتسليم الآن 🧵' : extra?.readyDate ? `الصانع قبل طلبك، ويكون جاهزاً للتسليم ${extra.readyDate} الساعة ${extra.readyTime} 🧵` : 'تم قبول طلبك وجاري التحضير 👨‍🍳');
         break;
       case 'reject':
         setStatus(db, orderId, 'rejected', { rejectReason: reason || 'غير متاح حالياً' });
@@ -710,7 +711,7 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
         break;
     }
   });
-  if (isServerId(orderId)) backgroundWrite(async () => { await apiOrderAction(orderId, action, reason); });
+  if (isServerId(orderId)) backgroundWrite(async () => { await apiOrderAction(orderId, action, reason, extra); });
   return { ok: true };
 }
 
@@ -1145,6 +1146,15 @@ export async function setLoginImage(image: string | null): Promise<Result> {
   try {
     const r = await apiJson<{ loginImageV: number }>('/api/admin/login-image', image ? 'PUT' : 'DELETE', image ? { image } : undefined);
     mutate((db) => { db.settings = { ...db.settings, loginImageV: r.loginImageV }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+
+/** Owner: the picture (logo) of one service icon on the home screen; null puts the original icon back. */
+export async function setCatIcon(type: string, image: string | null): Promise<Result> {
+  try {
+    const r = await apiJson<{ type: string; v: number }>(`/api/admin/cat-icon/${encodeURIComponent(type)}`, image ? 'PUT' : 'DELETE', image ? { image } : undefined);
+    mutate((db) => { db.settings = { ...db.settings, catIconV: { ...(db.settings.catIconV || {}), [type]: r.v } }; });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }

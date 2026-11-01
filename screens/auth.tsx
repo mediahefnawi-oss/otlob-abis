@@ -26,11 +26,11 @@ export function WelcomeScreen({ navigation }: any) {
       />
       <LinearGradient colors={[C.dark, 'rgba(0,33,26,0.55)', 'rgba(0,33,26,0.2)', 'rgba(0,33,26,0.92)']} locations={[0, 0.35, 0.6, 1]} style={StyleSheet.absoluteFill} />
       <View style={{ flex: 1, paddingTop: insets.top + 30, paddingBottom: insets.bottom + 20, paddingHorizontal: 24, alignItems: 'center', maxWidth: 520, width: '100%', alignSelf: 'center' }}>
-        <Animated.View entering={FadeIn.duration(700)} style={{ alignItems: 'center' }}>
+        <Animated.View entering={Platform.OS === 'web' ? FadeIn.duration(700) : undefined} style={{ alignItems: 'center' }}>
           <Logo width={280} />
           <T w="bold" size={17} color="#fff" align="center" style={{ marginTop: 6 }}>كل اللي محتاجه في أبيس.. لحد باب بيتك</T>
         </Animated.View>
-        <Animated.View entering={FadeInDown.delay(300)} style={{ flexDirection: 'row', gap: 10, marginTop: 28, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(300) : undefined} style={{ flexDirection: 'row', gap: 10, marginTop: 28, flexWrap: 'wrap', justifyContent: 'center' }}>
           {(Object.keys(TYPES) as ProviderType[]).map((k) => (
             <View key={k} style={{ alignItems: 'center', gap: 6, width: 72 }}>
               <View style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: C.gold, backgroundColor: 'rgba(0,33,26,0.7)', alignItems: 'center', justifyContent: 'center' }}>
@@ -41,7 +41,7 @@ export function WelcomeScreen({ navigation }: any) {
           ))}
         </Animated.View>
         <View style={{ flex: 1 }} />
-        <Animated.View entering={FadeInDown.delay(500)} style={{ alignSelf: 'stretch', gap: 12 }}>
+        <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(500) : undefined} style={{ alignSelf: 'stretch', gap: 12 }}>
           <Btn title="ابدأ الآن" icon="arrow-back" onPress={() => navigation.navigate('Login')} />
           <Btn title="إنشاء حساب عميل جديد" variant="ghost" onPress={() => navigation.navigate('Register', { role: 'customer' })} />
           <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -104,7 +104,7 @@ export function LoginScreen({ navigation }: any) {
           </View>
           <Logo width={230} />
         </View>
-        <Animated.View entering={FadeInDown.duration(400)} style={styles.sheet}>
+        <Animated.View entering={Platform.OS === 'web' ? FadeInDown.duration(400) : undefined} style={styles.sheet}>
           <T w="black" size={22}>تسجيل الدخول</T>
           <T color={C.sub} size={13} style={{ marginTop: -6 }}>سجّل دخولك كعميل أو مقدم خدمة أو مندوب أو مدير</T>
           <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="01xxxxxxxxx" returnKeyType="next" />
@@ -238,7 +238,7 @@ export function PendingScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.dark, paddingTop: insets.top + 30, paddingBottom: insets.bottom + 20, paddingHorizontal: 24, alignItems: 'center' }}>
       <Logo width={220} />
-      <Animated.View entering={FadeInDown} style={[styles.sheet, { marginTop: 30, borderRadius: 28, alignSelf: 'stretch', maxWidth: 480, alignItems: 'center', flex: 0 }]}>
+      <Animated.View entering={Platform.OS === 'web' ? FadeInDown : undefined} style={[styles.sheet, { marginTop: 30, borderRadius: 28, alignSelf: 'stretch', maxWidth: 480, alignItems: 'center', flex: 0 }]}>
         <View style={{ width: 92, height: 92, borderRadius: 46, backgroundColor: rejected ? C.redSoft : C.goldSoft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={rejected ? 'close-circle' : 'hourglass'} size={46} color={rejected ? C.red : C.goldDeep} />
         </View>

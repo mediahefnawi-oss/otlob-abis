@@ -530,7 +530,9 @@ async function loadSettings() {
   try { const li = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='login'"); if (li.rowCount) loginImageV = Number(li.rows[0].v); } catch { /* table not migrated yet */ }
   let appIconV = 0;
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { loginImageV, appIconV, apkUrl: x.apk_url || '', appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  const catIconV = {};
+  try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
+  return settingsMemo.set('s', { loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 app.get('/api/settings', asyncRoute(async (_req, res) => {
   res.json({ settings: await loadSettings() });

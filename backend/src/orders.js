@@ -157,6 +157,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const tag = `order-${row.id}`;
       const jobs = [];
       switch (action) {
+        case 'accept': if (d.providerType === 'maker') jobs.push(notify(cust, 'قبل الصانع طلبك 🧵', d.readyDate ? `جاهز ${d.readyDate} الساعة ${d.readyTime}` : (row.status === 'ready' ? 'جاهز للتسليم الآن' : (d.providerName || '')), tag), notifyCouriers([row])); break;
         case 'approve_quote': jobs.push(notify(shop, 'وافق العميل على السعر ✅', `${d.customerName || ''} — ${Number(row.total)} ج.م`, tag), notifyCouriers([row])); break;
         case 'courier_accept': jobs.push(notify(cust, `المندوب ${d.courierName || ''} قبل طلبك 🛵`, 'وسيتولى التوصيل', tag), notify(shop, 'مندوب سيستلم الطلب', d.courierName || '', tag)); break;
         case 'pickup': jobs.push(notify(cust, 'استلم المندوب طلبك 📦', d.providerName || '', tag)); break;
@@ -212,6 +213,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         (SELECT COUNT(*)||':'||COALESCE(MAX(m.id),0) FROM messages m WHERE m.order_id IN (SELECT id FROM ord)) AS m,
         (SELECT updated_at::text FROM app_settings WHERE id=1) AS s,
         (SELECT updated_at::text FROM site_images WHERE key='login') AS li,
+        (SELECT MAX(updated_at)::text||':'||COUNT(*) FROM site_images WHERE key LIKE 'cat\\_%') AS ci,
         (SELECT COUNT(*) FROM users WHERE role='courier' AND status='active' AND available=TRUE) AS c,
         (SELECT COALESCE(SUM(hashtextextended(x.id::text||x.status||x.updated_at::text,0)::numeric),0)::text FROM appointments x WHERE x.status IN ('pending','confirmed') AND x.appointment_date >= CURRENT_DATE - 1) AS sl`, p);
     return crypto.createHash('md5').update(JSON.stringify([auth.role, auth.status, r.rows[0]])).digest('hex');
@@ -301,10 +303,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
           providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id),
-          history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
+          // a maker decides first (ready now / a day and hour / apologise); every other shop starts preparing at once
+          history: g.p.ptype === 'maker' ? [{ status: 'pending', at: Date.now() }] : [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
         };
-        const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'accepted\',$3,$4,$5) RETURNING *',
-          [Number(req.auth.sub), g.p.provider_id, g.subtotal + fee, region ? region.id : null, JSON.stringify(d)]);
+        const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
+          [Number(req.auth.sub), g.p.provider_id, g.p.ptype === 'maker' ? 'pending' : 'accepted', g.subtotal + fee, region ? region.id : null, JSON.stringify(d)]);
         orders.push(r.rows[0]);
       }
       const total = orders.reduce((s, o) => s + Number(o.total), 0);
@@ -320,8 +323,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       for (const o of orders) {
         const d = { ...o.data, groupId: String(inv.rows[0].id), invoiceId: String(inv.rows[0].id) };
         let row = (await db.query('UPDATE orders SET updated_at=NOW(), data=$1 WHERE id=$2 RETURNING *', [JSON.stringify(d), o.id])).rows[0];
-        await sysMsg(db, row.id, 'تم استلام طلبك وجاري التحضير 👨‍🍳');
-        row = await tryAutoAssign(db, row);
+        if (row.status === 'pending') await sysMsg(db, row.id, 'تم إرسال طلبك للصانع، وسيقبله ويحدد موعد جاهزيته أو يعتذر عنه 🧵');
+        else {
+          await sysMsg(db, row.id, 'تم استلام طلبك وجاري التحضير 👨‍🍳');
+          row = await tryAutoAssign(db, row);
+        }
         finalOrders.push(row);
       }
       const u = await db.query('UPDATE users SET address=$1 WHERE id=$2 RETURNING *', [address, Number(req.auth.sub)]);
@@ -329,7 +335,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     });
     await Promise.allSettled([
       ...out.orders.map(r => notify([(r.data || {}).providerOwnerId], 'طلب جديد 🔔', `${name} — ${Number(r.total)} ج.م`, `order-${r.id}`)),
-      notifyCouriers(out.orders),
+      notifyCouriers(out.orders.filter(r => r.status !== 'pending')),
     ]);
     res.status(201).json({ invoice: invoiceJson(out.invoice), orders: out.orders.map(orderJson), address: out.user.address });
   }));
@@ -500,9 +506,26 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'accept':
           need(isShop); state('pending');
           if (row.data && row.data.request) throw fail(409, 'سعّر الطلب أولاً ثم أرسل الفاتورة للعميل');
-          next = await moveOrder(db, row, 'accepted');
-          await sysMsg(db, id, 'تم قبول طلبك وجاري التحضير 👨‍🍳');
-          next = await tryAutoAssign(db, next);
+          {
+            const b = req.body || {};
+            const maker = !!(row.data && row.data.providerType === 'maker');
+            const rd = String(b.readyDate || '').trim(), rt = String(b.readyTime || '').trim();
+            const patch = {};
+            if (maker && rd) {
+              const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(rd) || Number.isNaN(Date.parse(rd)) || rd < today) throw fail(400, 'حدد يوم التسليم (اليوم أو بعده)');
+              if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(rt)) throw fail(400, 'حدد ساعة التسليم بشكل صحيح');
+              patch.readyDate = rd; patch.readyTime = rt;
+            }
+            next = await moveOrder(db, row, 'accepted', patch);
+            if (maker && b.ready === true) {
+              next = await moveOrder(db, next, 'ready');
+              await sysMsg(db, id, 'الصانع قبل طلبك وهو جاهز للتسليم الآن 🧵');
+            } else if (maker && patch.readyDate) {
+              await sysMsg(db, id, `الصانع قبل طلبك، ويكون جاهزاً للتسليم ${patch.readyDate} الساعة ${patch.readyTime} 🧵`);
+            } else await sysMsg(db, id, 'تم قبول طلبك وجاري التحضير 👨‍🍳');
+            next = await tryAutoAssign(db, next);
+          }
           break;
         case 'approve_quote':
           need(isCustomer); state('quoted');

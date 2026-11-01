@@ -14,7 +14,7 @@ import { CommissionTrail } from '../components/Finance';
 import { ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
-import { QuoteButtons, RequestPhoto } from '../components/Quote';
+import { QuoteButtons, MakerOrderButtons, RequestPhoto } from '../components/Quote';
 import { PushCard } from '../components/PushCard';
 
 /* ---------------- Order detail (all roles) ---------------- */
@@ -60,7 +60,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
       <Header title={`طلب #${o.number}`} subtitle={fmtDateTime(o.createdAt)} onBack={() => navigation.goBack()} right={<OrderPill s={o.status} />} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
         {/* tracking */}
-        <Animated.View entering={FadeInDown}>
+        <Animated.View entering={Platform.OS === 'web' ? FadeInDown : undefined}>
           <Card style={{ gap: 14 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <IconBubble icon={st.icon} color={st.color} bg={st.soft} />
@@ -183,7 +183,8 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           {((me.role === 'provider' && o.providerOwnerId === me.id) || me.role === 'admin') && (
             <>
               <QuoteButtons o={o} />
-              {o.status === 'pending' && !isRequest && (
+              <MakerOrderButtons o={o} />
+              {o.status === 'pending' && !isRequest && o.providerType !== 'maker' && (
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                   <Btn title="قبول الطلب" icon="checkmark" variant="green" style={{ flex: 1 }} onPress={() => act('accept')} />
                   <Btn title="رفض" icon="close" variant="danger" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الطلب؟', message: 'سيتم إبلاغ العميل برفض الطلب', danger: true, confirmText: 'رفض', onConfirm: () => act('reject', 'تعذر على المتجر تنفيذ الطلب') })} />
@@ -330,7 +331,7 @@ export function InvoiceScreen({ navigation, route }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title={inv.kind === 'booking' ? 'فاتورة حجز' : 'فاتورة الطلب'} subtitle={inv.number} onBack={() => navigation.goBack()} right={<IconBtn icon="share-social" onPress={share} />} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-        <Animated.View entering={FadeInDown} style={{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', ...shadow, alignSelf: 'center', width: '100%', maxWidth: 560 }}>
+        <Animated.View entering={Platform.OS === 'web' ? FadeInDown : undefined} style={{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', ...shadow, alignSelf: 'center', width: '100%', maxWidth: 560 }}>
           <LinearGradient colors={[C.dark, C.dark3]} style={{ padding: 18, alignItems: 'center', gap: 4 }}>
             <Logo width={190} />
             <T size={12} color="#C9D8D2" align="center">كل اللي محتاجه في أبيس.. لحد باب بيتك</T>

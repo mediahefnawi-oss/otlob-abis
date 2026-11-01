@@ -100,6 +100,7 @@ export type CentralSettings = {
   supportName: string;
   loginImageV?: number;
   appIconV?: number;
+  catIconV?: Record<string, number>;
   apkUrl?: string;
   updatedAt?: string;
 };
@@ -234,8 +235,8 @@ export async function apiCheckout(input: { name: string; phone: string; address:
 export async function apiCustomOrder(input: { text: string; phone: string; address: string }) {
   return apiRequest<{ invoice: any; orders: any[] }>('/api/orders/custom', { method: 'POST', body: JSON.stringify(input) });
 }
-export async function apiOrderAction(id: string | number, action: string, reason?: string) {
-  return apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(id))}/action`, { method: 'POST', body: JSON.stringify({ action, reason }) });
+export async function apiOrderAction(id: string | number, action: string, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string }) {
+  return apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(id))}/action`, { method: 'POST', body: JSON.stringify({ action, reason, ...(extra || {}) }) });
 }
 export async function apiSendMessage(orderId: string | number, text: string) {
   return apiRequest<{ message: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/messages`, { method: 'POST', body: JSON.stringify({ text }) });
@@ -266,6 +267,7 @@ export async function apiOrderImage(orderId: string | number) {
 /** Announcements board (the owner manages it; everybody sees the active ones). */
 export type ServerAd = { id: string; title: string; link: string; active: boolean; sortOrder: number; v: number };
 export const appIconUrl = (v: number) => `${API_BASE}/api/app-icon?v=${v}`;
+export const catIconUrl = (type: string, v: number) => `${API_BASE}/api/cat-icon/${encodeURIComponent(type)}?v=${v}`;
 export const loginImageUrl = (v: number) => `${API_BASE}/api/login-image?v=${v}`;
 export const adImageUrl = (ad: { id: string; v: number }) => `${API_BASE}/api/ads/${encodeURIComponent(ad.id)}/image?v=${ad.v}`;
 export async function apiAdminCreateAd(input: { title: string; link: string; image: string }) {

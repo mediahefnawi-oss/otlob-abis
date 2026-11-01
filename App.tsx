@@ -28,6 +28,13 @@ import {
   AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen,
 } from './screens/admin';
 import { AdminFinanceScreen } from './components/Finance';
+import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
+
+// the phone app must not close because of one failing action: show a message instead (a crash in a screen is caught by ErrorBoundary)
+if (Platform.OS !== 'web') {
+  const EU = (globalThis as any).ErrorUtils;
+  if (EU && EU.setGlobalHandler) EU.setGlobalHandler((e: any) => { rememberCrash(e); try { toast('حصل خطأ غير متوقع، حاول مرة أخرى', 'err'); } catch {} });
+}
 
 setStoreErrorHandler((msg) => toast(msg, 'err'));
 setStoreNoticeHandler((msg) => toast(msg, 'ok'));
@@ -170,7 +177,7 @@ export default function App() {
           <SoundGate />
           <SyncBanner />
           <OrderAlarmBar />
-          <View style={{ flex: 1 }}><Root /></View>
+          <View style={{ flex: 1 }}><ErrorBoundary><Root /></ErrorBoundary></View>
           <Overlays />
         </View>
       </View>

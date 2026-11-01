@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Image, Pressable, Linking } from 'react-native';
+import { View, Image, Pressable, Linking, Platform } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Sheet, Field, SectionTitle, Toggle, toast, confirmDialog } from './ui';
@@ -44,9 +44,13 @@ export function AdsCarousel() {
         onPress={() => { if (!swiped.current && ad.link) Linking.openURL(ad.link).catch(() => {}); }}
         style={{ height: h, borderRadius: 20, overflow: 'hidden', backgroundColor: C.line }}
       >
-        <Animated.View key={ad.id} entering={FadeIn.duration(450)} style={{ flex: 1 }}>
-          <Image source={{ uri: adImageUrl(ad) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-        </Animated.View>
+        {Platform.OS === 'web' ? (
+          <Animated.View key={ad.id} entering={FadeIn.duration(450)} style={{ flex: 1 }}>
+            <Image source={{ uri: adImageUrl(ad) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          </Animated.View>
+        ) : (
+          <Image key={ad.id} source={{ uri: adImageUrl(ad) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+        )}
       </Pressable>
       {ads.length > 1 && (
         // the dots sit under the picture so they never cover the banner's own icons

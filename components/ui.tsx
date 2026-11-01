@@ -68,7 +68,7 @@ export function Overlays() {
         {toasts.map((t) => (
           <Animated.View
             key={t.id}
-            entering={FadeInDown.duration(220)}
+            entering={Platform.OS === 'web' ? FadeInDown.duration(220) : undefined}
             style={[styles.toast, { backgroundColor: t.type === 'err' ? C.red : t.type === 'info' ? C.dark3 : C.dark }]}
           >
             <Icon name={t.type === 'err' ? 'alert-circle' : 'checkmark-circle'} size={20} color={t.type === 'err' ? '#fff' : C.gold} />
@@ -182,9 +182,11 @@ export const Card = ({ children, style, onPress }: { children: ReactNode; style?
   return <View style={base}>{children}</View>;
 };
 
-export const Appear = ({ children, i = 0, style }: { children: ReactNode; i?: number; style?: StyleProp<ViewStyle> }) => (
-  <Animated.View entering={FadeInDown.delay(Math.min(i, 8) * 45).duration(300)} style={style}>{children}</Animated.View>
-);
+// The entrance animation is web-only: on some Android phones it freezes half-way and the cards end up on top of each other.
+export const Appear = ({ children, i = 0, style }: { children: ReactNode; i?: number; style?: StyleProp<ViewStyle> }) =>
+  Platform.OS === 'web'
+    ? <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(Math.min(i, 8) * 45).duration(300) : undefined} style={style}>{children}</Animated.View>
+    : <View style={style}>{children}</View>;
 
 export const Chip = ({ label, active, onPress, icon, count }: { label: string; active?: boolean; onPress?: () => void; icon?: string; count?: number }) => (
   <Pressable onPress={onPress} style={[styles.chip, active && { backgroundColor: C.dark, borderColor: C.dark }]}>
@@ -222,7 +224,7 @@ export const IconBubble = ({ icon, color, bg, size = 44 }: { icon: string; color
 
 export function Empty({ icon = 'file-tray', title, text }: { icon?: string; title: string; text?: string }) {
   return (
-    <Animated.View entering={FadeIn} style={{ alignItems: 'center', padding: 40, gap: 8 }}>
+    <Animated.View entering={Platform.OS === 'web' ? FadeIn : undefined} style={{ alignItems: 'center', padding: 40, gap: 8 }}>
       <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: C.goldSoft, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name={icon} size={38} color={C.goldDeep} />
       </View>

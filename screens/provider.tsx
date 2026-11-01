@@ -5,7 +5,7 @@ import {
   T, Icon, Toggle, Card, Btn, Header, Empty, Segmented, Stat, Appear, EmojiBubble, Sheet, Field, Chip, Pill, IconBubble, toast, confirmDialog, SectionTitle, IconBtn,
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
-import { QuoteButtons } from '../components/Quote';
+import { QuoteButtons, MakerOrderButtons } from '../components/Quote';
 import { ProviderLogo, ProductThumb, ProductPicture, LogoPicker } from '../components/Brand';
 import { ProviderFinanceCard } from '../components/Finance';
 import { useRC } from './customer';
@@ -128,7 +128,8 @@ export function ProviderOrdersScreen({ navigation }: any) {
             <Appear i={index}>
               <OrderCard o={item} perspective="provider" onPress={() => navigation.navigate('OrderDetail', { id: item.id })}>
                 <QuoteButtons o={item} />
-                {item.status === 'pending' && !item.request && (
+                <MakerOrderButtons o={item} />
+                {item.status === 'pending' && !item.request && item.providerType !== 'maker' && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="green" icon="checkmark" title="قبول الطلب" style={{ flex: 2 }} onPress={() => { orderAction(item.id, 'accept', me); toast('تم قبول الطلب'); }} />
                     <Btn small variant="danger" icon="close" title="رفض" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الطلب؟', danger: true, confirmText: 'رفض', onConfirm: () => { orderAction(item.id, 'reject', me, 'تعذر على المتجر تنفيذ الطلب'); toast('تم رفض الطلب'); } })} />

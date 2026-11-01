@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Image, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Btn, Sheet, Field, Card, Chip, toast, confirmDialog } from './ui';
-import { quoteOrder, orderImage } from '../lib/store';
+import { quoteOrder, orderImage, orderAction, useMe } from '../lib/store';
 import { money, isoDay, prettyIso, readyLabel } from '../lib/format';
 import { Order } from '../lib/types';
 
@@ -41,8 +41,8 @@ export function QuoteSheet({ o, visible, onClose }: { o: Order; visible: boolean
 
   const submit = async () => {
     if (!valid) return toast('اكتب سعر الطلب', 'err');
-    setBusy(true);
     if (isMaker && (!day || !hour)) return toast('حدد يوم وساعة جاهزية الطلب للتسليم', 'err');
+    setBusy(true);
     const r = await quoteOrder(o.id, { price: p, note: note.trim(), ...(isMaker ? { readyDate: day, readyTime: hour } : {}) });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
@@ -98,6 +98,48 @@ export function QuoteButtons({ o }: { o: Order }) {
       </View>
       {o.status === 'quoted' && <T size={12} color={C.goldDeep} w="semi">بانتظار موافقة العميل على السعر ({money(o.total)})</T>}
       <QuoteSheet o={o} visible={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+/** A maker receives an order for products from the shop page: ready now, ready on a day and hour he chooses, or apologise. */
+export function MakerOrderButtons({ o }: { o: Order }) {
+  const me = useMe();
+  const [open, setOpen] = useState(false);
+  const days = nextDays();
+  const [day, setDay] = useState('');
+  const [hour, setHour] = useState('');
+  if (o.providerType !== 'maker' || o.request || o.status !== 'pending' || !me) return null;
+  const done = (r: { ok: boolean; error?: string }, msg: string) => { if (!r.ok) toast(r.error || 'حدث خطأ', 'err'); else toast(msg); };
+  const readyNow = () => done(orderAction(o.id, 'accept', me, undefined, { ready: true }), 'تم إبلاغ العميل والمندوب بأن الطلب جاهز ✅');
+  const schedule = () => {
+    if (!day || !hour) return toast('حدد يوم وساعة جاهزية الطلب للتسليم', 'err');
+    done(orderAction(o.id, 'accept', me, undefined, { readyDate: day, readyTime: hour }), 'تم قبول الطلب وتحديد الموعد ✅');
+    setOpen(false);
+  };
+  const apologise = () => confirmDialog({
+    title: 'الاعتذار عن الطلب؟', message: 'سيصل العميل إشعار باعتذارك عن الطلب وينتهي الطلب.', danger: true, confirmText: 'اعتذار',
+    onConfirm: () => done(orderAction(o.id, 'reject', me, 'اعتذر الصانع عن تنفيذ الطلب'), 'تم إبلاغ العميل'),
+  });
+  return (
+    <>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn small variant="green" icon="checkmark" title="جاهز" style={{ flex: 1 }} onPress={readyNow} />
+        <Btn small icon="calendar" title="تحديد موعد" style={{ flex: 1.3 }} onPress={() => setOpen(true)} />
+        <Btn small variant="danger" icon="close-circle" title="اعتذار" style={{ flex: 1 }} onPress={apologise} />
+      </View>
+      <Sheet visible={open} onClose={() => setOpen(false)} title="موعد جاهزية الطلب">
+        <T w="bold" size={13}>يوم التسليم (جاهز للمندوب)</T>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          {days.map((d) => <Chip key={d} label={d === days[0] ? 'اليوم' : prettyIso(d).split(' ').slice(0, 2).join(' ')} active={day === d} onPress={() => setDay(d)} />)}
+        </ScrollView>
+        <T w="bold" size={13}>الساعة</T>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+          {HOURS.map((h) => <Chip key={h} label={hourLabel(h)} active={hour === h} onPress={() => setHour(h)} />)}
+        </ScrollView>
+        {!!day && !!hour && <T size={12.5} color={C.goldDeep} w="semi">جاهز للتسليم: {readyLabel(day, hour)}</T>}
+        <Btn title="قبول الطلب وتأكيد الموعد" icon="checkmark" onPress={schedule} />
+      </Sheet>
     </>
   );
 }

@@ -578,6 +578,41 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     });
     res.json({ appIconV: 0 });
   }));
+  /* ---------- the picture of each service icon on the home screen (restaurants, pharmacies...) ---------- */
+  const CAT_TYPES = PROVIDER_TYPES;
+  app.get('/api/cat-icon/:type', asyncRoute(async (req, res) => {
+    const t = String(req.params.type || '');
+    if (!CAT_TYPES.includes(t)) return res.status(404).end();
+    const r = await pool.query('SELECT image, mime FROM site_images WHERE key=$1', [`cat_${t}`]);
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime);
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(r.rows[0].image);
+  }));
+  app.put('/api/admin/cat-icon/:type', ...admin, guard(async (req, res) => {
+    const t = String(req.params.type || '');
+    if (!CAT_TYPES.includes(t)) throw fail(400, 'نوع الخدمة غير معروف');
+    const s = String((req.body || {}).image || '');
+    const m = /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/.exec(s);
+    if (!m || s.length > MAX_LOGIN_IMAGE) throw fail(400, 'ارفع صورة صالحة (PNG أو JPG) بحجم أصغر');
+    const v = await withTx(async db => {
+      const r = await db.query("INSERT INTO site_images(key, image, mime, updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT (key) DO UPDATE SET image=EXCLUDED.image, mime=EXCLUDED.mime, updated_at=NOW() RETURNING (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v",
+        [`cat_${t}`, Buffer.from(m[2], 'base64'), m[1]]);
+      await audit(db, me(req), 'cat-icon.set', 'site_image', `cat_${t}`, null, { bytes: Buffer.byteLength(m[2], 'base64') });
+      return Number(r.rows[0].v);
+    });
+    res.json({ type: t, v });
+  }));
+  app.delete('/api/admin/cat-icon/:type', ...admin, guard(async (req, res) => {
+    const t = String(req.params.type || '');
+    if (!CAT_TYPES.includes(t)) throw fail(400, 'نوع الخدمة غير معروف');
+    await withTx(async db => {
+      await db.query('DELETE FROM site_images WHERE key=$1', [`cat_${t}`]);
+      await audit(db, me(req), 'cat-icon.remove', 'site_image', `cat_${t}`, null, null);
+    });
+    res.json({ type: t, v: 0 });
+  }));
   app.delete('/api/admin/login-image', ...admin, guard(async (req, res) => {
     await withTx(async db => {
       await db.query("DELETE FROM site_images WHERE key='login'");

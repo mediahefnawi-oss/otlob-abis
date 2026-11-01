@@ -14,6 +14,7 @@ import { ProviderLogo, ProductThumb } from '../components/Brand';
 import {
   useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
+import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS } from '../lib/format';
 import { ProviderType, Provider } from '../lib/types';
@@ -109,8 +110,10 @@ export function HomeScreen({ navigation }: any) {
                   onPress={() => navigation.navigate('Category', { type: k })}
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, paddingVertical: 14, alignItems: 'center', gap: 8, ...shadow }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
-                  <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold }}>
-                    <Icon name={TYPES[k].icon} size={23} color={C.gold} />
+                  <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold, overflow: 'hidden' }}>
+                    {(db.settings.catIconV?.[k] || 0) > 0
+                      ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: 50, height: 50 }} resizeMode="cover" />
+                      : <Icon name={TYPES[k].icon} size={23} color={C.gold} />}
                   </View>
                   <T w="bold" size={11.5} align="center" numberOfLines={1}>{TYPES[k].label}</T>
                 </Pressable>
@@ -248,8 +251,10 @@ export function CategoryScreen({ navigation, route }: any) {
         ListHeaderComponent={
           <View style={{ gap: 12, marginBottom: 4 }}>
             <LinearGradient colors={[C.dark3, C.dark]} style={{ borderRadius: 22, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={{ width: 60, height: 60, borderRadius: 30, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name={t.icon} size={28} color={C.gold} />
+              <View style={{ width: 60, height: 60, borderRadius: 30, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                {(db.settings.catIconV?.[type] || 0) > 0
+                  ? <Image source={{ uri: catIconUrl(type, db.settings.catIconV![type]) }} style={{ width: 60, height: 60 }} resizeMode="cover" />
+                  : <Icon name={t.icon} size={28} color={C.gold} />}
               </View>
               <T w="black" size={18} color="#fff" style={{ flex: 1 }}>{banner}</T>
             </LinearGradient>
