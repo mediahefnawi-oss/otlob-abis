@@ -191,3 +191,4 @@
 - اختبارات: tests/sync.test.js (21).
 - الاحتياطي: `DATABASE_URL_BACKUP` (قراءة فقط تلقائيًا عند سقوط الأساسية)، و`EXPO_PUBLIC_API_URL_BACKUP` (تحويل التطبيق لسيرفر ثانٍ). التفاصيل في README_STANDBY_AR.md. اختبار: tests/failover.test.js.
 - تسريع إنشاء الطلب: انتظار التنبيهات حد أقصى 1.5 ثانية.
+- إصلاح: إنشاء الطلب كان يحفظ رقم المنتج بدل رقم المحل (orders.js). اختبار الحمل: tests/load.test.js

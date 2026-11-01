@@ -298,7 +298,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
         };
         const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'accepted\',$3,$4,$5) RETURNING *',
-          [Number(req.auth.sub), g.p.id, g.subtotal + fee, region ? region.id : null, JSON.stringify(d)]);
+          [Number(req.auth.sub), g.p.provider_id, g.subtotal + fee, region ? region.id : null, JSON.stringify(d)]);
         orders.push(r.rows[0]);
       }
       const total = orders.reduce((s, o) => s + Number(o.total), 0);
