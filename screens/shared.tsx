@@ -123,11 +123,13 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           <T w="black" size={15}>بيانات الطلب</T>
           <Row icon="storefront" label="مقدم الخدمة" value={o.providerName} />
           {!!o.readyDate && !['rejected', 'unavailable', 'cancelled'].includes(o.status) && <Row icon="calendar" label="جاهز للتسليم" value={readyLabel(o.readyDate, o.readyTime)} />}
+          {!!o.providerRegionName && <Row icon="map" label="منطقة المتجر" value={o.providerRegionName} />}
           {provider && <Row icon="location" label="عنوان المتجر" value={provider.address} />}
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Row icon="person" label="اسم العميل" value={o.customerName} />
           <Row icon="call" label="الهاتف" value={o.phone} />
-          <Row icon="location" label="العنوان" value={o.address} />
+          {!!o.regionName && <Row icon="map" label="منطقة العميل" value={o.regionName} />}
+          <Row icon="location" label="العنوان التفصيلي" value={o.address} />
           {!!o.notes && <Row icon="create" label="ملاحظات" value={o.notes} />}
           {me.role !== 'customer' || true ? (
             <View style={{ flexDirection: 'row', gap: 8 }}>

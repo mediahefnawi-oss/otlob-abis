@@ -173,15 +173,15 @@ export function RegisterScreen({ navigation, route }: any) {
             <View style={{ flexDirection: 'row', gap: 8, backgroundColor: C.goldSoft, padding: 10, borderRadius: 12 }}>
               <Icon name="information-circle" size={18} color={C.goldDeep} />
               <T size={12} color={C.goldDeep} style={{ flex: 1 }}>
-                {role === 'provider' ? 'سيتم مراجعة طلبك من إدارة التطبيق، وبعد القبول يمكنك إضافة منتجاتك واستقبال الطلبات.' : 'سيتم مراجعة طلبك من الإدارة، وبعد القبول يمكنك العمل واستقبال طلبات التوصيل.'}
+                {role === 'provider' ? 'سيتم مراجعة طلبك من إدارة التطبيق، وبعد القبول يمكنك استقبال الطلبات.' : 'سيتم مراجعة طلبك من الإدارة، وبعد القبول يمكنك العمل واستقبال طلبات التوصيل.'}
               </T>
             </View>
           )}
           <Field label={role === 'provider' ? 'اسم المسؤول' : 'الاسم بالكامل'} icon="person" value={name} onChangeText={setName} placeholder="الاسم" />
           <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="01xxxxxxxxx" />
           <Field label="كلمة المرور" icon="lock-closed" value={pass} onChangeText={setPass} secureTextEntry placeholder="8 أحرف على الأقل" />
-          {role === 'customer' && <RegionPicker value={regionId} onChange={setRegionId} label="اسم المنطقة" />}
-          <Field label={role === 'provider' ? 'عنوان النشاط' : 'العنوان التفصيلي'} icon="location" value={address} onChangeText={setAddress} placeholder="رقم العمارة، الشارع، علامة مميزة" />
+          {(role === 'customer' || role === 'provider') && <RegionPicker value={regionId} onChange={setRegionId} label={role === 'provider' ? 'منطقة مكانك (تظهر للعملاء والمندوب)' : 'اسم المنطقة'} />}
+          <Field label={role === 'provider' ? 'عنوان النشاط بالتفصيل' : 'العنوان التفصيلي'} icon="location" value={address} onChangeText={setAddress} placeholder="رقم العمارة، الشارع، علامة مميزة" />
           {role === 'courier' && (
             <View style={{ gap: 6 }}>
               <T w="semi" size={13} color={C.dark3}>وسيلة التوصيل</T>

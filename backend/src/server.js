@@ -145,7 +145,7 @@ function providerVisibility(viewer, values) {
   return "p.deleted_at IS NULL AND p.status='active'";
 }
 const PROVIDER_TYPES = ['restaurant','supermarket','pharmacy','clinic','store','maker'];
-const providerJson = p => ({ ...p.metadata, logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
+const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
@@ -250,6 +250,8 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     region = rid;
   }
   if (role === 'customer' && !region) return res.status(400).json({ error: 'اختر منطقتك' });
+  if (role === 'provider' && !region) return res.status(400).json({ error: 'اختر منطقة مكانك' });
+  if (role === 'provider' && String(address).trim().length < 6) return res.status(400).json({ error: 'اكتب عنوان المكان بالتفصيل' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -525,14 +527,15 @@ app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(
 
 async function listProviders(viewer, type) {
   const values = [];
-  let sql = `SELECT p.*, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v FROM providers p WHERE ${providerVisibility(viewer, values)}`;
+  let sql = `SELECT p.*, u.region_id AS owner_region_id, g.name AS region_name, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v FROM providers p LEFT JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE ${providerVisibility(viewer, values)}`;
   if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
   sql += ' ORDER BY p.created_at DESC LIMIT 500';
   return (await pool.query(sql, values)).rows.map(providerJson);
 }
 async function listProducts(viewer, providerId) {
   const values = [];
-  let sql = `SELECT pr.*, (SELECT (EXTRACT(EPOCH FROM i.updated_at)*1000)::bigint FROM product_images i WHERE i.product_id=pr.id) AS image_v FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE ${providerVisibility(viewer, values)}`;
+  // supermarkets and pharmacies work by written requests only: their old product rows are kept in the database but no longer offered
+  let sql = `SELECT pr.*, (SELECT (EXTRACT(EPOCH FROM i.updated_at)*1000)::bigint FROM product_images i WHERE i.product_id=pr.id) AS image_v FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE p.type NOT IN ('supermarket','pharmacy') AND ${providerVisibility(viewer, values)}`;
   if (providerId) { values.push(providerId); sql += ` AND pr.provider_id=$${values.length}`; }
   sql += ' ORDER BY pr.created_at ASC LIMIT 2000';
   return (await pool.query(sql, values)).rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available, imageV: x.image_v ? Number(x.image_v) : 0 }));
@@ -609,9 +612,10 @@ app.post('/api/products', auth, roles('provider','admin'), asyncRoute(async (req
   const { providerId, name, price, data = {} } = req.body || {};
   const validProviderId = positiveId(providerId);
   if (!validProviderId || typeof name !== 'string' || !name.trim() || !Number.isFinite(Number(price)) || Number(price) < 0 || !isRecord(data)) return res.status(400).json({ error: 'بيانات المنتج غير صالحة' });
-  const p = await pool.query('SELECT id,owner_user_id FROM providers WHERE id=$1', [validProviderId]);
+  const p = await pool.query('SELECT id,owner_user_id,type FROM providers WHERE id=$1', [validProviderId]);
   if (!p.rowCount) return res.status(404).json({ error: 'مقدم الخدمة غير موجود' });
   if (req.auth.role !== 'admin' && String(p.rows[0].owner_user_id) !== req.auth.sub) return res.status(403).json({ error: 'لا يمكنك إدارة منتجات مقدم خدمة آخر' });
+  if (['supermarket', 'pharmacy'].includes(p.rows[0].type)) return res.status(400).json({ error: 'السوبر ماركت والصيدلية يعملان بكتابة الطلب فقط، بدون منتجات' });
   const r = await pool.query('INSERT INTO products(provider_id,name,price,data) VALUES($1,$2,$3,$4) RETURNING *', [Number(providerId), String(name).trim(), Number(price), JSON.stringify(data)]);
   res.status(201).json({ product: { id: String(r.rows[0].id), providerId: String(r.rows[0].provider_id), name: r.rows[0].name, price: Number(r.rows[0].price), available: r.rows[0].available, ...r.rows[0].data } });
 }));
@@ -713,6 +717,23 @@ require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, m
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {
   const r = await pool.query("SELECT p.*,u.name AS owner_name FROM providers p JOIN users u ON u.id=p.owner_user_id WHERE p.status='pending' AND p.deleted_at IS NULL ORDER BY p.created_at ASC");
   res.json({ providers: r.rows.map(p => ({ ...p.metadata, id: String(p.id), ownerId: String(p.owner_user_id), ownerName: p.owner_name, type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status })) });
+}));
+// The owner can set / change the area a place is in (it follows the place's owner account).
+app.patch('/api/admin/providers/:id/region', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id), rid = positiveId(req.body && req.body.regionId);
+  if (!id || !rid) return res.status(400).json({ error: 'بيانات غير صحيحة' });
+  if (!(await pool.query('SELECT 1 FROM regions WHERE id=$1', [rid])).rowCount) return res.status(400).json({ error: 'المنطقة غير موجودة' });
+  const r = await pool.query('UPDATE users SET region_id=$2 WHERE id=(SELECT owner_user_id FROM providers WHERE id=$1) RETURNING id', [id, rid]);
+  if (!r.rowCount) return res.status(404).json({ error: 'غير موجود' });
+  res.json({ ok: true });
+}));
+// The owner chooses which places appear in the customers' "الأعلى تقييماً" row.
+app.patch('/api/admin/providers/:id/featured', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'رقم غير صحيح' });
+  const r = await pool.query("UPDATE providers SET metadata = jsonb_set(COALESCE(metadata,'{}'::jsonb), '{featured}', to_jsonb($2::boolean), TRUE) WHERE id=$1 AND deleted_at IS NULL RETURNING *", [id, !!(req.body && req.body.featured)]);
+  if (!r.rowCount) return res.status(404).json({ error: 'غير موجود' });
+  res.json({ provider: providerJson(r.rows[0]) });
 }));
 app.patch('/api/admin/providers/:id/decision', auth, roles('admin'), asyncRoute(async (req, res) => {
   const status = req.body.status;

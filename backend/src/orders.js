@@ -25,7 +25,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
       courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
-      regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined,
+      regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
       createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [],
     };
   };
@@ -57,6 +57,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const r = await db.query('SELECT u.region_id, g.name, g.delivery_fee FROM users u LEFT JOIN regions g ON g.id=u.region_id AND g.active=TRUE WHERE u.id=$1', [userId]);
     const row = r.rows[0] || {};
     return row.name ? { id: row.region_id, name: row.name, fee: Number(row.delivery_fee) } : null;
+  }
+  /** The area the provider registered in (the owner's area): shown to the courier as "from area X to area Y". */
+  async function providerRegionName(db, providerId) {
+    const r = await db.query('SELECT g.name FROM providers p JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE p.id=$1', [providerId]);
+    return (r.rows[0] && r.rows[0].name) || undefined;
   }
   /** Writes a status change (history + timestamps) on a row that is already locked by the caller. */
   async function moveOrder(db, row, status, dataPatch = {}, courier) {
@@ -281,6 +286,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const p = byId.get(l.id);
       if (!p) throw fail(409, 'أحد المنتجات لم يعد متاحاً');
       if (p.deleted_at || p.pstatus !== 'active' || !p.is_open) throw fail(409, `${p.pname} مغلق حالياً`);
+      if (p.ptype === 'supermarket' || p.ptype === 'pharmacy') throw fail(409, `${p.pname}: اطلب بكتابة طلبك (بدون سلة منتجات)`);
       if (!p.available) throw fail(409, `${p.name} غير متاح حالياً`);
       if (!groups.has(p.provider_id)) groups.set(p.provider_id, { p, items: [], subtotal: 0 });
       const g = groups.get(p.provider_id);
@@ -294,7 +300,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         const fee = g.p.ptype === 'clinic' ? 0 : region ? region.fee : Number(g.p.pfee);
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
-          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined,
+          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id),
           history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
         };
         const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'accepted\',$3,$4,$5) RETURNING *',
@@ -382,7 +388,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const fee = region ? region.fee : Number(prov.delivery_fee);
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
-        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined,
+        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id),
         request: { text, hasImage: !!image }, history: [{ status: 'pending', at: Date.now() }],
       };
       const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',

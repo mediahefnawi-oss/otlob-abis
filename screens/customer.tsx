@@ -9,6 +9,7 @@ import {
   toast, IconBtn, Pill, openWhats,
 } from '../components/ui';
 import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
+import { AreaTag } from '../components/Cards';
 import { ProviderLogo, ProductThumb } from '../components/Brand';
 import {
   useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
@@ -56,7 +57,8 @@ export function HomeScreen({ navigation }: any) {
   }, [q, db]);
 
   const cats: ProviderType[] = ['restaurant', 'supermarket', 'pharmacy', 'clinic', 'store', 'maker'];
-  const top = [...provs].filter((p) => p.type !== 'clinic').sort((a, b) => b.rating - a.rating).slice(0, 6);
+  // "الأعلى تقييماً": only the places the owner chose from the control panel
+  const top = provs.filter((p) => p.featured).sort((a, b) => b.rating - a.rating).slice(0, 12);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -142,7 +144,7 @@ export function HomeScreen({ navigation }: any) {
             </Pressable>
           </Appear>
 
-          <View style={{ marginTop: 18 }}>
+          {top.length > 0 && <View style={{ marginTop: 18 }}>
             <SectionTitle title="الأعلى تقييماً" action="عرض المطاعم" onAction={() => navigation.navigate('Category', { type: 'restaurant' })} />
             <FlatList
               horizontal
@@ -160,10 +162,11 @@ export function HomeScreen({ navigation }: any) {
                     <T w="bold" size={12}>{item.rating.toFixed(1)}</T>
                     <T size={11.5} color={C.sub}>• {item.eta} د</T>
                   </View>
+                  <AreaTag p={item} />
                 </Card>
               )}
             />
-          </View>
+          </View>}
 
           <View style={{ marginTop: 14 }}>
             <SectionTitle title="عيادات بالقرب منك" action="الكل" onAction={() => navigation.navigate('Category', { type: 'clinic' })} />
@@ -268,6 +271,7 @@ export function CategoryScreen({ navigation, route }: any) {
 /* ---------------- Provider details ---------------- */
 export function ProviderScreen({ navigation, route }: any) {
   const { db, cart } = useStore();
+  const meUser = useMe();
   const p = db.providers.find((x) => x.id === route.params.id);
   const [cat, setCat] = useState('الكل');
   const insets = useSafeAreaInsets();
@@ -280,6 +284,8 @@ export function ProviderScreen({ navigation, route }: any) {
   const cartCount = cart.reduce((s, l) => s + l.qty, 0);
   const det = cartDetails(db, cart);
   const closed = !p.open;
+  const mineArea = !!p.regionId && meUser?.regionId === p.regionId;
+  const requestOnly = p.type === 'supermarket' || p.type === 'pharmacy';
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -292,7 +298,7 @@ export function ProviderScreen({ navigation, route }: any) {
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}</T></View>
               {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
               {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {feeFor(p)} ج.م</T></View>}
-              <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{p.address}</T></View>
+              <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{p.regionName ? `${mineArea ? 'في منطقتك — ' : `منطقة ${p.regionName} — `}` : ''}{p.address}</T></View>
             </View>
           </View>
         </View>
@@ -315,7 +321,15 @@ export function ProviderScreen({ navigation, route }: any) {
           </Card>
         </Pressable>
       )}
+      {requestOnly ? (
+        <View style={{ padding: 24, alignItems: 'center', gap: 10 }}>
+          <Text style={{ fontSize: 54 }}>{p.type === 'pharmacy' ? '💊' : '🛒'}</Text>
+          <T w="black" size={17} align="center">{p.type === 'pharmacy' ? 'اكتب الدواء المطلوب أو ارفع الروشتة' : 'اكتب كل اللي محتاجه'}</T>
+          <T size={12.5} color={C.sub} align="center">بدون سلة ولا قوائم: بتكتب طلبك بطريقتك، والمكان يرد عليك بالسعر وتوافق، والمندوب يوصّله لحد بيتك.</T>
+        </View>
+      ) : null}
       <FlatList
+        style={requestOnly ? { display: 'none' } : undefined}
         data={shown}
         keyExtractor={(x) => x.id}
         contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 100 }}

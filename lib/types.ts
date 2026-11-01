@@ -51,6 +51,10 @@ export interface Provider {
   open: boolean;
   specialty?: string;
   logoV?: number; // 0 / missing = no logo; changes whenever the logo changes
+  regionId?: string; // the area the place registered in (its owner's area)
+  regionName?: string; // the customer's area
+  providerRegionName?: string; // the shop's area (courier: from area X to area Y)
+  featured?: boolean; // the owner put it in the customers' "الأعلى تقييماً" row
   createdAt: number;
 }
 

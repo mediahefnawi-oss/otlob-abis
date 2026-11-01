@@ -7,6 +7,19 @@ import { C } from '../lib/theme';
 import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
 import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill } from './ui';
 
+/** "في منطقتك" when the place is in the customer's own area, otherwise "منطقة X". */
+export function AreaTag({ p }: { p: Pick<Provider, 'regionId' | 'regionName'> }) {
+  const { db, userId } = useStore();
+  const mine = !!p.regionId && db.users.find((u) => u.id === userId)?.regionId === p.regionId;
+  if (!p.regionName) return null;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <Icon name="map" size={12} color={mine ? C.green : C.goldDeep} />
+      <T w="bold" size={11.5} color={mine ? C.green : C.goldDeep}>{mine ? 'في منطقتك' : `منطقة ${p.regionName}`}</T>
+    </View>
+  );
+}
+
 export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void }) {
   const t = TYPES[p.type];
   const closed = !p.open;
@@ -16,6 +29,7 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
       <View style={{ flex: 1, gap: 3 }}>
         <T w="bold" size={15.5} numberOfLines={1}>{p.name}</T>
         <T size={12} color={C.sub} numberOfLines={1}>{p.desc}</T>
+        {!!p.regionName && <AreaTag p={p} />}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <Icon name="star" size={13} color={C.gold} />
@@ -73,8 +87,8 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
       {(perspective === 'courier' || perspective === 'admin') && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Icon name="location" size={14} color={C.goldDeep} />
-          <T size={12} style={{ flex: 1 }} numberOfLines={1}>
-            {perspective === 'admin' ? `${o.providerName} ← ${o.customerName}` : `من ${o.providerName} إلى ${o.address}`}
+          <T size={12} style={{ flex: 1 }} numberOfLines={3}>
+            {perspective === 'admin' ? `${o.providerName} ← ${o.customerName}` : `من ${o.providerRegionName ? `منطقة ${o.providerRegionName} (${o.providerName})` : o.providerName} إلى ${o.regionName ? `منطقة ${o.regionName} — ` : ''}${o.address}`}
           </T>
         </View>
       )}

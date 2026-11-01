@@ -17,7 +17,7 @@ const pct = (a, p) => a.sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(
   const mk = async (n, role) => (await q("INSERT INTO users(name, phone, password_hash, role, status, available) VALUES($1,$2,'x',$3,'active',TRUE) RETURNING id", [n, '012' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'), role])).rows[0].id;
   // 20 shops with 10 products, 300 customers, 10 couriers, plus history so that queries are not trivially empty
   const shops = [], prods = [];
-  for (let i = 0; i < 20; i++) { const o = await mk('shop' + i, 'provider'); const p = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'supermarket','س'||$2,'01000000000','active',TRUE) RETURNING id", [o, i])).rows[0].id; shops.push(p); for (let j = 0; j < 10; j++) prods.push((await q("INSERT INTO products(provider_id,name,price) VALUES($1,'م'||$2,25) RETURNING id", [p, j])).rows[0].id); }
+  for (let i = 0; i < 20; i++) { const o = await mk('shop' + i, 'provider'); const p = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'restaurant','س'||$2,'01000000000','active',TRUE) RETURNING id", [o, i])).rows[0].id; shops.push(p); for (let j = 0; j < 10; j++) prods.push((await q("INSERT INTO products(provider_id,name,price) VALUES($1,'م'||$2,25) RETURNING id", [p, j])).rows[0].id); }
   const custs = []; for (let i = 0; i < 300; i++) custs.push(await mk('c' + i, 'customer'));
   for (let i = 0; i < 10; i++) await mk('d' + i, 'courier');
   const A = id => ({ sub: String(id), role: 'customer', status: 'active' });

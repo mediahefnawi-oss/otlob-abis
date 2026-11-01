@@ -53,9 +53,10 @@ function Main({ navigation }: any) {
     const prov = db.providers.find((p) => p.ownerId === me.id);
     const pending = prov ? (prov.type === 'clinic' ? db.appointments.filter((a) => a.providerId === prov.id && a.status === 'pending').length : db.orders.filter((o) => o.providerId === prov.id && ['pending', 'accepted'].includes(o.status)).length) : 0;
     const clinic = prov?.type === 'clinic';
+    const noCatalog = prov?.type === 'supermarket' || prov?.type === 'pharmacy'; // these work by written requests only
     tabs = [
       { key: 'orders', label: clinic ? 'الحجوزات' : 'الطلبات', icon: clinic ? 'calendar' : 'receipt', badge: pending, render: () => <ProviderOrdersScreen navigation={navigation} /> },
-      { key: 'catalog', label: clinic ? 'الأطباء' : 'المنتجات', icon: clinic ? 'people' : 'pricetags', render: () => <ProviderCatalogScreen /> },
+      ...(noCatalog ? [] : [{ key: 'catalog', label: clinic ? 'الأطباء' : 'المنتجات', icon: clinic ? 'people' : 'pricetags', render: () => <ProviderCatalogScreen /> }]),
       { key: 'invoices', label: 'الفواتير', icon: 'document-text', render: () => <ProviderInvoicesScreen navigation={navigation} /> },
       { key: 'support', label: 'الدعم', icon: 'headset', render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <ProviderProfileScreen navigation={navigation} /> },

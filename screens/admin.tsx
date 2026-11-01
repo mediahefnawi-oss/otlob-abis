@@ -12,10 +12,10 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminResetPassword,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminResetPassword, setProviderFeatured, setProviderRegion,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS } from '../lib/format';
-import { RegionsManager } from '../components/Regions';
+import { RegionsManager, RegionPicker } from '../components/Regions';
 import { LoginImageManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { AdsManager } from '../components/Ads';
@@ -374,7 +374,20 @@ export function AdminDetailScreen({ navigation, route }: any) {
             })} />
           </View>
         </Card>
-        {prov && <CatalogEditor prov={prov} />}
+        {prov && (
+          <Card style={{ gap: 12 }}>
+            <T w="black" size={15}>الظهور للعملاء</T>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <T w="bold" size={13.5}>يظهر في «الأعلى تقييماً»</T>
+                <T size={11.5} color={C.sub}>القائمة اللي بتظهر في الصفحة الرئيسية للعملاء. أنت اللي تحدد مين فيها.</T>
+              </View>
+              <Toggle value={!!prov.featured} onValueChange={(v) => done(setProviderFeatured(prov.id, v), v ? 'تمت الإضافة للأعلى تقييماً ⭐' : 'تم الحذف من الأعلى تقييماً', v ? 'ok' : 'info')} />
+            </View>
+            <RegionPicker value={prov.regionId || ''} onChange={(rid) => done(setProviderRegion(prov.id, rid), 'تم تحديد منطقة المكان')} label={`منطقة المكان${prov.regionName ? ` (الحالية: ${prov.regionName})` : ' (غير محددة)'}`} />
+          </Card>
+        )}
+        {prov && prov.type !== 'supermarket' && prov.type !== 'pharmacy' && <CatalogEditor prov={prov} />}
         {prov && <ProviderFormSheet visible={editing} onClose={() => setEditing(false)} provider={prov} />}
         <Sheet visible={pwSheet} onClose={() => setPwSheet(false)} title="تعيين كلمة مرور جديدة">
           <T size={12.5} color={C.sub}>سيتم تعيين كلمة مرور جديدة للحساب {user.phone}. كلمات المرور مشفّرة ولا يمكن عرضها.</T>

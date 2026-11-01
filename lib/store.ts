@@ -186,7 +186,7 @@ const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0,
   eta: x.eta ?? (x.type === 'clinic' ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
-  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, createdAt: Number(x.createdAt) || Date.now(),
+  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, createdAt: Number(x.createdAt) || Date.now(),
 });
 const toProduct = (x: any): Product => ({
   id: String(x.id), providerId: String(x.providerId), kind: x.kind === 'doctor' ? 'doctor' : 'item', name: x.name,
@@ -855,6 +855,23 @@ export async function setProviderLogo(providerId: string, image: string | null):
   try {
     const { logoV } = await apiSetProviderLogo(providerId, image);
     mutate((db) => { db.providers = db.providers.map((p) => (p.id === providerId ? { ...p, logoV } : p)); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner: put a place in / take it out of the customers' "الأعلى تقييماً" row. */
+export async function setProviderFeatured(providerId: string, featured: boolean): Promise<Result> {
+  try {
+    await apiJson(`/api/admin/providers/${encodeURIComponent(providerId)}/featured`, { method: 'PATCH', body: JSON.stringify({ featured }) });
+    mutate((db) => { db.providers = db.providers.map((p) => (p.id === providerId ? { ...p, featured } : p)); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner: set the area a place is in. */
+export async function setProviderRegion(providerId: string, regionId: string): Promise<Result> {
+  try {
+    await apiJson(`/api/admin/providers/${encodeURIComponent(providerId)}/region`, { method: 'PATCH', body: JSON.stringify({ regionId }) });
+    const name = state.db.regions.find((r) => r.id === regionId)?.name;
+    mutate((db) => { db.providers = db.providers.map((p) => (p.id === providerId ? { ...p, regionId, regionName: name } : p)); });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
