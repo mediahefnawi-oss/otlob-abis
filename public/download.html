@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>حمّل تطبيق أطلب أبيس</title>
+<meta name="description" content="اطلب أكلك ومشترياتك وخدماتك من أبيس بضغطة واحدة. حمّل تطبيق أطلب أبيس للأندرويد.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="حمّل تطبيق أطلب أبيس">
+<meta property="og:description" content="مطاعم وسوبر ماركت وصيدليات وعيادات وصناع وتوصيل لحد باب البيت في أبيس.">
+<meta property="og:image" content="https://otlob-abis-app.vercel.app/download-icon.png">
+<meta property="og:url" content="https://otlob-abis-app.vercel.app/download.html">
+<link rel="icon" href="/download-icon.png">
+<style>
+  :root { --bg:#00211A; --card:#06352B; --gold:#F2B51D; --text:#F5F3EA; --sub:#B9C7C0; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; }
+  body { min-height:100vh; background: radial-gradient(120% 80% at 50% 0%, #0A4A3A 0%, var(--bg) 60%); color:var(--text); font-family: "Segoe UI", Tahoma, Arial, sans-serif; display:flex; justify-content:center; }
+  main { width:100%; max-width:460px; padding:36px 20px 40px; text-align:center; }
+  .logo { width:132px; height:132px; border-radius:30px; box-shadow:0 14px 40px rgba(0,0,0,.45); }
+  h1 { margin:22px 0 6px; font-size:28px; }
+  p.lead { margin:0 auto 26px; color:var(--sub); font-size:16px; line-height:1.8; max-width:340px; }
+  .btn { display:block; background:var(--gold); color:#1a1400; text-decoration:none; font-weight:800; font-size:20px; padding:17px 20px; border-radius:16px; box-shadow:0 8px 24px rgba(242,181,29,.3); }
+  .btn:active { transform:scale(.98); }
+  .small { margin-top:10px; color:var(--sub); font-size:13px; }
+  .card { background:var(--card); border-radius:18px; padding:18px 18px 8px; margin-top:28px; text-align:right; }
+  .card h2 { margin:0 0 10px; font-size:17px; color:var(--gold); }
+  ol { margin:0; padding:0 22px 0 0; line-height:2; color:var(--text); font-size:15px; }
+  li { margin-bottom:6px; }
+  .note { margin-top:20px; color:var(--sub); font-size:13px; line-height:1.8; }
+  .ios { display:none; margin-top:18px; background:#3a2d00; color:#ffe9a8; border-radius:12px; padding:12px; font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+  <img class="logo" src="/download-icon.png" alt="أطلب أبيس">
+  <h1>أطلب أبيس</h1>
+  <p class="lead">اطلب من المطاعم والسوبر ماركت والصيدليات، واحجز عند الدكتور، واطلب من الصنايعية، والتوصيل لحد باب بيتك.</p>
+
+  <a class="btn" id="dl" href="https://github.com/mediahefnawi-oss/otlob-abis/releases/latest/download/otlob-abis.apk">⬇️ تحميل التطبيق للأندرويد</a>
+  <div class="small">ملف التثبيت (APK) • أحدث نسخة دائماً</div>
+  <div class="ios" id="ios">التطبيق متاح حالياً للأندرويد. على الآيفون افتح الموقع من <a style="color:#F2B51D" href="https://otlob-abis-app.vercel.app">هنا</a>.</div>
+
+  <div class="card">
+    <h2>طريقة التثبيت</h2>
+    <ol>
+      <li>اضغط زر <b>تحميل التطبيق</b> فوق.</li>
+      <li>لو ظهرت رسالة تحذير من الملف اضغط <b>تنزيل على أي حال</b>.</li>
+      <li>افتح الملف بعد ما يخلص، ولو طلب الأندرويد السماح بالتثبيت اضغط <b>السماح من هذا المصدر</b>.</li>
+      <li>اضغط <b>تثبيت</b> وافتح التطبيق، وسجّل حساب جديد برقم تليفونك.</li>
+    </ol>
+    <p class="note">لو الرابط اتفتح من جوه فيس بوك أو ماسنجر ومانزلش الملف، اضغط على ⋮ أو "فتح في المتصفح" وكمّل من Chrome.</p>
+  </div>
+
+  <p class="note">لو واجهتك أي مشكلة في التثبيت كلّم الدعم من داخل التطبيق بعد التسجيل.</p>
+</main>
+<script>
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) document.getElementById('ios').style.display = 'block';
+</script>
+</body>
+</html>
