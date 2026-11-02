@@ -30,16 +30,6 @@ export function WelcomeScreen({ navigation }: any) {
           <Logo width={280} />
           <T w="bold" size={17} color="#fff" align="center" style={{ marginTop: 6 }}>كل اللي محتاجه في أبيس.. لحد باب بيتك</T>
         </Animated.View>
-        <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(300) : undefined} style={{ flexDirection: 'row', gap: 10, marginTop: 28, flexWrap: 'wrap', justifyContent: 'center' }}>
-          {(Object.keys(TYPES) as ProviderType[]).map((k) => (
-            <View key={k} style={{ alignItems: 'center', gap: 6, width: 72 }}>
-              <View style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: C.gold, backgroundColor: 'rgba(0,33,26,0.7)', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name={TYPES[k].icon} size={24} color={C.gold} />
-              </View>
-              <T w="semi" size={11} color="#fff" align="center">{TYPES[k].label}</T>
-            </View>
-          ))}
-        </Animated.View>
         <View style={{ flex: 1 }} />
         <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(500) : undefined} style={{ alignSelf: 'stretch', gap: 12 }}>
           <Btn title="ابدأ الآن" icon="arrow-back" onPress={() => navigation.navigate('Login')} />
@@ -78,6 +68,8 @@ export function WelcomeScreen({ navigation }: any) {
 
 export function LoginScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const { db } = useStore();
+  const supportPhone = (db.settings.supportPhone || '').trim() || '01004379508';
   const [phone, setPhone] = useState('');
   const [pass, setPass] = useState('');
   const [busy, setBusy] = useState(false);
@@ -121,6 +113,13 @@ export function LoginScreen({ navigation }: any) {
             </View>
           )}
           <Btn title="دخول" loading={busy} onPress={() => submit()} disabled={!phone || !pass} />
+          <Pressable
+            onPress={() => openWhats(supportPhone, `مرحباً، نسيت كلمة المرور في تطبيق أطلب أبيس${phone ? ` (رقمي ${phone})` : ''}`)}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 46, borderRadius: 18, backgroundColor: '#fff', borderWidth: 1.3, borderColor: C.gold }}
+          >
+            <Icon name="headset" size={18} color={C.goldDeep} />
+            <T w="bold" size={13.5} color={C.text}>نسيت كلمة المرور؟ كلّم الدعم</T>
+          </Pressable>
           <Pressable onPress={() => navigation.navigate('Register', { role: 'customer' })} style={{ alignItems: 'center' }}>
             <T size={13.5} color={C.sub}>ليس لديك حساب؟ <T w="bold" size={13.5} color={C.goldDeep}>أنشئ حساباً جديداً</T></T>
           </Pressable>
