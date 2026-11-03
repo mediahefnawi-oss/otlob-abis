@@ -4,7 +4,7 @@ import React from 'react';
 import { View } from 'react-native';
 import { Provider, Order, Appointment, Invoice } from '../lib/types';
 import { C } from '../lib/theme';
-import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
+import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel, isBooking } from '../lib/format';
 import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill, FlagPill } from './ui';
 
 /** "في منطقتك" when the place is in the customer's own area, otherwise "منطقة X". */
@@ -35,7 +35,7 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
             <Icon name="star" size={13} color={C.gold} />
             <T w="bold" size={12}>{p.rating ? p.rating.toFixed(1) : 'جديد'}</T>
           </View>
-          {p.type === 'clinic' ? (
+          {isBooking(p.type) ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
               <Icon name="pulse" size={13} color={t.color} />
               <T size={12} color={C.sub}>{p.specialty}</T>

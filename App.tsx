@@ -28,7 +28,7 @@ import {
   AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen, AdminSupervisorsScreen, SupervisorOrdersScreen,
 } from './screens/admin';
 import { AdminFinanceScreen } from './components/Finance';
-import { inStaffQueue } from './lib/format';
+import { inStaffQueue, isBooking, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 
 // the phone app must not close because of one failing action: show a message instead (a crash in a screen is caught by ErrorBoundary)
@@ -59,9 +59,9 @@ function Main({ navigation }: any) {
     ];
   } else if (me.role === 'provider') {
     const prov = db.providers.find((p) => p.ownerId === me.id);
-    const pending = prov ? (prov.type === 'clinic' ? db.appointments.filter((a) => a.providerId === prov.id && a.status === 'pending').length : db.orders.filter((o) => o.providerId === prov.id && ['pending', 'accepted'].includes(o.status)).length) : 0;
-    const clinic = prov?.type === 'clinic';
-    const noCatalog = prov?.type === 'supermarket' || prov?.type === 'pharmacy'; // these work by written requests only
+    const pending = prov ? (isBooking(prov.type) ? db.appointments.filter((a) => a.providerId === prov.id && a.status === 'pending').length : db.orders.filter((o) => o.providerId === prov.id && ['pending', 'accepted'].includes(o.status)).length) : 0;
+    const clinic = isBooking(prov?.type);
+    const noCatalog = isRequestOnly(prov?.type); // these work by written requests only
     tabs = [
       { key: 'orders', label: clinic ? 'الحجوزات' : 'الطلبات', icon: clinic ? 'calendar' : 'receipt', badge: pending, render: () => <ProviderOrdersScreen navigation={navigation} /> },
       ...(noCatalog ? [] : [{ key: 'catalog', label: clinic ? 'الأطباء' : 'المنتجات', icon: clinic ? 'people' : 'pricetags', render: () => <ProviderCatalogScreen /> }]),

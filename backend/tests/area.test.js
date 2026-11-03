@@ -16,6 +16,7 @@ const pass1 = (req, res, next) => next();
   const rA = (await q("INSERT INTO regions(name, delivery_fee) VALUES('منطقة اختبار أ'||random(), 12) RETURNING id, name")).rows[0];
   const rB = (await q("INSERT INTO regions(name, delivery_fee) VALUES('منطقة اختبار ب'||random(), 30) RETURNING id, name")).rows[0];
   const mk = async (n, role, region) => (await q("INSERT INTO users(name, phone, password_hash, role, status, region_id) VALUES($1,$2,'x',$3,'active',$4) RETURNING id", [n, '010' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'), role, region])).rows[0].id;
+  await q('INSERT INTO route_prices(from_region_id, to_region_id, price) VALUES($1,$2,30),($1,$1,12),($2,$2,30),($2,$1,30) ON CONFLICT DO NOTHING', [rA.id, rB.id]);
   const owner = await mk('م', 'provider', rA.id), cust = await mk('ع', 'customer', rB.id), owner2 = await mk('ص', 'provider', rA.id);
   const rest = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'restaurant','مطعم','01000000000','active',TRUE) RETURNING id", [owner])).rows[0].id;
   const sup = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'supermarket','سوبر','01000000000','active',TRUE) RETURNING id", [owner2])).rows[0].id;

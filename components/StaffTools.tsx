@@ -3,7 +3,7 @@ import { View, Pressable, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Btn, Sheet, Empty, toast } from './ui';
 import { useStore, useMe, assignCourier, transferOrder, listStaffCouriers, StaffCourier } from '../lib/store';
-import { TYPES, needsStaff } from '../lib/format';
+import { TYPES, needsStaff, acceptsRequests } from '../lib/format';
 import { Order } from '../lib/types';
 
 /** Owner / supervisor tools on an order: link it to a chosen courier, or send an unpriced written request to another shop. */
@@ -36,7 +36,7 @@ export function OrderStaffTools({ o }: { o: Order }) {
     toast(`تم تعيين ${c.name} لهذا الطلب`);
   };
   const shops = db.providers
-    .filter((p) => p.status === 'active' && p.id !== o.providerId && (o.request ? ['supermarket', 'pharmacy', 'maker'].includes(p.type) : p.type === o.providerType))
+    .filter((p) => p.status === 'active' && p.id !== o.providerId && (o.request ? acceptsRequests(p.type) : p.type === o.providerType))
     .sort((a, b) => (a.type === o.providerType ? -1 : 0) - (b.type === o.providerType ? -1 : 0));
   const pickShop = async (id: string, name: string) => {
     setBusy(id);

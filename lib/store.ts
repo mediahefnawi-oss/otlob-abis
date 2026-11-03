@@ -14,11 +14,11 @@ import {
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
-  Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region, Ad,
+  Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region, Ad, ServiceDef,
 } from './types';
 import { buildSeed } from './seed';
 import { apiJson } from './finance';
-import { hash, normPhone } from './format';
+import { hash, normPhone, isBooking, applyServices } from './format';
 
 const DB_KEY = 'abis_db_v3';
 const SESSION_KEY = 'abis_session_v3';
@@ -181,14 +181,14 @@ function routePriceFor(p: Provider): number | undefined {
 }
 /** Can this shop deliver to the signed-in customer? Only on a route the owner priced (a customer with no area keeps the shop's own price). */
 export function deliveryOpen(p: Provider): boolean {
-  if (p.type === 'clinic') return true;
+  if (isBooking(p.type)) return true;
   const me = state.db.users.find((u) => u.id === state.userId);
   if (!me || me.role !== 'customer' || !me.regionId) return true;
   return routePriceFor(p) !== undefined;
 }
 /** Delivery price for the signed-in customer: the owner's price for the route from the shop's area to the customer's area. */
 export function feeFor(p: Provider): number {
-  if (p.type === 'clinic') return 0;
+  if (isBooking(p.type)) return 0;
   const route = routePriceFor(p);
   return route !== undefined ? route : p.deliveryFee;
 }
@@ -204,7 +204,7 @@ const toAd = (a: ServerAd): Ad => ({ id: a.id, title: a.title, link: a.link, act
 const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0,
-  eta: x.eta ?? (x.type === 'clinic' ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
+  eta: x.eta ?? (isBooking(x.type) ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
   open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, createdAt: Number(x.createdAt) || Date.now(),
 });
 const toProduct = (x: any): Product => ({
@@ -342,14 +342,15 @@ async function syncOrders() {
 
 async function syncCatalog() {
   if (pendingWrites > 0) return;
-  const { providers, products, regions, ads, routePrices } = await apiCatalog<any>();
+  const { providers, products, regions, ads, routePrices, services } = await apiCatalog<any>();
+  if (Array.isArray(services) && services.length) applyServices(services);
   if (pendingWrites > 0) return;
   const P = providers.map(toProvider);
   const I = products.map(toProduct);
   const R: Region[] = regions.map((r) => ({ id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active }));
   const A: Ad[] = (ads || []).map(toAd);
   const same = JSON.stringify(P) === JSON.stringify(state.db.providers) && JSON.stringify(I) === JSON.stringify(state.db.products)
-    && JSON.stringify(R) === JSON.stringify(state.db.regions) && JSON.stringify(A) === JSON.stringify(state.db.ads || []) && JSON.stringify(routePrices || {}) === JSON.stringify(state.db.routePrices || {});
+    && JSON.stringify(R) === JSON.stringify(state.db.regions) && JSON.stringify(A) === JSON.stringify(state.db.ads || []) && JSON.stringify(routePrices || {}) === JSON.stringify(state.db.routePrices || {}) && JSON.stringify(services || []) === JSON.stringify(state.db.services || []);
   if (same) return;
   mutate((db) => {
     const clean = stripDemo(db);
@@ -360,6 +361,7 @@ async function syncCatalog() {
     db.regions = R;
     db.ads = A;
     db.routePrices = routePrices || {};
+    db.services = Array.isArray(services) ? services : db.services;
   });
   const ids = new Set(I.map((p) => p.id));
   if (state.cart.some((l) => !ids.has(l.productId))) saveCart(state.cart.filter((l) => ids.has(l.productId)));
@@ -1095,8 +1097,8 @@ export async function adminCreateProvider(admin: User, inp: NewProviderInput): P
       db.providers = [...db.providers, {
         id: r.providerId, ownerId: r.user.id, type: inp.type, name: inp.name.trim(), desc: inp.desc.trim(),
         address: inp.address.trim() || 'أبيس', phone: normPhone(inp.phone) || mPhone, emoji: inp.emoji || TYPES_EMOJI[inp.type],
-        rating: 0, eta: inp.type === 'clinic' ? '' : '30-45', deliveryFee: inp.type === 'clinic' ? 0 : inp.deliveryFee,
-        status: 'active', open: true, specialty: inp.type === 'clinic' ? inp.specialty : undefined, createdAt: Date.now(),
+        rating: 0, eta: isBooking(inp.type) ? '' : '30-45', deliveryFee: isBooking(inp.type) ? 0 : inp.deliveryFee,
+        status: 'active', open: true, specialty: isBooking(inp.type) ? inp.specialty : undefined, createdAt: Date.now(),
       }];
     });
     return { ok: true, id: r.providerId };
@@ -1258,6 +1260,21 @@ export async function setWelcomeLogo(image: string | null): Promise<Result> {
     mutate((db) => { db.settings = { ...db.settings, welcomeLogoV: r.welcomeLogoV }; });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+
+/* ---------- services (owner): names, order, sizes, on/off, new services ---------- */
+const takeServices = (list: ServiceDef[]) => { applyServices(list); mutate((db) => { db.services = list; }); };
+export async function createService(inp: { label: string; single?: string; emoji: string; template: string; size: string; canProducts: boolean; showHome: boolean }): Promise<Result> {
+  try { const r = await apiJson<{ services: ServiceDef[] }>('/api/admin/services', 'POST', inp); takeServices(r.services); return { ok: true }; } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function updateService(key: string, patch: Partial<Pick<ServiceDef, 'label' | 'single' | 'emoji' | 'size' | 'active' | 'showHome' | 'canProducts'>>): Promise<Result> {
+  try { const r = await apiJson<{ services: ServiceDef[] }>(`/api/admin/services/${encodeURIComponent(key)}`, 'PATCH', patch); takeServices(r.services); return { ok: true }; } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function reorderServices(keys: string[]): Promise<Result> {
+  try { const r = await apiJson<{ services: ServiceDef[] }>('/api/admin/services-order', 'PUT', { keys }); takeServices(r.services); return { ok: true }; } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function deleteService(key: string): Promise<Result> {
+  try { const r = await apiJson<{ services: ServiceDef[] }>(`/api/admin/services/${encodeURIComponent(key)}`, 'DELETE'); takeServices(r.services); return { ok: true }; } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 
 /** Owner: the picture (logo) of one service icon on the home screen; null puts the original icon back. */

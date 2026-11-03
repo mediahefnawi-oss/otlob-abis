@@ -1,4 +1,4 @@
-import { OrderStatus, ApptStatus, ProviderType } from './types';
+import { OrderStatus, ApptStatus, ProviderType, ServiceTemplate, ServiceDef } from './types';
 import { C } from './theme';
 
 export const money = (n: number) => `${Math.round(n * 100) / 100} ج.م`;
@@ -25,17 +25,47 @@ export const prettyIso = (iso: string) => {
 };
 export const isToday = (t: number) => isoDay(new Date(t)) === isoDay(new Date());
 
-export const TYPES: Record<
-  ProviderType,
-  { label: string; single: string; icon: string; emoji: string; color: string; soft: string }
-> = {
-  restaurant: { label: 'المطاعم', single: 'مطعم', icon: 'restaurant', emoji: '🍔', color: C.orange, soft: C.orangeSoft },
-  supermarket: { label: 'السوبر ماركت', single: 'سوبر ماركت', icon: 'cart', emoji: '🛒', color: C.green, soft: C.greenSoft },
-  pharmacy: { label: 'الصيدليات', single: 'صيدلية', icon: 'medkit', emoji: '💊', color: C.blue, soft: C.blueSoft },
-  clinic: { label: 'حجز العيادات', single: 'عيادة', icon: 'pulse', emoji: '🩺', color: '#8A5CD1', soft: '#EFE6FB' },
-  store: { label: 'متاجر', single: 'متجر', icon: 'storefront', emoji: '🏬', color: '#0E9AA7', soft: '#DDF3F5' },
-  maker: { label: 'صُنّاع أبيس', single: 'صانع', icon: 'color-palette', emoji: '🧵', color: '#D6457F', soft: '#FBE3EC' },
+export interface TypeInfo { label: string; single: string; icon: string; emoji: string; color: string; soft: string; template: ServiceTemplate }
+const BASE_TYPES: Record<string, TypeInfo> = {
+  restaurant: { label: 'المطاعم', single: 'مطعم', icon: 'restaurant', emoji: '🍔', color: C.orange, soft: C.orangeSoft, template: 'cart' },
+  supermarket: { label: 'السوبر ماركت', single: 'سوبر ماركت', icon: 'cart', emoji: '🛒', color: C.green, soft: C.greenSoft, template: 'request' },
+  pharmacy: { label: 'الصيدليات', single: 'صيدلية', icon: 'medkit', emoji: '💊', color: C.blue, soft: C.blueSoft, template: 'request' },
+  clinic: { label: 'حجز العيادات', single: 'عيادة', icon: 'pulse', emoji: '🩺', color: '#8A5CD1', soft: '#EFE6FB', template: 'booking' },
+  store: { label: 'متاجر', single: 'متجر', icon: 'storefront', emoji: '🏬', color: '#0E9AA7', soft: '#DDF3F5', template: 'cart' },
+  maker: { label: 'صُنّاع أبيس', single: 'صانع', icon: 'color-palette', emoji: '🧵', color: '#D6457F', soft: '#FBE3EC', template: 'maker' },
 };
+const FALLBACK_TYPE: TypeInfo = { label: 'خدمة', single: 'خدمة', icon: 'storefront', emoji: '🛍️', color: '#0E9AA7', soft: '#DDF3F5', template: 'cart' };
+const EXTRA_COLORS: [string, string][] = [['#0E9AA7', '#DDF3F5'], ['#D6457F', '#FBE3EC'], ['#8A5CD1', '#EFE6FB'], ['#2E7D32', '#E3F3E4'], ['#E4572E', '#FDE6DE']];
+/** The services (name, icon, template). It is a live object: applyServices() updates it when the owner changes something. Unknown keys read as a basket service. */
+export const TYPES = new Proxy(BASE_TYPES, { get: (t, k) => (typeof k === 'string' ? (k in t ? t[k] : FALLBACK_TYPE) : (t as any)[k]) }) as Record<ProviderType, TypeInfo>;
+export const TEMPLATE_LABEL: Record<ServiceTemplate, string> = { cart: 'منتجات وسلة', request: 'طلب مكتوب', booking: 'حجز مواعيد', maker: 'منتجات + طلب خاص' };
+let SERVICE_DEFS: ServiceDef[] = [];
+/** Take the owner's service list (from the catalog) and update TYPES. The errand service is kept apart: it has no providers. */
+export function applyServices(list?: ServiceDef[]) {
+  if (!list || !list.length) return;
+  SERVICE_DEFS = list;
+  const prev = { ...BASE_TYPES };
+  for (const k of Object.keys(BASE_TYPES)) delete BASE_TYPES[k];
+  let extra = 0;
+  for (const s of list) {
+    if (s.template === 'errand') continue;
+    const old = prev[s.key];
+    const col = old ? [old.color, old.soft] : EXTRA_COLORS[extra++ % EXTRA_COLORS.length];
+    BASE_TYPES[s.key] = { label: s.label, single: s.single, icon: old ? old.icon : 'storefront', emoji: s.emoji, color: col[0], soft: col[1], template: s.template as ServiceTemplate };
+  }
+}
+export const serviceDefs = () => SERVICE_DEFS;
+/** the errand service ("اطلب إيه؟ نجيبهولك") as the owner arranged it */
+export const errandDef = (): ServiceDef => SERVICE_DEFS.find((s) => s.template === 'errand') || { key: 'errand', label: 'اطلب إيه؟ نجيبهولك', single: 'طلب خاص', emoji: '🎁', template: 'errand', order: 999, size: 'large', active: true, showHome: true, canProducts: false, builtin: true };
+/** the keys of every provider service, in the owner's order */
+export const typeKeys = () => Object.keys(BASE_TYPES) as ProviderType[];
+export const tplOf = (type?: string): ServiceTemplate => (type && BASE_TYPES[type] ? BASE_TYPES[type].template : 'cart');
+export const isBooking = (type?: string) => tplOf(type) === 'booking';
+export const isRequestOnly = (type?: string) => tplOf(type) === 'request';
+export const isMakerTpl = (type?: string) => tplOf(type) === 'maker';
+/** may the provider of this service add products */
+export const hasProducts = (type?: string) => tplOf(type) !== 'request';
+export const acceptsRequests = (type?: string) => { const t = tplOf(type); return t === 'request' || t === 'maker'; };
 
 /** "الخميس 5/11/2026 • 3:30 م" for a maker's ready day (YYYY-MM-DD) and hour (HH:mm). */
 export const readyLabel = (date?: string, time?: string) => {

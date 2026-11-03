@@ -351,3 +351,22 @@ CREATE TABLE IF NOT EXISTS route_prices (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (from_region_id, to_region_id)
 );
+
+-- =====================================================================================
+-- Services (restaurants, pharmacies, clinics...) that the owner renames / stops / orders / adds from the panel.
+-- The six original services are copied here the first time the owner changes something.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS service_types (
+  key TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  single TEXT NOT NULL,
+  emoji TEXT NOT NULL DEFAULT '🛍️',
+  template TEXT NOT NULL CHECK (template IN ('cart','request','booking','maker','errand')),
+  sort_order INT NOT NULL DEFAULT 100,
+  size TEXT NOT NULL DEFAULT 'small' CHECK (size IN ('small','medium','large')),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  show_home BOOLEAN NOT NULL DEFAULT TRUE,
+  can_products BOOLEAN NOT NULL DEFAULT TRUE,
+  builtin BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

@@ -3,7 +3,7 @@ import { View, Pressable } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Sheet, Field, Chip, EmojiBubble, Toggle, SectionTitle, Empty, toast, confirmDialog } from './ui';
 import { useStore, useMe, saveProduct, deleteProduct, updateProvider, adminCreateProvider } from '../lib/store';
-import { TYPES, money, SPECIALTIES, ALL_SLOTS, SPEC_EMOJI } from '../lib/format';
+import { TYPES, money, SPECIALTIES, ALL_SLOTS, SPEC_EMOJI, isBooking, typeKeys } from '../lib/format';
 import { Provider, Product, ProviderType } from '../lib/types';
 import { ProductThumb, ProductPicture, LogoPicker } from './Brand';
 
@@ -40,8 +40,8 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
     if (provider) {
       updateProvider(provider.id, {
         name: name.trim(), desc: desc.trim(), address: address.trim(), phone: phone.trim() || provider.phone,
-        deliveryFee: provider.type === 'clinic' ? 0 : Number(fee) || 0,
-        specialty: provider.type === 'clinic' ? spec.trim() : provider.specialty,
+        deliveryFee: isBooking(provider.type) ? 0 : Number(fee) || 0,
+        specialty: isBooking(provider.type) ? spec.trim() : provider.specialty,
       });
       toast('تم حفظ التعديلات');
       onClose();
@@ -62,7 +62,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
         <View style={{ gap: 6 }}>
           <T w="semi" size={13} color={C.dark3}>نوع الخدمة</T>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {(Object.keys(TYPES) as ProviderType[]).map((k) => <Chip key={k} label={TYPES[k].single} icon={TYPES[k].icon} active={type === k} onPress={() => setType(k)} />)}
+            {typeKeys().map((k) => <Chip key={k} label={TYPES[k].single} icon={TYPES[k].icon} active={type === k} onPress={() => setType(k)} />)}
           </View>
         </View>
       )}
@@ -71,7 +71,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
       <Field label="الوصف" icon="document-text" value={desc} onChangeText={setDesc} />
       <Field label="العنوان" icon="location" value={address} onChangeText={setAddress} />
       <Field label="هاتف الخدمة" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-      {t === 'clinic' ? (
+      {isBooking(t) ? (
         <View style={{ gap: 6 }}>
           <Field label="التخصص (تكتبه أنت)" icon="pulse" value={spec} onChangeText={setSpec} placeholder="مثال: باطنة، أسنان، عيون…" />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -96,7 +96,7 @@ export function ProviderFormSheet({ visible, onClose, provider, onCreated }: { v
 /* Add / edit / delete products or doctors of any service */
 export function CatalogEditor({ prov }: { prov: Provider }) {
   const { db } = useStore();
-  const isClinic = prov.type === 'clinic';
+  const isClinic = isBooking(prov.type);
   const items = db.products.filter((p) => p.providerId === prov.id);
   const [sheet, setSheet] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);

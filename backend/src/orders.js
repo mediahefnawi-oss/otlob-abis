@@ -6,6 +6,7 @@
  */
 const crypto = require('crypto');
 const commissions = require('./commissions');
+const services = require('./services');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
   const num = v => Number(v) || 0;
   const ms = d => new Date(d).getTime();
@@ -67,7 +68,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   }
   /** What a customer pays for delivery from a shop: only the owner's route price counts. A route without a price is closed. */
   async function deliveryFeeFor(db, prov, region, fallback) {
-    if (prov.type === 'clinic') return 0;
+    if (services.tplOf(prov.type) === 'booking') return 0;
     if (!region) return Number(fallback) || 0; // an old customer account with no area: the shop's own price
     const r = await routeFee(db, prov.id, region.id);
     if (r === null) throw fail(409, `التوصيل من منطقة ${prov.name} إلى منطقتك غير متاح حالياً`);
@@ -203,7 +204,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const tag = `order-${row.id}`;
       const jobs = [];
       switch (action) {
-        case 'accept': jobs.push(notify(cust, d.providerType === 'maker' ? 'قبل الصانع طلبك 🧵' : 'قبل المتجر طلبك 👨‍🍳', d.providerType === 'maker' && d.readyDate ? `جاهز ${d.readyDate} الساعة ${d.readyTime}` : (row.status === 'ready' ? 'جاهز للتسليم الآن' : (d.providerName || '')), tag), notifyCouriers([row])); break;
+        case 'accept': jobs.push(notify(cust, services.tplOf(d.providerType) === 'maker' ? 'قبل الصانع طلبك 🧵' : 'قبل المتجر طلبك 👨‍🍳', services.tplOf(d.providerType) === 'maker' && d.readyDate ? `جاهز ${d.readyDate} الساعة ${d.readyTime}` : (row.status === 'ready' ? 'جاهز للتسليم الآن' : (d.providerName || '')), tag), notifyCouriers([row])); break;
         case 'approve_quote':
           if (d.providerType === 'custom') jobs.push(notify([row.courier_user_id], 'وافق العميل على فاتورتك ✅', `${Number(row.total)} ج.م`, tag));
           else jobs.push(notify(shop, 'وافق العميل على السعر ✅', `${d.customerName || ''} — ${Number(row.total)} ج.م`, tag), notifyCouriers([row]));
@@ -271,6 +272,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     return crypto.createHash('md5').update(JSON.stringify([auth.role, auth.status, r.rows[0]])).digest('hex');
   }
 
+  // the service list (and which order path each service uses) is read before every order route
+  if (typeof app.use === 'function') app.use(['/api/orders', '/api/appointments'], (_req, _res, next) => { services.ensure(pool).then(() => next(), () => next()); });
   app.get('/api/sync', authAny, asyncRoute(async (req, res) => {
     let tag = null;
     if (req.auth.status === 'active') {
@@ -340,7 +343,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const p = byId.get(l.id);
       if (!p) throw fail(409, 'أحد المنتجات لم يعد متاحاً');
       if (p.deleted_at || p.pstatus !== 'active' || !p.is_open) throw fail(409, `${p.pname} مغلق حالياً`);
-      if (p.ptype === 'supermarket' || p.ptype === 'pharmacy') throw fail(409, `${p.pname}: اطلب بكتابة طلبك (بدون سلة منتجات)`);
+      if (!services.isActive(p.ptype)) throw fail(409, `${p.pname}: هذه الخدمة متوقفة حالياً`);
+      if (services.tplOf(p.ptype) === 'request') throw fail(409, `${p.pname}: اطلب بكتابة طلبك (بدون سلة منتجات)`);
       if (!p.available) throw fail(409, `${p.name} غير متاح حالياً`);
       if (!groups.has(p.provider_id)) groups.set(p.provider_id, { p, items: [], subtotal: 0 });
       const g = groups.get(p.provider_id);
@@ -375,7 +379,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       for (const o of orders) {
         const d = { ...o.data, groupId: String(inv.rows[0].id), invoiceId: String(inv.rows[0].id) };
         let row = (await db.query('UPDATE orders SET updated_at=NOW(), data=$1 WHERE id=$2 RETURNING *', [JSON.stringify(d), o.id])).rows[0];
-        await sysMsg(db, row.id, (o.data || {}).providerType === 'maker' ? 'تم إرسال طلبك للصانع، وسيقبله ويحدد موعد جاهزيته أو يعتذر عنه 🧵' : 'تم إرسال طلبك للمتجر ✅');
+        await sysMsg(db, row.id, services.tplOf((o.data || {}).providerType) === 'maker' ? 'تم إرسال طلبك للصانع، وسيقبله ويحدد موعد جاهزيته أو يعتذر عنه 🧵' : 'تم إرسال طلبك للمتجر ✅');
         finalOrders.push(row);
       }
       const u = await db.query('UPDATE users SET address=$1 WHERE id=$2 RETURNING *', [address, Number(req.auth.sub)]);
@@ -391,6 +395,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   /** "اطلب أي حاجة": a free errand for the couriers (no shop involved). */
   app.post('/api/orders/custom', auth, roles('customer'), guard(async (req, res) => {
     await requireOpen();
+    if (!services.errandActive()) throw fail(409, 'هذه الخدمة متوقفة حالياً');
     const b = req.body || {};
     const text = String(b.text || '').trim();
     if (text.length < 3) throw fail(400, 'اكتب ما تريد طلبه');
@@ -435,7 +440,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
     const prov = p.rows[0];
     if (!prov || prov.status !== 'active' || !prov.is_open) throw fail(409, 'المتجر مغلق حالياً');
-    if (!['supermarket', 'pharmacy', 'maker'].includes(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
+    if (!services.acceptsRequests(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
+    if (!services.isActive(prov.type)) throw fail(409, 'هذه الخدمة متوقفة حالياً');
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
@@ -448,7 +454,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',
         [Number(req.auth.sub), prov.id, region ? region.id : null, JSON.stringify(d)])).rows[0];
       if (image) await db.query('INSERT INTO order_images(order_id, image) VALUES($1,$2)', [o.id, image]);
-      await sysMsg(db, o.id, prov.type === 'maker' ? 'تم إرسال طلبك للصانع، وسيقبله أو يعتذر عنه ويحدد السعر وموعد التسليم 🧵' : 'تم إرسال طلبك للمتجر، وسيقوم بتسعيره وإرسال الفاتورة إليك 📝');
+      await sysMsg(db, o.id, services.tplOf(prov.type) === 'maker' ? 'تم إرسال طلبك للصانع، وسيقبله أو يعتذر عنه ويحدد السعر وموعد التسليم 🧵' : 'تم إرسال طلبك للمتجر، وسيقوم بتسعيره وإرسال الفاتورة إليك 📝');
       return o;
     });
     await notify([prov.owner_user_id], 'طلب مكتوب جديد 📝', `${(out.data || {}).customerName || ''} — يحتاج تسعير`, `order-${out.id}`);
@@ -492,7 +498,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       } else if (req.auth.role !== 'admin' && Number(row.powner) !== Number(req.auth.sub)) throw fail(403, 'غير مسموح');
       if (!row.data || !row.data.request) throw fail(400, 'هذا ليس طلباً مكتوباً');
       if (!['pending', 'quoted'].includes(row.status)) throw fail(409, 'حالة الطلب لا تسمح بالتسعير الآن');
-      const isMaker = row.data.providerType === 'maker';
+      const isMaker = services.tplOf(row.data.providerType) === 'maker';
       const fee = Number(row.data.deliveryFee) || 0;
       const unavailable = !!b.unavailable;
       if (isMaker && !unavailable) {
@@ -607,7 +613,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const p = await db.query("SELECT id, owner_user_id, type, name, status FROM providers WHERE id=$1 AND deleted_at IS NULL", [pid]);
       const prov = p.rows[0];
       if (!prov || prov.status !== 'active') throw fail(404, 'مقدم الخدمة غير متاح');
-      if (isReq && !['supermarket', 'pharmacy', 'maker'].includes(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
+      if (isReq && !services.acceptsRequests(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
       if (!isReq && prov.type !== row.data.providerType) throw fail(400, 'حوّل الطلب إلى نفس نوع الخدمة');
       const oldOwner = row.data.providerOwnerId;
       const d = { ...row.data, providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id), providerRegionName: await providerRegionName(db, prov.id) };
@@ -700,7 +706,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           if (row.data && row.data.request) throw fail(409, 'سعّر الطلب أولاً ثم أرسل الفاتورة للعميل');
           {
             const b = req.body || {};
-            const maker = !!(row.data && row.data.providerType === 'maker');
+            const maker = !!(row.data && services.tplOf(row.data.providerType) === 'maker');
             const rd = String(b.readyDate || '').trim(), rt = String(b.readyTime || '').trim();
             const patch = role === 'supervisor' ? { staffHandled: true } : {};
             if (maker && rd) {

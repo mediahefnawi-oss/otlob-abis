@@ -2,16 +2,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, Image } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
-import { useStore, setWelcomeLogo, setLoginImage, setAppIcon, setCatIcon, updateSettings } from '../lib/store';
-import { TYPES, DEFAULT_CREDITS, money, fmtDateTime, isoDay, DAYS } from '../lib/format';
-import { ProviderType } from '../lib/types';
+import { useStore, setWelcomeLogo, setLoginImage, setAppIcon, setCatIcon, updateSettings, createService, updateService, reorderServices, deleteService } from '../lib/store';
+import { TYPES, DEFAULT_CREDITS, money, fmtDateTime, isoDay, DAYS, typeKeys, serviceDefs, errandDef, TEMPLATE_LABEL } from '../lib/format';
+import { ProviderType, ServiceDef, ServiceTemplate } from '../lib/types';
 import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
 import { loginImageUrl, welcomeLogoUrl, appIconUrl, catIconUrl } from '../lib/api';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useRC } from '../screens/customer';
 
 const toEn = (s: string) => s.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٫,]/g, '.');
-const TYPE_KEYS = Object.keys(TYPES) as ProviderType[];
+
 const COUNTER_LABEL: Record<string, string> = { sales: 'المبيعات', orders: 'الطلبات', profit: 'الأرباح' };
 const run = async (p: Promise<any>, okMsg: string) => {
   try { await p; toast(okMsg); return true; } catch (e: any) { toast(e?.message || 'تعذر تنفيذ العملية', 'err'); return false; }
@@ -32,7 +32,7 @@ function ScopePicker({ value, onChange, allLabel = 'الجميع' }: { value: Sc
         <Chip label="قسم" active={value.scope === 'type'} onPress={() => onChange({ ...value, scope: 'type' })} />
         <Chip label="مقدم خدمة" active={value.scope === 'provider'} onPress={() => onChange({ ...value, scope: 'provider' })} />
       </Wrap>
-      {value.scope === 'type' && <Wrap>{TYPE_KEYS.map((k) => <Chip key={k} label={TYPES[k].label} icon={TYPES[k].icon} active={value.providerType === k} onPress={() => onChange({ ...value, providerType: k })} />)}</Wrap>}
+      {value.scope === 'type' && <Wrap>{typeKeys().map((k) => <Chip key={k} label={TYPES[k].label} icon={TYPES[k].icon} active={value.providerType === k} onPress={() => onChange({ ...value, providerType: k })} />)}</Wrap>}
       {value.scope === 'provider' && (
         <Wrap>{provs.map((p) => <Chip key={p.id} label={p.name} active={value.providerId === p.id} onPress={() => onChange({ ...value, providerId: p.id })} />)}</Wrap>
       )}
@@ -333,7 +333,7 @@ function CountersTab() {
       </View>
       <Card style={{ gap: 8 }}>
         <T w="black" size={14.5}>حسب القسم</T>
-        {TYPE_KEYS.map((k) => (
+        {typeKeys().map((k) => (
           <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Icon name={TYPES[k].icon} size={16} color={TYPES[k].color} />
             <T size={12.5} style={{ flex: 1 }}>{TYPES[k].label}</T>
@@ -657,7 +657,7 @@ export function CatIconsManager() {
     <Card style={{ gap: 12 }}>
       <T w="black" size={15}>أيقونات الأقسام (الهوية البصرية)</T>
       <T size={12} color={C.sub}>ارفع لوجو أو صورة مربعة لكل قسم، وتظهر بدل الأيقونة في الصفحة الرئيسية للعملاء.</T>
-      {TYPE_KEYS.map((t) => {
+      {typeKeys().map((t) => {
         const v = vs[t] || 0;
         return (
           <View key={t} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -671,5 +671,160 @@ export function CatIconsManager() {
         );
       })}
     </Card>
+  );
+}
+
+
+/* ============================== services (names, order, sizes, on/off, new services) ============================== */
+const SIZE_LABEL = { small: 'صغير', medium: 'متوسط', large: 'كبير' } as const;
+const EMOJIS = ['🍔', '🛒', '💊', '🩺', '🏬', '🧵', '💧', '🔧', '🧹', '🥖', '🌸', '📦', '🚗', '✂️', '🐾', '🎁'];
+
+function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: ServiceDef | null; onClose: () => void }) {
+  const isNew = !def;
+  const [label, setLabel] = useState('');
+  const [single, setSingle] = useState('');
+  const [emoji, setEmoji] = useState('🛍️');
+  const [template, setTemplate] = useState<ServiceTemplate>('cart');
+  const [size, setSize] = useState<'small' | 'medium' | 'large'>('small');
+  const [canProducts, setCanProducts] = useState(true);
+  const [showHome, setShowHome] = useState(true);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    setLabel(def?.label || ''); setSingle(def?.single || ''); setEmoji(def?.emoji || '🛍️');
+    setTemplate((def && def.template !== 'errand' ? def.template : 'cart') as ServiceTemplate);
+    setSize(def?.size || 'small'); setCanProducts(def ? def.canProducts : true); setShowHome(def ? def.showHome : true);
+  }, [visible, def?.key]);
+  const errand = def?.template === 'errand';
+  const save = async () => {
+    if (label.trim().length < 2) return toast('اكتب اسم الخدمة', 'err');
+    setBusy(true);
+    const r = isNew
+      ? await createService({ label: label.trim(), single: single.trim() || label.trim(), emoji, template, size, canProducts, showHome })
+      : await updateService(def!.key, { label: label.trim(), ...(errand ? {} : { single: single.trim() || label.trim() }), emoji, ...(errand || def!.template === 'request' ? {} : { canProducts }) });
+    setBusy(false);
+    if (r.ok) { toast(isNew ? 'تمت إضافة الخدمة' : 'تم الحفظ'); onClose(); } else toast(r.error || 'تعذر الحفظ', 'err');
+  };
+  return (
+    <Sheet visible={visible} onClose={onClose} title={isNew ? 'خدمة جديدة' : 'تعديل الخدمة'}>
+      <Field label="اسم الخدمة (يظهر في الرئيسية)" icon="pricetag" value={label} onChangeText={setLabel} placeholder="مثال: توصيل مياه" />
+      {!errand && <Field label="الاسم المفرد (مثال: مطعم، صيدلية)" icon="storefront" value={single} onChangeText={setSingle} placeholder="مثال: مورّد مياه" />}
+      <View style={{ gap: 6 }}>
+        <Label>الأيقونة</Label>
+        <Wrap>{EMOJIS.map((e) => <Chip key={e} label={e} active={emoji === e} onPress={() => setEmoji(e)} />)}</Wrap>
+      </View>
+      {isNew && (
+        <View style={{ gap: 6 }}>
+          <Label>طريقة الشغل</Label>
+          <Wrap>{(Object.keys(TEMPLATE_LABEL) as ServiceTemplate[]).map((k) => <Chip key={k} label={TEMPLATE_LABEL[k]} active={template === k} onPress={() => setTemplate(k)} />)}</Wrap>
+          <T size={11.5} color={C.sub}>{template === 'cart' ? 'مقدم الخدمة يضيف منتجات والعميل يطلب من سلة.' : template === 'request' ? 'العميل يكتب طلبه والمقدم يحدد السعر، بدون منتجات.' : template === 'booking' ? 'العميل يحجز موعداً عند مقدم الخدمة.' : 'منتجات، ويقدر العميل يطلب طلباً خاصاً والمقدم يحدد السعر وموعد التسليم.'}</T>
+        </View>
+      )}
+      {isNew && (
+        <View style={{ gap: 6 }}>
+          <Label>حجم الأيقونة في الرئيسية</Label>
+          <Wrap>{(['small', 'medium', 'large'] as const).map((k) => <Chip key={k} label={SIZE_LABEL[k]} active={size === k} onPress={() => setSize(k)} />)}</Wrap>
+        </View>
+      )}
+      {(isNew ? template !== 'request' : (!errand && def!.template !== 'request')) && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><T w="semi" size={13.5} style={{ flex: 1 }}>مقدم الخدمة يضيف ويعدّل المنتجات</T><Toggle value={canProducts} onValueChange={setCanProducts} /></View>
+      )}
+      {isNew && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><T w="semi" size={13.5} style={{ flex: 1 }}>تظهر في الصفحة الرئيسية</T><Toggle value={showHome} onValueChange={setShowHome} /></View>}
+      <Btn title={isNew ? 'إضافة الخدمة' : 'حفظ'} icon="checkmark" onPress={save} loading={busy} />
+    </Sheet>
+  );
+}
+
+/** Owner: rename / stop / order / resize the services and add new ones. «اطلب إيه؟ نجيبهولك» is in its own section. */
+export function ServicesManager() {
+  const { db } = useStore();
+  const [busy, setBusy] = useState('');
+  const [edit, setEdit] = useState<ServiceDef | null>(null);
+  const [open, setOpen] = useState(false);
+  const vs = db.settings.catIconV || {};
+  const defs = (db.services && db.services.length ? db.services : serviceDefs());
+  const list = defs.filter((d) => d.template !== 'errand').slice().sort((a, b) => a.order - b.order);
+  const errand = defs.find((d) => d.template === 'errand') || errandDef();
+  const count = (k: string) => db.providers.filter((p) => p.type === k).length;
+  const act = async (key: string, p: Promise<{ ok: boolean; error?: string }>, okMsg?: string) => {
+    setBusy(key); const r = await p; setBusy('');
+    if (!r.ok) toast(r.error || 'تعذر التنفيذ', 'err'); else if (okMsg) toast(okMsg);
+  };
+  const move = (i: number, d: -1 | 1) => {
+    const keys = list.map((x) => x.key); const j = i + d;
+    if (j < 0 || j >= keys.length) return;
+    [keys[i], keys[j]] = [keys[j], keys[i]];
+    act(keys[j], reorderServices(keys));
+  };
+  const choose = async (t: ProviderType) => {
+    const img = await pickImage(512);
+    if (!img) return toast('تعذر قراءة الصورة، جرّب صورة أخرى', 'err');
+    act(t, setCatIcon(t, img), 'تم حفظ الصورة وتظهر للعملاء الآن');
+  };
+  const remove = (t: ProviderType) => confirmDialog({ title: 'حذف الصورة؟', message: 'ستعود الأيقونة الأصلية.', danger: true, confirmText: 'حذف', onConfirm: () => { act(t, setCatIcon(t, null)); } });
+  const del = (d: ServiceDef) => confirmDialog({ title: `حذف خدمة «${d.label}»؟`, message: 'تُحذف الخدمة نهائياً. لو فيها مقدمو خدمة سيرفض النظام الحذف، وأوقفها بدلاً منه.', danger: true, confirmText: 'حذف', onConfirm: () => { act(d.key, deleteService(d.key), 'تم حذف الخدمة'); } });
+  return (
+    <>
+      <Card style={{ gap: 12 }}>
+        <T w="black" size={15}>الخدمات</T>
+        <T size={12} color={C.sub}>غيّر اسم الخدمة أو أيقونتها أو حجمها أو ترتيبها، أو أوقفها، أو أضف خدمة جديدة. الإيقاف يخفيها عن العملاء ويمنع الطلب منها.</T>
+        {list.map((d, i) => {
+          const v = vs[d.key] || 0;
+          return (
+            <View key={d.key} style={{ gap: 10, paddingTop: 12, borderTopWidth: i ? 1 : 0, borderTopColor: C.line, opacity: d.active ? 1 : 0.6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: C.dark, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {v > 0 ? <Image source={{ uri: catIconUrl(d.key, v) }} style={{ width: 54, height: 54 }} resizeMode="cover" /> : <T size={24}>{d.emoji}</T>}
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <T w="black" size={14.5} numberOfLines={1}>{d.label}</T>
+                  <T size={11.5} color={C.sub}>{TEMPLATE_LABEL[d.template as ServiceTemplate]} • {count(d.key)} مقدم خدمة</T>
+                </View>
+                <View style={{ gap: 4 }}>
+                  <Btn small variant="soft" icon="arrow-up" title="" disabled={i === 0 || !!busy} onPress={() => move(i, -1)} />
+                  <Btn small variant="soft" icon="arrow-down" title="" disabled={i === list.length - 1 || !!busy} onPress={() => move(i, 1)} />
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <T size={12} color={C.sub}>الحجم</T>
+                {(['small', 'medium', 'large'] as const).map((k) => <Chip key={k} label={SIZE_LABEL[k]} active={d.size === k} onPress={() => act(d.key, updateService(d.key, { size: k }))} />)}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <T w="semi" size={13} style={{ flex: 1 }}>مُشغَّلة</T><Toggle value={d.active} onValueChange={(x) => act(d.key, updateService(d.key, { active: x }), x ? 'تم تشغيل الخدمة' : 'تم إيقاف الخدمة')} />
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <T w="semi" size={13} style={{ flex: 1 }}>تظهر في الرئيسية</T><Toggle value={d.showHome} onValueChange={(x) => act(d.key, updateService(d.key, { showHome: x }))} />
+              </View>
+              <Wrap>
+                <Btn small variant="soft" icon="create" title="الاسم والتفاصيل" onPress={() => { setEdit(d); setOpen(true); }} />
+                {canPickImage && <Btn small variant="soft" icon="image" title={v > 0 ? 'تغيير الصورة' : 'رفع صورة'} loading={busy === d.key} onPress={() => choose(d.key)} />}
+                {v > 0 && <Btn small variant="danger" icon="trash" title="حذف الصورة" onPress={() => remove(d.key)} />}
+                {!d.builtin && <Btn small variant="danger" icon="close-circle" title="حذف الخدمة" onPress={() => del(d)} />}
+              </Wrap>
+            </View>
+          );
+        })}
+        <Btn title="خدمة جديدة" icon="add" onPress={() => { setEdit(null); setOpen(true); }} />
+      </Card>
+
+      <Card style={{ gap: 10, opacity: errand.active ? 1 : 0.6 }}>
+        <T w="black" size={15}>خدمة خاصة</T>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ width: 54, height: 54, borderRadius: 18, backgroundColor: C.goldSoft, alignItems: 'center', justifyContent: 'center' }}><T size={26}>{errand.emoji}</T></View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <T w="black" size={14.5}>{errand.label}</T>
+            <T size={11.5} color={C.sub}>المندوب يحدد سعر التوصيل والمشتريات</T>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <T w="semi" size={13} style={{ flex: 1 }}>مُشغَّلة</T><Toggle value={errand.active} onValueChange={(x) => act('errand', updateService('errand', { active: x }), x ? 'تم تشغيل الخدمة' : 'تم إيقاف الخدمة')} />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <T w="semi" size={13} style={{ flex: 1 }}>تظهر في الرئيسية</T><Toggle value={errand.showHome} onValueChange={(x) => act('errand', updateService('errand', { showHome: x }))} />
+        </View>
+        <Btn small variant="soft" icon="create" title="الاسم والأيقونة" onPress={() => { setEdit(errand); setOpen(true); }} />
+      </Card>
+      <ServiceSheet visible={open} def={edit} onClose={() => setOpen(false)} />
+    </>
   );
 }

@@ -11,7 +11,7 @@ import {
 } from '../components/ui';
 import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened } from '../lib/store';
 import { CommissionTrail } from '../components/Finance';
-import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
+import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel, isMakerTpl } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
 import { QuoteButtons, MakerOrderButtons, RequestPhoto, ErrandQuoteButton } from '../components/Quote';
@@ -201,7 +201,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             <>
               <QuoteButtons o={o} />
               <MakerOrderButtons o={o} />
-              {o.status === 'pending' && !isRequest && o.providerType !== 'maker' && (
+              {o.status === 'pending' && !isRequest && !isMakerTpl(o.providerType) && (
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                   <Btn title="قبول الطلب" icon="checkmark" variant="green" style={{ flex: 1 }} onPress={() => act('accept')} />
                   <Btn title="رفض" icon="close" variant="danger" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الطلب؟', message: 'سيتم إبلاغ العميل برفض الطلب', danger: true, confirmText: 'رفض', onConfirm: () => act('reject', 'تعذر على المتجر تنفيذ الطلب') })} />

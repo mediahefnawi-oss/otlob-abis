@@ -7,7 +7,7 @@ import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { C, R } from '../lib/theme';
 import { T, Btn, Field, Logo, Icon, Chip, Header, openWhats, toast, Card } from '../components/ui';
 import { login, register, logout, useStore, useMe } from '../lib/store';
-import { TYPES, DEFAULT_CREDITS } from '../lib/format';
+import { TYPES, DEFAULT_CREDITS, isBooking, typeKeys } from '../lib/format';
 import { ProviderType } from '../lib/types';
 
 import { RegionPicker } from '../components/Regions';
@@ -211,10 +211,10 @@ export function RegisterScreen({ navigation, route }: any) {
               <View style={{ gap: 6 }}>
                 <T w="semi" size={13} color={C.dark3}>نوع النشاط</T>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {(Object.keys(TYPES) as ProviderType[]).map((k) => <Chip key={k} label={TYPES[k].single} icon={TYPES[k].icon} active={ptype === k} onPress={() => setPtype(k)} />)}
+                  {typeKeys().map((k) => <Chip key={k} label={TYPES[k].single} icon={TYPES[k].icon} active={ptype === k} onPress={() => setPtype(k)} />)}
                 </View>
               </View>
-              <Field label="اسم النشاط التجاري" icon="storefront" value={pname} onChangeText={setPname} placeholder={ptype === 'clinic' ? 'مثال: عيادة د. أحمد' : 'مثال: مطعم الأصيل'} />
+              <Field label="اسم النشاط التجاري" icon="storefront" value={pname} onChangeText={setPname} placeholder={isBooking(ptype) ? 'مثال: عيادة د. أحمد' : 'مثال: مطعم الأصيل'} />
               <Field label="وصف مختصر" icon="document-text" value={pdesc} onChangeText={setPdesc} placeholder="نبذة عن نشاطك" />
             </>
           )}

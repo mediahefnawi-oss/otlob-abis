@@ -144,13 +144,13 @@ function providerVisibility(viewer, values) {
   if (viewer && viewer.role === 'provider') { values.push(Number(viewer.id)); return `p.deleted_at IS NULL AND (p.status='active' OR p.owner_user_id=$${values.length})`; }
   return "p.deleted_at IS NULL AND p.status='active'";
 }
-const PROVIDER_TYPES = ['restaurant','supermarket','pharmacy','clinic','store','maker'];
+const services = require('./services');
 const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261109;
+const SCHEMA_VERSION = 20261110;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -257,6 +257,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
 
 app.post('/api/auth/register', asyncRoute(async (req, res) => {
   const { name, phone, password, address = '', role = 'customer', provider, regionId, vehicle } = req.body || {};
+  await services.ensure(pool);
   const mt = await maintenanceState();
   if (!mt.enabled) return res.status(503).json({ error: mt.message });
   const normalizedPhone = String(phone || '').replace(/\s+/g, '');
@@ -283,7 +284,7 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status,region_id,vehicle) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status, region, role === 'courier' ? String(vehicle || 'موتوسيكل').slice(0, 30) : '']);
     const user = result.rows[0];
     if (role === 'provider') {
-      await client.query('INSERT INTO providers(owner_user_id,type,name,description,address,phone,delivery_fee,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,\'pending\',$8)', [user.id, PROVIDER_TYPES.includes(provider.type) ? provider.type : 'other', String(provider.name).trim(), String(provider.desc || ''), String(address).trim(), normalizedPhone, Math.max(0, Number(provider.deliveryFee) || 0), JSON.stringify({ specialty: provider.specialty || '' })]);
+      await client.query('INSERT INTO providers(owner_user_id,type,name,description,address,phone,delivery_fee,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,\'pending\',$8)', [user.id, services.isKnown(provider.type) ? provider.type : 'other', String(provider.name).trim(), String(provider.desc || ''), String(address).trim(), normalizedPhone, Math.max(0, Number(provider.deliveryFee) || 0), JSON.stringify({ specialty: provider.specialty || '' })]);
     }
     await client.query('COMMIT');
     res.status(201).json({ token: tokenFor(user), user: cleanUser(user) });
@@ -447,7 +448,8 @@ app.patch('/api/admin/users/:id/password', auth, roles('admin'), asyncRoute(asyn
 app.post('/api/admin/providers', auth, roles('admin'), asyncRoute(async (req, res) => {
   const b = req.body || {};
   const type = String(b.type || '');
-  if (!PROVIDER_TYPES.includes(type)) return res.status(400).json({ error: 'نوع الخدمة غير صالح' });
+  await services.ensure(pool);
+  if (!services.isKnown(type)) return res.status(400).json({ error: 'نوع الخدمة غير صالح' });
   if (!b.name || String(b.name).trim().length < 2) return res.status(400).json({ error: 'اكتب اسم الخدمة' });
   const mPhone = String(b.managerPhone || '').replace(/\s+/g, '');
   if (!/^01[0-9]{9}$/.test(mPhone)) return res.status(400).json({ error: 'رقم هاتف المسؤول غير صحيح' });
@@ -635,17 +637,23 @@ app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(
 }));
 
 async function listProviders(viewer, type) {
+  await services.ensure(pool);
   const values = [];
   let sql = `SELECT p.*, u.region_id AS owner_region_id, g.name AS region_name, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v FROM providers p LEFT JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE ${providerVisibility(viewer, values)}`;
   if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
   sql += ' ORDER BY p.created_at DESC LIMIT 500';
   const hide = !viewer || viewer.role === 'customer'; // a maker's address is for couriers and staff only; customers see the area
-  return (await pool.query(sql, values)).rows.map(providerJson).map(p => (hide && p.type === 'maker' ? { ...p, address: '' } : p));
+  const rows = (await pool.query(sql, values)).rows.map(providerJson);
+  // a stopped service disappears for customers and couriers (the owner and the provider still see it)
+  const visible = viewer && (viewer.role === 'admin' || viewer.role === 'provider') ? rows : rows.filter(p => services.isActive(p.type));
+  return visible.map(p => (hide && services.tplOf(p.type) === 'maker' ? { ...p, address: '' } : p));
 }
 async function listProducts(viewer, providerId) {
+  await services.ensure(pool);
   const values = [];
+  const noProd = vals => { const t = services.noProductTypes(); if (!t.length) return 'TRUE'; vals.push(t); return `NOT (p.type = ANY($${vals.length}::text[]))`; };
   // supermarkets and pharmacies work by written requests only: their old product rows are kept in the database but no longer offered
-  let sql = `SELECT pr.*, (SELECT (EXTRACT(EPOCH FROM i.updated_at)*1000)::bigint FROM product_images i WHERE i.product_id=pr.id) AS image_v FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE p.type NOT IN ('supermarket','pharmacy') AND ${providerVisibility(viewer, values)}`;
+  let sql = `SELECT pr.*, (SELECT (EXTRACT(EPOCH FROM i.updated_at)*1000)::bigint FROM product_images i WHERE i.product_id=pr.id) AS image_v FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE ${noProd(values)} AND ${providerVisibility(viewer, values)}`;
   if (providerId) { values.push(providerId); sql += ` AND pr.provider_id=$${values.length}`; }
   sql += ' ORDER BY pr.created_at ASC LIMIT 2000';
   return (await pool.query(sql, values)).rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available, imageV: x.image_v ? Number(x.image_v) : 0 }));
@@ -706,7 +714,7 @@ app.get('/api/catalog', optionalAuth, asyncRoute(async (req, res) => {
   const hit = req.query.fresh ? undefined : catalogMemo.get(key);
   if (hit) return res.json(hit);
   const [providers, products, regions, ads, routePrices] = await Promise.all([listProviders(v), listProducts(v), listRegions(v), listAds(v).catch(() => []), listRoutePrices()]);
-  res.json(catalogMemo.set(key, { providers, products, regions, ads, routePrices }));
+  res.json(catalogMemo.set(key, { providers, products, regions, ads, routePrices, services: services.listJson() }));
 }));
 
 // Owner of the service (or the app owner) edits the service details / open-closed switch.
@@ -754,7 +762,8 @@ app.post('/api/products', auth, roles('provider','admin'), asyncRoute(async (req
   const p = await pool.query('SELECT id,owner_user_id,type FROM providers WHERE id=$1', [validProviderId]);
   if (!p.rowCount) return res.status(404).json({ error: 'مقدم الخدمة غير موجود' });
   if (req.auth.role !== 'admin' && String(p.rows[0].owner_user_id) !== req.auth.sub) return res.status(403).json({ error: 'لا يمكنك إدارة منتجات مقدم خدمة آخر' });
-  if (['supermarket', 'pharmacy'].includes(p.rows[0].type)) return res.status(400).json({ error: 'السوبر ماركت والصيدلية يعملان بكتابة الطلب فقط، بدون منتجات' });
+  await services.ensure(pool);
+  if (!services.canProducts(p.rows[0].type)) return res.status(400).json({ error: 'هذه الخدمة تعمل بدون منتجات (طلب مكتوب أو حجز)' });
   const r = await pool.query('INSERT INTO products(provider_id,name,price,data) VALUES($1,$2,$3,$4) RETURNING *', [Number(providerId), String(name).trim(), Number(price), JSON.stringify(data)]);
   res.status(201).json({ product: { id: String(r.rows[0].id), providerId: String(r.rows[0].provider_id), name: r.rows[0].name, price: Number(r.rows[0].price), available: r.rows[0].available, ...r.rows[0].data } });
 }));
@@ -851,6 +860,7 @@ app.delete('/api/products/:id/image', auth, roles('provider','admin'), asyncRout
 
 // Orders, invoices, bookings and chat live in orders.js
 require('./commissions')(app, { pool, auth, roles, asyncRoute, positiveId });
+services.register(app, { pool, auth, roles, asyncRoute });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {

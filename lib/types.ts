@@ -1,5 +1,12 @@
 export type Role = 'customer' | 'provider' | 'courier' | 'admin' | 'supervisor';
-export type ProviderType = 'restaurant' | 'supermarket' | 'pharmacy' | 'clinic' | 'store' | 'maker';
+/** the key of a service (restaurant, pharmacy... or one the owner added). */
+export type ProviderType = string;
+/** how a service works: basket / written request / appointments / products + requests. */
+export type ServiceTemplate = 'cart' | 'request' | 'booking' | 'maker';
+export interface ServiceDef {
+  key: string; label: string; single: string; emoji: string; template: ServiceTemplate | 'errand'; order: number;
+  size: 'small' | 'medium' | 'large'; active: boolean; showHome: boolean; canProducts: boolean; builtin: boolean;
+}
 export type AccountStatus = 'active' | 'pending' | 'rejected' | 'suspended';
 
 export interface User {
@@ -237,6 +244,7 @@ export interface DB {
   products: Product[];
   regions: Region[];
   routePrices?: Record<string, number>; // "shopAreaId:customerAreaId" -> delivery price
+  services?: ServiceDef[]; // the services the owner arranged (name, order, size, on/off)
   ads?: Ad[];
   couriersOnline?: number; // couriers who are switched on right now (the server counts them)
   bookedSlots: { doctorId: string; date: string; time: string }[];

@@ -17,7 +17,7 @@ import {
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
-import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS } from '../lib/format';
+import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { ProviderType, Provider } from '../lib/types';
 
 const useRefresh = () => {
@@ -58,7 +58,7 @@ export function HomeScreen({ navigation }: any) {
     return Array.from(new Set([...byName, ...byProduct]));
   }, [q, db]);
 
-  const cats: ProviderType[] = ['restaurant', 'supermarket', 'pharmacy', 'clinic', 'store', 'maker'];
+  const cats: ProviderType[] = typeKeys().filter((k) => { const d = serviceDefs().find((x) => x.key === k); return !d || (d.active && d.showHome); });
   // "الأعلى تقييماً": only the places the owner chose from the control panel
   // "بالقرب منك": automatically the places in the customer's own area
   const nearby = me.regionId ? provs.filter((p) => p.regionId === me.regionId && p.open !== undefined).sort((a, b) => Number(b.open) - Number(a.open)) : [];
@@ -105,23 +105,23 @@ export function HomeScreen({ navigation }: any) {
           )}
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-            {cats.map((k, i) => (
-              <Appear key={k} i={i} style={{ width: '31.3%', flexGrow: 1 }}>
+            {cats.map((k, i) => { const sz = serviceDefs().find((x) => x.key === k)?.size || 'small'; return (
+              <Appear key={k} i={i} style={{ width: sz === 'large' ? '100%' : sz === 'medium' ? '48%' : '31.3%', flexGrow: 1 }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 8, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 ? { paddingBottom: 9 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {(db.settings.catIconV?.[k] || 0) > 0
-                    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
+                    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: sz === 'large' ? 2.2 : 1 }} resizeMode="cover" />
                     : (
                       <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold, overflow: 'hidden' }}>
                         <Icon name={TYPES[k].icon} size={23} color={C.gold} />
                       </View>
                     )}
-                  <T w="bold" size={11.5} align="center" numberOfLines={1}>{TYPES[k].label}</T>
+                  <T w="bold" size={sz === 'small' ? 11.5 : 14} align="center" numberOfLines={1}>{TYPES[k].label}</T>
                 </Pressable>
               </Appear>
-            ))}
+            ); })}
           </View>
 
           {active.length > 0 && (
@@ -135,14 +135,14 @@ export function HomeScreen({ navigation }: any) {
             </Appear>
           )}
 
-          <Appear i={2} style={{ marginTop: 18 }}>
+          {errandDef().active && errandDef().showHome && <Appear i={2} style={{ marginTop: 18 }}>
             <Pressable onPress={() => navigation.navigate('CustomOrder')}>
               <LinearGradient colors={['#F8CB4B', '#F2B51D']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 24, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, ...shadow }}>
                 <View style={{ width: 70, height: 70, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.45)', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontSize: 38 }}>🎁</Text>
+                  <Text style={{ fontSize: 38 }}>{errandDef().emoji}</Text>
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <T w="black" size={20} color={C.dark}>اطلب إيه؟ نجيبهولك</T>
+                  <T w="black" size={20} color={C.dark}>{errandDef().label}</T>
                   <T size={12.5} color={C.dark3}>اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس</T>
                 </View>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center' }}>
@@ -150,7 +150,7 @@ export function HomeScreen({ navigation }: any) {
                 </View>
               </LinearGradient>
             </Pressable>
-          </Appear>
+          </Appear>}
 
           {nearby.length > 0 && <View style={{ marginTop: 18 }}>
             <SectionTitle title="بالقرب منك" />
@@ -226,7 +226,7 @@ export function CategoryScreen({ navigation, route }: any) {
   const list = useMemo(() => {
     let l = db.providers.filter((p) => p.type === type && p.status === 'active');
     if (q.trim()) l = l.filter((p) => p.name.includes(q.trim()) || p.desc.includes(q.trim()) || (p.specialty || '').includes(q.trim()) || db.products.some((x) => x.providerId === p.id && x.name.includes(q.trim())));
-    if (type === 'clinic' && spec !== 'الكل') l = l.filter((p) => p.specialty === spec);
+    if (isBooking(type) && spec !== 'الكل') l = l.filter((p) => p.specialty === spec);
     if (sort === 'rate') l = [...l].sort((a, b) => b.rating - a.rating);
     if (sort === 'fast') l = [...l].sort((a, b) => parseInt(a.eta) - parseInt(b.eta));
     return l;
@@ -243,8 +243,8 @@ export function CategoryScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={t.label} onBack={() => navigation.goBack()} subtitle={`${list.length} ${type === 'clinic' ? 'عيادة' : 'مقدم خدمة'} متاح`}>
-        <View style={{ marginTop: 12 }}><SearchBar value={q} onChange={setQ} placeholder={type === 'clinic' ? 'ابحث عن دكتور أو تخصص...' : 'ابحث عن مكان أو منتج...'} /></View>
+      <Header title={t.label} onBack={() => navigation.goBack()} subtitle={`${list.length} ${isBooking(type) ? 'عيادة' : 'مقدم خدمة'} متاح`}>
+        <View style={{ marginTop: 12 }}><SearchBar value={q} onChange={setQ} placeholder={isBooking(type) ? 'ابحث عن دكتور أو تخصص...' : 'ابحث عن مكان أو منتج...'} /></View>
       </Header>
       <FlatList
         data={list}
@@ -261,10 +261,10 @@ export function CategoryScreen({ navigation, route }: any) {
               </View>
               <T w="black" size={18} color="#fff" style={{ flex: 1 }}>{banner}</T>
             </LinearGradient>
-            {type === 'clinic' ? (
+            {isBooking(type) ? (
               <FlatList
                 horizontal
-                data={['الكل', ...Array.from(new Set(db.providers.filter((p) => p.type === 'clinic' && p.status === 'active' && p.specialty).map((p) => p.specialty as string)))]}
+                data={['الكل', ...Array.from(new Set(db.providers.filter((p) => isBooking(p.type) && p.status === 'active' && p.specialty).map((p) => p.specialty as string)))]}
                 keyExtractor={(x) => x}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: 8 }}
@@ -307,7 +307,7 @@ export function ProviderScreen({ navigation, route }: any) {
   const noRoute = !deliveryOpen(p);
   const blocked = closed || noRoute;
   const mineArea = !!p.regionId && meUser?.regionId === p.regionId;
-  const requestOnly = p.type === 'supermarket' || p.type === 'pharmacy';
+  const requestOnly = isRequestOnly(p.type);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -318,8 +318,8 @@ export function ProviderScreen({ navigation, route }: any) {
             <T size={12.5} color="#C9D8D2" numberOfLines={2}>{p.desc}</T>
             <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}</T></View>
-              {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
-              {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {feeFor(p)} ج.م</T></View>}
+              {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
+              {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {feeFor(p)} ج.م</T></View>}
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{[p.regionName ? (mineArea ? 'في منطقتك' : `منطقة ${p.regionName}`) : '', p.address].filter(Boolean).join(' — ') || 'أبيس'}</T></View>
             </View>
           </View>
@@ -328,7 +328,7 @@ export function ProviderScreen({ navigation, route }: any) {
       {closed && (
         <View style={{ backgroundColor: C.redSoft, margin: 16, marginBottom: 0, padding: 12, borderRadius: 14, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <Icon name="moon" size={18} color={C.red} />
-          <T color={C.red} w="bold" size={13}>{p.type === 'clinic' ? 'العيادة لا تستقبل حجوزات حالياً' : 'المكان مغلق حالياً ولا يستقبل طلبات'}</T>
+          <T color={C.red} w="bold" size={13}>{isBooking(p.type) ? 'العيادة لا تستقبل حجوزات حالياً' : 'المكان مغلق حالياً ولا يستقبل طلبات'}</T>
         </View>
       )}
       {!closed && noRoute && (
@@ -337,13 +337,13 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13} style={{ flex: 1 }}>التوصيل من منطقة هذا المكان إلى منطقتك غير متاح حالياً</T>
         </View>
       )}
-      {!blocked && (p.type === 'supermarket' || p.type === 'pharmacy' || p.type === 'maker') && (
+      {!blocked && (isRequestOnly(p.type) || isMakerTpl(p.type)) && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.goldSoft, borderWidth: 1.5, borderColor: C.gold }}>
             <Icon name="create" size={28} color={C.goldDeep} />
             <View style={{ flex: 1, gap: 2 }}>
-              <T w="black" size={15}>{p.type === 'maker' ? 'اطلب من الصانع' : 'هتطلب إيه؟ اكتب طلبك'}</T>
-              <T size={12} color={C.sub}>{p.type === 'pharmacy' ? 'اكتب الدواء المطلوب أو ارفع صورة الروشتة، والصيدلية تحدد السعر' : p.type === 'maker' ? 'اوصف اللي عايزه (ومعاه صورة لو تحب)، والصانع يقبل ويحدد السعر ويوم وساعة التسليم' : 'اكتب اللي عايزه والمتجر يقبل الطلب ويحدد السعر'}</T>
+              <T w="black" size={15}>{isMakerTpl(p.type) ? 'اطلب من الصانع' : 'هتطلب إيه؟ اكتب طلبك'}</T>
+              <T size={12} color={C.sub}>{p.type === 'pharmacy' ? 'اكتب الدواء المطلوب أو ارفع صورة الروشتة، والصيدلية تحدد السعر' : isMakerTpl(p.type) ? 'اوصف اللي عايزه (ومعاه صورة لو تحب)، والصانع يقبل ويحدد السعر ويوم وساعة التسليم' : 'اكتب اللي عايزه والمتجر يقبل الطلب ويحدد السعر'}</T>
             </View>
             <Icon name="chevron-back" size={18} color={C.sub} />
           </Card>
@@ -362,13 +362,13 @@ export function ProviderScreen({ navigation, route }: any) {
         keyExtractor={(x) => x.id}
         contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 100 }}
         ListHeaderComponent={
-          p.type !== 'clinic' ? (
+          !isBooking(p.type) ? (
             <FlatList horizontal data={cats} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 6 }} renderItem={({ item }) => <Chip label={item} active={cat === item} onPress={() => setCat(item)} />} />
           ) : (
             <SectionTitle title="الأطباء المتاحون" />
           )
         }
-        ListEmptyComponent={<Empty icon={p.type === 'clinic' ? 'pulse' : 'pricetag'} title={p.type === 'clinic' ? 'لا يوجد أطباء بعد' : 'لا توجد منتجات بعد'} />}
+        ListEmptyComponent={<Empty icon={isBooking(p.type) ? 'pulse' : 'pricetag'} title={isBooking(p.type) ? 'لا يوجد أطباء بعد' : 'لا توجد منتجات بعد'} />}
         renderItem={({ item, index }) =>
           item.kind === 'doctor' ? (
             <Appear i={index}>
@@ -403,7 +403,7 @@ export function ProviderScreen({ navigation, route }: any) {
           )
         }
       />
-      {cartCount > 0 && p.type !== 'clinic' && (
+      {cartCount > 0 && !isBooking(p.type) && (
         <Pressable
           onPress={() => navigation.navigate('Cart')}
           style={{ position: 'absolute', bottom: insets.bottom + 12, left: 16, right: 16, backgroundColor: C.dark, borderRadius: 18, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, ...shadow }}
@@ -704,7 +704,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
   const [busy, setBusy] = useState(false);
   if (!p) return <View style={{ flex: 1 }}><Header title="طلب مكتوب" onBack={() => navigation.goBack()} /><Empty title="المتجر غير موجود" /></View>;
   const pharmacy = p.type === 'pharmacy';
-  const maker = p.type === 'maker';
+  const maker = isMakerTpl(p.type);
 
   const choose = async () => {
     if (!canPickImage) return toast('رفع الصور متاح حالياً من نسخة الويب', 'info');

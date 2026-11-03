@@ -11,7 +11,8 @@
  *    Orders, invoices, commissions and dues are never touched, so reports and cumulative totals stay intact.
  */
 const TZ = 'Africa/Cairo';
-const PROVIDER_TYPES = ['restaurant', 'supermarket', 'pharmacy', 'clinic', 'store', 'maker'];
+const services = require('./services');
+const PROVIDER_TYPES = { includes: x => services.isKnown(x), get length() { return services.keys().length; } };
 const COUNTERS = ['sales', 'orders', 'profit'];
 const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
@@ -192,6 +193,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     return new Date(t);
   };
   async function normalizeRule(db, b, old) {
+    await services.ensure(db);
     const o = old || {};
     const target = old ? old.target : String(b.target || '');
     if (!['provider', 'courier'].includes(target)) throw fail(400, 'حدد هل القاعدة لمقدم الخدمة أم للمندوب');
@@ -405,6 +407,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     return list;
   };
   async function targetOf(db, b) {
+    await services.ensure(db);
     const scope = String(b.scope || '');
     if (!['all', 'type', 'provider'].includes(scope)) throw fail(400, 'حدد نطاق التصفير: الجميع أو قسم أو مقدم خدمة');
     let ptype = null, pid = null;
@@ -580,8 +583,9 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     res.json({ appIconV: 0 });
   }));
   /* ---------- the picture of each service icon on the home screen (restaurants, pharmacies...) ---------- */
-  const CAT_TYPES = PROVIDER_TYPES;
+  const CAT_TYPES = { includes: x => !!services.find(String(x)) }; // every service, including the errand one
   app.get('/api/cat-icon/:type', asyncRoute(async (req, res) => {
+    await services.ensure(pool);
     const t = String(req.params.type || '');
     if (!CAT_TYPES.includes(t)) return res.status(404).end();
     const r = await pool.query('SELECT image, mime FROM site_images WHERE key=$1', [`cat_${t}`]);
@@ -592,6 +596,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     res.send(r.rows[0].image);
   }));
   app.put('/api/admin/cat-icon/:type', ...admin, guard(async (req, res) => {
+    await services.ensure(pool);
     const t = String(req.params.type || '');
     if (!CAT_TYPES.includes(t)) throw fail(400, 'نوع الخدمة غير معروف');
     const s = String((req.body || {}).image || '');
@@ -606,6 +611,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     res.json({ type: t, v });
   }));
   app.delete('/api/admin/cat-icon/:type', ...admin, guard(async (req, res) => {
+    await services.ensure(pool);
     const t = String(req.params.type || '');
     if (!CAT_TYPES.includes(t)) throw fail(400, 'نوع الخدمة غير معروف');
     await withTx(async db => {

@@ -3,7 +3,7 @@ import { View, Image, ScrollView, Modal, Pressable, useWindowDimensions } from '
 import { C } from '../lib/theme';
 import { T, Btn, Sheet, Field, Card, Chip, Icon, toast, confirmDialog } from './ui';
 import { quoteOrder, courierQuote, orderImage, orderAction, useMe } from '../lib/store';
-import { money, isoDay, prettyIso, readyLabel } from '../lib/format';
+import { money, isoDay, prettyIso, readyLabel, isMakerTpl } from '../lib/format';
 import { Order, Product } from '../lib/types';
 import { ProductThumb } from './Brand';
 import { productImageUrl } from '../lib/api';
@@ -85,7 +85,7 @@ export function QuoteSheet({ o, visible, onClose }: { o: Order; visible: boolean
   const [price, setPrice] = useState(o.status === 'quoted' ? String(o.subtotal) : '');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const isMaker = o.providerType === 'maker';
+  const isMaker = isMakerTpl(o.providerType);
   const days = nextDays();
   const [day, setDay] = useState(o.readyDate && days.includes(o.readyDate) ? o.readyDate : '');
   const [hour, setHour] = useState(o.readyTime || '');
@@ -189,14 +189,14 @@ export function QuoteButtons({ o }: { o: Order }) {
   const [open, setOpen] = useState(false);
   if (!o.request || !['pending', 'quoted'].includes(o.status)) return null;
   const unavailable = () => confirmDialog({
-    title: o.providerType === 'maker' ? 'الاعتذار عن الطلب؟' : 'الأصناف غير متوفرة؟', message: o.providerType === 'maker' ? 'سيصل العميل إشعار باعتذارك عن الطلب وينتهي الطلب.' : 'ستصل العميل فاتورة تفيد بعدم توفر الطلب وينتهي الطلب.', danger: true, confirmText: 'إرسال',
+    title: isMakerTpl(o.providerType) ? 'الاعتذار عن الطلب؟' : 'الأصناف غير متوفرة؟', message: isMakerTpl(o.providerType) ? 'سيصل العميل إشعار باعتذارك عن الطلب وينتهي الطلب.' : 'ستصل العميل فاتورة تفيد بعدم توفر الطلب وينتهي الطلب.', danger: true, confirmText: 'إرسال',
     onConfirm: async () => { const r = await quoteOrder(o.id, { unavailable: true }); if (!r.ok) toast(r.error, 'err'); else toast('تم إبلاغ العميل'); },
   });
   return (
     <>
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Btn small icon="pricetag" title={o.status === 'quoted' ? 'تعديل السعر والموعد' : (o.providerType === 'maker' ? 'قبول وتحديد السعر والموعد' : 'قبول وتحديد السعر')} style={{ flex: 2 }} onPress={() => setOpen(true)} />
-        <Btn small variant="danger" icon="close-circle" title={o.providerType === 'maker' ? 'اعتذار' : 'غير متوفر'} style={{ flex: 1 }} onPress={unavailable} />
+        <Btn small icon="pricetag" title={o.status === 'quoted' ? 'تعديل السعر والموعد' : (isMakerTpl(o.providerType) ? 'قبول وتحديد السعر والموعد' : 'قبول وتحديد السعر')} style={{ flex: 2 }} onPress={() => setOpen(true)} />
+        <Btn small variant="danger" icon="close-circle" title={isMakerTpl(o.providerType) ? 'اعتذار' : 'غير متوفر'} style={{ flex: 1 }} onPress={unavailable} />
       </View>
       {o.status === 'quoted' && <T size={12} color={C.goldDeep} w="semi">بانتظار موافقة العميل على السعر ({money(o.total)})</T>}
       <QuoteSheet o={o} visible={open} onClose={() => setOpen(false)} />
@@ -211,7 +211,7 @@ export function MakerOrderButtons({ o }: { o: Order }) {
   const days = nextDays();
   const [day, setDay] = useState('');
   const [hour, setHour] = useState('');
-  if (o.providerType !== 'maker' || o.request || o.status !== 'pending' || !me) return null;
+  if (!isMakerTpl(o.providerType) || o.request || o.status !== 'pending' || !me) return null;
   const done = (r: { ok: boolean; error?: string }, msg: string) => { if (!r.ok) toast(r.error || 'حدث خطأ', 'err'); else toast(msg); };
   const readyNow = () => done(orderAction(o.id, 'accept', me, undefined, { ready: true }), 'تم إبلاغ العميل والمندوب بأن الطلب جاهز ✅');
   const schedule = () => {

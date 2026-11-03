@@ -14,9 +14,9 @@ import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
   useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
 } from '../lib/store';
-import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue } from '../lib/format';
+import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
 import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
-import { LoginImageManager, WelcomeScreenManager, AppIconManager, CatIconsManager } from '../components/Finance';
+import { LoginImageManager, WelcomeScreenManager, AppIconManager, ServicesManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { AdsManager } from '../components/Ads';
 import { ProviderType, AccountStatus } from '../lib/types';
@@ -198,7 +198,7 @@ export function AdminProvidersScreen({ navigation }: any) {
       <View style={{ paddingTop: 12, gap: 8 }}>
         <FlatList horizontal data={[{ k: 'all', l: 'الكل' }, { k: 'pending', l: 'قيد المراجعة' }, { k: 'active', l: 'معتمد' }, { k: 'rejected', l: 'مرفوض' }, { k: 'suspended', l: 'موقوف' }]} keyExtractor={(x) => x.k} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
           renderItem={({ item }) => <Chip label={item.l} active={st === item.k} count={item.k === 'pending' ? pending : undefined} onPress={() => setSt(item.k as any)} />} />
-        <FlatList horizontal data={['all', 'restaurant', 'supermarket', 'pharmacy', 'clinic', 'store', 'maker']} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+        <FlatList horizontal data={['all', ...typeKeys()]} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
           renderItem={({ item }) => <Chip label={item === 'all' ? 'كل الأنواع' : TYPES[item as ProviderType].label} icon={item === 'all' ? undefined : TYPES[item as ProviderType].icon} active={tp === item} onPress={() => setTp(item as any)} />} />
       </View>
       <FlatList
@@ -223,7 +223,7 @@ export function AdminProvidersScreen({ navigation }: any) {
                   <AcctPill s={item.status} />
                 </View>
                 <View style={{ flexDirection: 'row', gap: 14 }}>
-                  <T size={12} color={C.sub}>{item.type === 'clinic' ? `${ap} حجز` : `${n} طلب`}</T>
+                  <T size={12} color={C.sub}>{isBooking(item.type) ? `${ap} حجز` : `${n} طلب`}</T>
                   <T size={12} color={C.sub}>سجّل {fmtDate(item.createdAt)}</T>
                 </View>
                 {item.status === 'pending' && (
@@ -361,9 +361,9 @@ export function AdminDetailScreen({ navigation, route }: any) {
           </View>
         </Card>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="receipt" label={prov?.type === 'clinic' ? 'حجوزات' : 'طلبات'} value={pc ? pc.orders : prov?.type === 'clinic' ? appts.length : orders.length} />
-          <Stat icon="checkmark-done" label="مكتملة" value={pc ? pc.done : prov?.type === 'clinic' ? appts.filter((a) => a.status === 'completed').length : delivered.length} color={C.blue} soft={C.blueSoft} />
-          <Stat icon="cash" label={prov ? 'المبيعات' : 'الأرباح'} value={pc ? money(pc.sales) : prov?.type === 'clinic' ? money(appts.filter((a) => ['confirmed', 'completed'].includes(a.status)).reduce((s, a) => s + a.fee, 0)) : money(revenue)} color={C.goldDeep} soft={C.goldSoft} />
+          <Stat icon="receipt" label={isBooking(prov?.type) ? 'حجوزات' : 'طلبات'} value={pc ? pc.orders : isBooking(prov?.type) ? appts.length : orders.length} />
+          <Stat icon="checkmark-done" label="مكتملة" value={pc ? pc.done : isBooking(prov?.type) ? appts.filter((a) => a.status === 'completed').length : delivered.length} color={C.blue} soft={C.blueSoft} />
+          <Stat icon="cash" label={prov ? 'المبيعات' : 'الأرباح'} value={pc ? money(pc.sales) : isBooking(prov?.type) ? money(appts.filter((a) => ['confirmed', 'completed'].includes(a.status)).reduce((s, a) => s + a.fee, 0)) : money(revenue)} color={C.goldDeep} soft={C.goldSoft} />
         </View>
         {pc && (
           <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -405,20 +405,20 @@ export function AdminDetailScreen({ navigation, route }: any) {
             <RegionPicker value={prov.regionId || ''} onChange={(rid) => done(setProviderRegion(prov.id, rid), 'تم تحديد منطقة المكان')} label={`منطقة المكان${prov.regionName ? ` (الحالية: ${prov.regionName})` : ' (غير محددة)'}`} />
           </Card>
         )}
-        {prov && prov.type !== 'supermarket' && prov.type !== 'pharmacy' && <CatalogEditor prov={prov} />}
+        {prov && hasProducts(prov.type) && <CatalogEditor prov={prov} />}
         {prov && <ProviderFormSheet visible={editing} onClose={() => setEditing(false)} provider={prov} />}
         <Sheet visible={pwSheet} onClose={() => setPwSheet(false)} title="تعيين كلمة مرور جديدة">
           <T size={12.5} color={C.sub}>سيتم تعيين كلمة مرور جديدة للحساب {user.phone}. كلمات المرور مشفّرة ولا يمكن عرضها.</T>
           <Field label="كلمة المرور الجديدة" icon="key" value={newPw} onChangeText={setNewPw} secureTextEntry />
           <Btn title="حفظ" icon="checkmark" onPress={() => { adminResetPassword(user.id, newPw).then((r) => { if (!r.ok) return toast(r.error, 'err'); setPwSheet(false); toast('تم تعيين كلمة المرور'); }); }} />
         </Sheet>
-        {prov?.type === 'clinic' && appts.length > 0 && (
+        {isBooking(prov?.type) && appts.length > 0 && (
           <View style={{ gap: 10 }}>
             <SectionTitle title="حجوزات العيادة" />
             {appts.slice(0, 15).map((a) => <ApptCard key={a.id} a={a} perspective="admin" onPress={() => navigation.navigate('ApptDetail', { id: a.id })} />)}
           </View>
         )}
-        {prov?.type !== 'clinic' && (
+        {!isBooking(prov?.type) && (
           <View style={{ gap: 10 }}>
             <SectionTitle title={prov ? 'الطلبات عند مقدم الخدمة' : 'طلبات المندوب'} />
             {orders.length === 0 && <Empty icon="receipt" title="لا توجد طلبات" />}
@@ -444,7 +444,7 @@ export function AdminSettingsScreen({ navigation }: any) {
       <AdsManager />
       <LoginImageManager />
       <WelcomeScreenManager />
-      <CatIconsManager />
+      <ServicesManager />
       <AppIconManager />
       <Card style={{ gap: 12 }}>
         <T w="black" size={15}>إعدادات التطبيق</T>

@@ -11,7 +11,7 @@ import { ProviderFinanceCard } from '../components/Finance';
 import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { useStore, useMe, orderAction, apptAction, saveProduct, deleteProduct, updateProvider, availableCouriers } from '../lib/store';
-import { TYPES, money, fmtDateTime, isToday, isoDay, SPECIALTIES, ALL_SLOTS, SPEC_EMOJI } from '../lib/format';
+import { TYPES, money, fmtDateTime, isToday, isoDay, SPECIALTIES, ALL_SLOTS, SPEC_EMOJI, isBooking, isMakerTpl } from '../lib/format';
 import { Product } from '../lib/types';
 
 const useMyProvider = () => {
@@ -24,7 +24,7 @@ const useMyProvider = () => {
 export function ProviderOrdersScreen({ navigation }: any) {
   const rc = useRC();
   const { me, db, prov } = useMyProvider();
-  const isClinic = prov.type === 'clinic';
+  const isClinic = isBooking(prov.type);
   const [seg, setSeg] = useState(isClinic ? 'pending' : 'new');
   const couriers = db.couriersOnline ?? availableCouriers(db).length;
 
@@ -129,7 +129,7 @@ export function ProviderOrdersScreen({ navigation }: any) {
               <OrderCard o={item} perspective="provider" onPress={() => navigation.navigate('OrderDetail', { id: item.id })}>
                 <QuoteButtons o={item} />
                 <MakerOrderButtons o={item} />
-                {item.status === 'pending' && !item.request && item.providerType !== 'maker' && (
+                {item.status === 'pending' && !item.request && !isMakerTpl(item.providerType) && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="green" icon="checkmark" title="قبول الطلب" style={{ flex: 2 }} onPress={() => { orderAction(item.id, 'accept', me); toast('تم قبول الطلب'); }} />
                     <Btn small variant="danger" icon="close" title="رفض" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الطلب؟', danger: true, confirmText: 'رفض', onConfirm: () => { orderAction(item.id, 'reject', me, 'تعذر على المتجر تنفيذ الطلب'); toast('تم رفض الطلب'); } })} />
@@ -164,7 +164,7 @@ const EMOJIS = ['🍔', '🍕', '🍗', '🥗', '🍟', '🥤', '🍰', '🥖', 
 export function ProviderCatalogScreen() {
   const rc = useRC();
   const { db, prov } = useMyProvider();
-  const isClinic = prov.type === 'clinic';
+  const isClinic = isBooking(prov.type);
   const items = db.products.filter((p) => p.providerId === prov.id);
   const [sheet, setSheet] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
@@ -275,7 +275,7 @@ export function ProviderCatalogScreen() {
 export function ProviderInvoicesScreen({ navigation }: any) {
   const rc = useRC();
   const { me, db, prov } = useMyProvider();
-  const isClinic = prov.type === 'clinic';
+  const isClinic = isBooking(prov.type);
   const list = db.invoices
     .filter((i) => (i.kind === 'booking' ? i.ownerId === me.id : i.parts.some((p) => p.providerId === prov.id)))
     .sort((a, b) => b.createdAt - a.createdAt);
