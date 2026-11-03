@@ -370,3 +370,11 @@ CREATE TABLE IF NOT EXISTS service_types (
   builtin BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- failed-login counter per phone: stops password guessing without blocking other users on the same mobile network
+CREATE TABLE IF NOT EXISTS login_attempts(
+  key TEXT PRIMARY KEY,
+  fails INT NOT NULL DEFAULT 0,
+  first_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  locked_until TIMESTAMPTZ
+);

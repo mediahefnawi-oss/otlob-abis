@@ -55,7 +55,7 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
 }
 app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin not allowed')); }, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization'] }));
 app.use(express.json({ limit: '2mb' })); // a request photo is shrunk by the app to well under 600 KB
-app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false }));
+app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false }));
 // Creating orders / uploading pictures is never needed in bursts: a generous cap per address stops abuse without bothering real users.
 const writeLimiter = rateLimit({ windowMs: 10 * 60 * 1000, limit: 400, standardHeaders: true, legacyHeaders: false, skip: req => req.method === 'GET' || req.method === 'OPTIONS', message: { error: 'طلبات كثيرة جداً. انتظر قليلاً ثم حاول مرة أخرى' } });
 app.use('/api', writeLimiter);
@@ -150,7 +150,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261110;
+const SCHEMA_VERSION = 20261111;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -295,17 +295,42 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
   } finally { client.release(); }
 }));
 
+// Failed-login guard per phone / owner name (kept in the database so every server instance sees the same count).
+const LOGIN_MAX_FAILS = 8, LOGIN_WINDOW_MIN = 15;
+const loginKey = (username, phone) => username ? 'owner:' + String(username).toLowerCase() : 'ph:' + String(phone || '').replace(/\s+/g, '');
+async function loginLocked(key) {
+  try {
+    const r = await pool.query('SELECT CEIL(EXTRACT(EPOCH FROM (locked_until - NOW())) / 60)::int AS mins FROM login_attempts WHERE key=$1 AND locked_until > NOW()', [key]);
+    return r.rowCount ? Math.max(1, r.rows[0].mins) : 0;
+  } catch { return 0; } // table not migrated yet: never block a real login because of it
+}
+async function loginFailed(key) {
+  try {
+    await pool.query(`INSERT INTO login_attempts(key, fails, first_at) VALUES($1, 1, NOW())
+      ON CONFLICT (key) DO UPDATE SET
+        fails = CASE WHEN login_attempts.locked_until IS NOT NULL OR login_attempts.first_at < NOW() - make_interval(mins => $3) THEN 1 ELSE login_attempts.fails + 1 END,
+        first_at = CASE WHEN login_attempts.locked_until IS NOT NULL OR login_attempts.first_at < NOW() - make_interval(mins => $3) THEN NOW() ELSE login_attempts.first_at END,
+        locked_until = CASE WHEN login_attempts.locked_until IS NULL AND login_attempts.first_at >= NOW() - make_interval(mins => $3) AND login_attempts.fails + 1 >= $2 THEN NOW() + make_interval(mins => $3) ELSE NULL END`, [key, LOGIN_MAX_FAILS, LOGIN_WINDOW_MIN]);
+  } catch {}
+}
+const loginOk = key => pool.query('DELETE FROM login_attempts WHERE key=$1', [key]).catch(() => {});
+
 app.post('/api/auth/login', asyncRoute(async (req, res) => {
   const { phone, password, username } = req.body || {};
+  const lkey = loginKey(username && String(username) === process.env.OWNER_USERNAME ? username : '', phone);
+  const wait = await loginLocked(lkey);
+  if (wait) return res.status(429).json({ error: `محاولات كثيرة خاطئة. حاول بعد ${wait} دقيقة` });
   let result;
+  const bad = async msg => { await loginFailed(lkey); return res.status(401).json({ error: msg }); };
   if (username && String(username) === process.env.OWNER_USERNAME) {
     result = await pool.query("SELECT * FROM users WHERE role='admin' AND phone=$1 LIMIT 1", [process.env.OWNER_PHONE || '01000000000']);
-    if (!result.rowCount || !(await bcrypt.compare(String(password || ''), result.rows[0].password_hash))) return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
+    if (!result.rowCount || !(await bcrypt.compare(String(password || ''), result.rows[0].password_hash))) return bad('بيانات الدخول غير صحيحة');
   } else {
     const ph = String(phone || '').replace(/\s+/g, '');
     result = await pool.query('SELECT * FROM users WHERE phone=$1 LIMIT 1', [ph]);
-    if (!result.rowCount || !(await bcrypt.compare(String(password || ''), result.rows[0].password_hash))) return res.status(401).json({ error: 'رقم الهاتف أو كلمة المرور غير صحيحة' });
+    if (!result.rowCount || !(await bcrypt.compare(String(password || ''), result.rows[0].password_hash))) return bad('رقم الهاتف أو كلمة المرور غير صحيحة');
   }
+  loginOk(lkey);
   const user = result.rows[0];
   if (user.status === 'suspended' || user.status === 'rejected') return res.status(403).json({ error: 'الحساب غير مفعّل. تواصل مع الدعم' });
   if (user.role !== 'admin') {
