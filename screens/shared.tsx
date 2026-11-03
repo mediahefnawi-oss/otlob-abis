@@ -14,7 +14,7 @@ import { CommissionTrail } from '../components/Finance';
 import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
-import { QuoteButtons, MakerOrderButtons, RequestPhoto } from '../components/Quote';
+import { QuoteButtons, MakerOrderButtons, RequestPhoto, ErrandQuoteButton } from '../components/Quote';
 import { PushCard } from '../components/PushCard';
 import { OrderStaffTools } from '../components/StaffTools';
 
@@ -41,7 +41,7 @@ export function OrderDetailScreen({ navigation, route }: any) {
   const dead = ['rejected', 'cancelled', 'unavailable'].includes(o.status);
   const isRequest = !!o.request;
 const FLOW = isRequest ? STEPS_REQ : STEPS.filter((s) => !(o.providerType === 'custom' && s === 'ready'));
-const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.status === 'ready' ? FLOW.indexOf('accepted') : -1; })();
+const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.status === 'ready' || (o.status === 'quoted' && o.providerType === 'custom') ? FLOW.indexOf('accepted') : -1; })();
   const isCustom = o.providerType === 'custom';
   const courier = o.courierId ? db.users.find((u) => u.id === o.courierId) : null;
   const provider = db.providers.find((p) => p.id === o.providerId);
@@ -71,9 +71,9 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
                 <T w="black" size={17} color={st.color}>{st.label}</T>
                 <T size={12} color={C.sub}>
                   {o.status === 'pending' && (isRequest ? 'تم إرسال طلبك، وسيتم تسعيره قريباً' : 'تم إرسال طلبك للمتجر')}
-                  {o.status === 'quoted' && 'المتجر حدد السعر، راجع الفاتورة ووافق عليها'}
+                  {o.status === 'quoted' && (isCustom ? 'المندوب حدد السعر، راجع الفاتورة ووافق عليها' : 'المتجر حدد السعر، راجع الفاتورة ووافق عليها')}
                   {o.status === 'unavailable' && 'للأسف الأصناف المطلوبة غير متوفرة حالياً'}
-                  {o.status === 'accepted' && (o.courierId ? `المندوب ${o.courierName} في الطريق للتجهيز` : 'جاري البحث عن مندوب متاح...')}
+                  {o.status === 'accepted' && (isCustom ? (o.errandQuote === 'approved' ? `المندوب ${o.courierName} سيشتري طلبك` : o.courierId ? `المندوب ${o.courierName} سيرسل لك الفاتورة` : 'جاري البحث عن مندوب يسعّر طلبك...') : o.courierId ? `المندوب ${o.courierName} في الطريق للتجهيز` : 'جاري البحث عن مندوب متاح...')}
                   {o.status === 'ready' && (o.courierId ? 'المندوب سيستلم الطلب الآن' : 'في انتظار مندوب لاستلام الطلب')}
                   {o.status === 'picked_up' && 'المندوب استلم طلبك'}
                   {o.status === 'on_the_way' && 'طلبك في الطريق إليك'}
@@ -127,7 +127,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           <Row icon="storefront" label="مقدم الخدمة" value={o.providerName} />
           {!!o.readyDate && !['rejected', 'unavailable', 'cancelled'].includes(o.status) && <Row icon="calendar" label="جاهز للتسليم" value={readyLabel(o.readyDate, o.readyTime)} />}
           {!!o.providerRegionName && <Row icon="map" label="منطقة المتجر" value={o.providerRegionName} />}
-          {provider && <Row icon="location" label="عنوان المتجر" value={provider.address} />}
+          {provider && !!provider.address && <Row icon="location" label="عنوان المتجر" value={provider.address} />}
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Row icon="person" label="اسم العميل" value={o.customerName} />
           <Row icon="call" label="الهاتف" value={o.phone} />
@@ -173,15 +173,15 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             ))
           )}
           <View style={{ height: 1, backgroundColor: C.line }} />
-          {isRequest && ['pending', 'unavailable'].includes(o.status) ? (
-            <T size={12.5} color={C.sub}>{o.status === 'pending' ? 'السعر: بانتظار تحديد المتجر' : 'لا توجد مبالغ مستحقة'}</T>
+          {(isRequest && ['pending', 'unavailable'].includes(o.status)) || (isCustom && o.errandQuote === 'open') ? (
+            <T size={12.5} color={C.sub}>{isCustom ? 'السعر: بانتظار أن يقبل مندوب الطلب ويحدد سعر المشتريات ورسوم التوصيل' : o.status === 'pending' ? 'السعر: بانتظار تحديد المتجر' : 'لا توجد مبالغ مستحقة'}</T>
           ) : (
             <>
-          {!isCustom && <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>المجموع</T><T w="bold">{money(o.subtotal)}</T></View>}
-          <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>{isCustom ? 'رسوم الخدمة' : 'التوصيل'}</T><T w="bold">{money(o.deliveryFee)}</T></View>
+          <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>{isCustom ? 'المشتريات' : 'المجموع'}</T><T w="bold">{money(o.subtotal)}</T></View>
+          <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>التوصيل</T><T w="bold">{money(o.deliveryFee)}</T></View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <T w="black" size={16} style={{ flex: 1 }}>{isCustom ? 'رسوم التوصيل + ثمن المشتريات' : 'الإجمالي'}</T>
-            <T w="black" size={18} color={C.goldDeep}>{isCustom ? `${money(o.total)} +` : money(o.total)}</T>
+            <T w="black" size={16} style={{ flex: 1 }}>الإجمالي</T>
+            <T w="black" size={18} color={C.goldDeep}>{money(o.total)}</T>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><Icon name="cash" size={15} color={C.green} /><T size={12} color={C.green} w="semi">الدفع كاش عند الاستلام</T></View>
             </>
@@ -211,9 +211,10 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             </>
           )}
           {iAmCourier && !o.courierId && ['accepted', 'ready'].includes(o.status) && <Btn title="قبول التوصيل" icon="bicycle" onPress={() => act('courier_accept')} />}
+          {iAmCourier && mine && isCustom && ['accepted', 'quoted'].includes(o.status) && o.errandQuote !== 'approved' && <ErrandQuoteButton o={o} />}
           {iAmCourier && mine && (
             <>
-              {['accepted', 'ready'].includes(o.status) && <Btn title={isCustom ? 'تم شراء الطلب' : 'استلمت الطلب'} icon="bag-handle" onPress={() => act('pickup')} />}
+              {['accepted', 'ready'].includes(o.status) && (!isCustom || o.errandQuote === 'approved') && <Btn title={isCustom ? 'تم شراء الطلب' : 'استلمت الطلب'} icon="bag-handle" onPress={() => act('pickup')} />}
               {o.status === 'picked_up' && <Btn title="أنا في الطريق" icon="bicycle" onPress={() => act('go')} />}
               {o.status === 'on_the_way' && <Btn title="وصلت المكان" icon="location" variant="dark" onPress={() => act('arrive')} />}
               {o.status === 'arrived' && <Btn title="تم تسليم الطلب للعميل" icon="checkmark-done" variant="green" onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(o.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => act('deliver') })} />}
@@ -228,11 +229,11 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           )}
           {me.role === 'customer' && o.customerId === me.id && o.status === 'quoted' && (
             <Card style={{ gap: 10, borderWidth: 1.5, borderColor: C.gold, backgroundColor: C.goldSoft }}>
-              <T w="black" size={15}>المتجر حدد سعر طلبك: {money(o.total)}</T>
-              <T size={12.5} color={C.dark3}>الإجمالي شامل التوصيل ({money(o.deliveryFee)}). لو موافق هيتجهز الطلب ويروح للمندوب.</T>
+              <T w="black" size={15}>{isCustom ? 'المندوب حدد سعر طلبك' : 'المتجر حدد سعر طلبك'}: {money(o.total)}</T>
+              <T size={12.5} color={C.dark3}>{isCustom ? `المشتريات ${money(o.subtotal)} + التوصيل ${money(o.deliveryFee)}. لو موافق المندوب هيشتري الطلب ويوصّله لك.` : `الإجمالي شامل التوصيل (${money(o.deliveryFee)}). لو موافق هيتجهز الطلب ويروح للمندوب.`}</T>
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Btn title="موافق، جهّز الطلب" icon="checkmark" variant="green" style={{ flex: 2 }} onPress={() => act('approve_quote')} />
-                <Btn title="رفض" icon="close" variant="danger" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الفاتورة؟', message: 'سيتم إلغاء الطلب.', danger: true, confirmText: 'رفض', onConfirm: () => act('decline_quote') })} />
+                <Btn title={isCustom ? 'موافق، اشترِ الطلب' : 'موافق، جهّز الطلب'} icon="checkmark" variant="green" style={{ flex: 2 }} onPress={() => act('approve_quote')} />
+                <Btn title="رفض" icon="close" variant="danger" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الفاتورة؟', message: isCustom ? 'سيرجع الطلب للمناديب ليسعّره مندوب آخر.' : 'سيتم إلغاء الطلب.', danger: true, confirmText: 'رفض', onConfirm: () => act('decline_quote') })} />
               </View>
             </Card>
           )}

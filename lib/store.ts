@@ -10,7 +10,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiOrderImage, apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -174,13 +174,23 @@ async function syncAdminQueues() {
   if (changed) mutate((db) => { db.users = next; });
 }
 
-/** Delivery price for the signed-in customer: the price of their area, falling back to the service's own price. */
+/** The owner's price for delivering from this shop's area to the signed-in customer's area (undefined = no price set: no delivery on that route). */
+function routePriceFor(p: Provider): number | undefined {
+  const me = state.db.users.find((u) => u.id === state.userId);
+  return p.regionId && me?.regionId ? (state.db.routePrices || {})[`${p.regionId}:${me.regionId}`] : undefined;
+}
+/** Can this shop deliver to the signed-in customer? Only on a route the owner priced (a customer with no area keeps the shop's own price). */
+export function deliveryOpen(p: Provider): boolean {
+  if (p.type === 'clinic') return true;
+  const me = state.db.users.find((u) => u.id === state.userId);
+  if (!me || me.role !== 'customer' || !me.regionId) return true;
+  return routePriceFor(p) !== undefined;
+}
+/** Delivery price for the signed-in customer: the owner's price for the route from the shop's area to the customer's area. */
 export function feeFor(p: Provider): number {
   if (p.type === 'clinic') return 0;
-  const me = state.db.users.find((u) => u.id === state.userId);
-  const region = me?.regionId ? state.db.regions.find((r) => r.id === me.regionId) : undefined;
-  const route = p.regionId && me?.regionId ? (state.db.routePrices || {})[`${p.regionId}:${me.regionId}`] : undefined; // the owner's shop-area -> customer-area price
-  return route !== undefined ? route : region ? region.deliveryFee : p.deliveryFee;
+  const route = routePriceFor(p);
+  return route !== undefined ? route : p.deliveryFee;
 }
 
 /* ---------- central catalog (providers + products) ---------- */
@@ -614,6 +624,8 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
   const closed = det.groups.find((g) => !g.provider.open || g.provider.status !== 'active');
   if (closed) return { ok: false, error: `${closed.provider.name} مغلق حالياً` };
+  const noRoute = det.groups.find((g) => !deliveryOpen(g.provider));
+  if (noRoute) return { ok: false, error: `التوصيل من منطقة ${noRoute.provider.name} إلى منطقتك غير متاح حالياً` };
   pendingWrites++;
   try {
     const r = await apiCheckout({
@@ -634,12 +646,20 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   }
 }
 
-export const CUSTOM_FEE = 20;
-/** Price of the errand service: the customer's area price (set by the owner), or this fallback. */
-export function customFee(): number {
-  const me = state.db.users.find((u) => u.id === state.userId);
-  const region = me?.regionId ? state.db.regions.find((r) => r.id === me.regionId) : undefined;
-  return region ? region.deliveryFee : CUSTOM_FEE;
+/** «اطلب إيه نجيبهولك»: the courier who took the errand writes the price of the goods and his delivery fee; the customer then approves. */
+export async function courierQuote(orderId: string, subtotal: number, fee: number): Promise<Result> {
+  if (!(subtotal > 0)) return { ok: false, error: 'اكتب سعر المشتريات' };
+  if (!(fee >= 0)) return { ok: false, error: 'اكتب رسوم التوصيل' };
+  pendingWrites++;
+  try {
+    const r = await apiErrandQuote(orderId, subtotal, fee);
+    mutate((db) => { db.orders = upsertById(db.orders, [r.order as Order]); });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
 }
 export async function placeCustomOrder(me: User, info: { text: string; phone: string; address: string }): Promise<Result<{ orderId: string }>> {
   if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
@@ -710,6 +730,7 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
   const o = state.db.orders.find((x) => x.id === orderId);
   if (!o) return { ok: false, error: 'الطلب غير موجود' };
   if (action === 'cancel' && ['picked_up', 'on_the_way', 'arrived', 'delivered'].includes(o.status)) return { ok: false, error: 'لا يمكن إلغاء الطلب الآن' };
+  if (action === 'pickup' && o.providerType === 'custom' && o.errandQuote !== 'approved') return { ok: false, error: 'سعّر الطلب وانتظر موافقة العميل على الفاتورة أولاً' };
   if (action === 'courier_accept') {
     if (o.status === 'pending') return { ok: false, error: 'بانتظار قبول المتجر للطلب أولاً' };
     if (!by.available) return { ok: false, error: 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات' };
@@ -719,10 +740,21 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
   mutate((db) => {
     switch (action) {
       case 'approve_quote':
+        if (o.providerType === 'custom') {
+          setStatus(db, orderId, 'accepted', { errandQuote: 'approved' });
+          sysMsg(db, orderId, 'وافق العميل على فاتورة المندوب، ويمكنه شراء الطلب الآن 🛒');
+          break;
+        }
         setStatus(db, orderId, 'accepted');
         sysMsg(db, orderId, 'وافق العميل على الفاتورة وجاري تجهيز الطلب 👨‍🍳');
         break;
       case 'decline_quote':
+        if (o.providerType === 'custom') {
+          // the customer refused this courier's price: back to all couriers, with no price and no courier
+          setStatus(db, orderId, 'accepted', { errandQuote: 'open', subtotal: 0, deliveryFee: 0, total: 0, courierId: undefined, courierName: undefined, courierPhone: undefined, courierVehicle: undefined });
+          sysMsg(db, orderId, 'رفض العميل سعر المندوب، وتم إرجاع الطلب للمناديب ليسعّره مندوب آخر 🔁');
+          break;
+        }
         setStatus(db, orderId, 'cancelled', { rejectReason: 'رفض العميل الفاتورة' });
         break;
       case 'accept':
@@ -741,7 +773,7 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
         break;
       case 'courier_accept':
         db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, courierId: by.id, courierName: by.name, courierPhone: by.phone, courierVehicle: by.vehicle, updatedAt: Date.now() } : x));
-        sysMsg(db, orderId, `المندوب ${by.name} قبل طلبك وسيتولى التوصيل 🛵`);
+        sysMsg(db, orderId, o.providerType === 'custom' ? `المندوب ${by.name} قبل طلبك، وسيرسل لك فاتورة بسعر المشتريات ورسوم التوصيل لتوافق عليها 🧾` : `المندوب ${by.name} قبل طلبك وسيتولى التوصيل 🛵`);
         break;
       case 'pickup':
         setStatus(db, orderId, 'picked_up');
@@ -1125,14 +1157,14 @@ export async function saveRoutePrices(fromId: string, prices: { toId: string; pr
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
-export async function addRegion(name: string, deliveryFee: number): Promise<Result> {
+export async function addRegion(name: string): Promise<Result> {
   try {
-    const { region } = await apiAdminCreateRegion({ name: name.trim(), deliveryFee });
+    const { region } = await apiAdminCreateRegion({ name: name.trim() });
     mutate((db) => { db.regions = [...db.regions, toRegion(region)]; });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
-export async function updateRegion(id: string, patch: { name?: string; deliveryFee?: number; active?: boolean }): Promise<Result> {
+export async function updateRegion(id: string, patch: { name?: string; active?: boolean }): Promise<Result> {
   try {
     const { region } = await apiAdminUpdateRegion(id, patch);
     mutate((db) => { db.regions = db.regions.map((r) => (r.id === id ? toRegion(region) : r)); });
@@ -1154,6 +1186,7 @@ export async function placeRequestOrder(
 ): Promise<Result<{ orderId: string }>> {
   if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
   if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المتجر مغلق حالياً' };
+  if (!deliveryOpen(info.provider)) return { ok: false, error: 'التوصيل من منطقة هذا المتجر إلى منطقتك غير متاح حالياً' };
   if (info.text.trim().length < 3 && !info.image) return { ok: false, error: 'اكتب طلبك أو ارفع صورة' };
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };

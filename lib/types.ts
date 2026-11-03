@@ -101,6 +101,7 @@ export interface OrderItem {
 export interface Order {
   staffHandled?: boolean; // a supervisor took the order over (the shop left it stuck)
   cancelledBy?: string; // who cancelled it: customer / provider / admin / supervisor
+  errandQuote?: 'open' | 'quoted' | 'approved'; // «اطلب إيه نجيبهولك»: waiting for the courier's price / waiting for the customer / agreed
   id: string;
   number: number;
   groupId: string;

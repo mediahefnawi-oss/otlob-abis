@@ -1,4 +1,4 @@
-import { feeFor, useStore } from '../lib/store';
+import { feeFor, deliveryOpen, useStore } from '../lib/store';
 import { ProviderLogo } from './Brand';
 import React from 'react';
 import { View } from 'react-native';
@@ -46,10 +46,17 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
                 <Icon name="time-outline" size={13} color={C.sub} />
                 <T size={12} color={C.sub}>{p.eta} د</T>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                <Icon name="bicycle" size={14} color={C.sub} />
-                <T size={12} color={C.sub}>{feeFor(p)} ج.م</T>
-              </View>
+              {deliveryOpen(p) ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Icon name="bicycle" size={14} color={C.sub} />
+                  <T size={12} color={C.sub}>{feeFor(p)} ج.م</T>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Icon name="close-circle" size={14} color={C.red} />
+                  <T w="bold" size={11.5} color={C.red}>التوصيل غير متاح لمنطقتك</T>
+                </View>
+              )}
             </>
           )}
         </View>

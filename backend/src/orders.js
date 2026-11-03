@@ -11,9 +11,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   const ms = d => new Date(d).getTime();
   const PHONE = /^01[0-9]{9}$/;
   const normPhone = v => String(v || '').replace(/\s+/g, '');
-  const BUSY = ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'];
+  const BUSY = ['accepted', 'quoted', 'ready', 'picked_up', 'on_the_way', 'arrived'];
   const CUSTOM_NAME = 'طلب خاص — اطلب إيه؟';
-  const FALLBACK_CUSTOM_FEE = 20;
 
   /* ---------- row -> app shape ---------- */
   const orderJson = r => {
@@ -26,7 +25,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
       courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
-      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], staffHandled: d.staffHandled ? true : undefined, cancelledBy: d.cancelledBy || undefined,
+      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], staffHandled: d.staffHandled ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined,
     };
   };
   const invoiceJson = r => ({
@@ -66,6 +65,14 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return r.rowCount ? Number(r.rows[0].price) : null;
     } catch { return null; } // table not migrated yet: never block an order
   }
+  /** What a customer pays for delivery from a shop: only the owner's route price counts. A route without a price is closed. */
+  async function deliveryFeeFor(db, prov, region, fallback) {
+    if (prov.type === 'clinic') return 0;
+    if (!region) return Number(fallback) || 0; // an old customer account with no area: the shop's own price
+    const r = await routeFee(db, prov.id, region.id);
+    if (r === null) throw fail(409, `التوصيل من منطقة ${prov.name} إلى منطقتك غير متاح حالياً`);
+    return r;
+  }
   /** The owner's label on the customer (trusted / watch / fraud), copied onto the order so shops and couriers see it. */
   async function flagData(db, userId) {
     try {
@@ -91,6 +98,14 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     return (r.rows[0] && r.rows[0].name) || undefined;
   }
   /** Writes a status change (history + timestamps) on a row that is already locked by the caller. */
+  const isErrand = row => !!(row.data && row.data.providerType === 'custom');
+  async function resetErrandInvoice(db, row) {
+    const iv = await db.query('SELECT * FROM invoices WHERE id=$1 FOR UPDATE', [Number(row.data.invoiceId)]);
+    if (!iv.rowCount) return;
+    const idata = iv.rows[0].data || {};
+    const parts = (idata.parts || []).map(pt => String(pt.orderId) === String(row.id) ? { ...pt, subtotal: 0, deliveryFee: 0 } : pt);
+    await db.query('UPDATE invoices SET total=0, data=$1 WHERE id=$2', [JSON.stringify({ ...idata, parts }), iv.rows[0].id]);
+  }
   async function moveOrder(db, row, status, dataPatch = {}, courier) {
     const d = { ...(row.data || {}), ...dataPatch };
     if (status !== row.status) d.history = [...(d.history || []), { status, at: Date.now() }];
@@ -189,7 +204,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const jobs = [];
       switch (action) {
         case 'accept': jobs.push(notify(cust, d.providerType === 'maker' ? 'قبل الصانع طلبك 🧵' : 'قبل المتجر طلبك 👨‍🍳', d.providerType === 'maker' && d.readyDate ? `جاهز ${d.readyDate} الساعة ${d.readyTime}` : (row.status === 'ready' ? 'جاهز للتسليم الآن' : (d.providerName || '')), tag), notifyCouriers([row])); break;
-        case 'approve_quote': jobs.push(notify(shop, 'وافق العميل على السعر ✅', `${d.customerName || ''} — ${Number(row.total)} ج.م`, tag), notifyCouriers([row])); break;
+        case 'approve_quote':
+          if (d.providerType === 'custom') jobs.push(notify([row.courier_user_id], 'وافق العميل على فاتورتك ✅', `${Number(row.total)} ج.م`, tag));
+          else jobs.push(notify(shop, 'وافق العميل على السعر ✅', `${d.customerName || ''} — ${Number(row.total)} ج.م`, tag), notifyCouriers([row]));
+          break;
         case 'courier_accept': jobs.push(notify(cust, `المندوب ${d.courierName || ''} قبل طلبك 🛵`, 'وسيتولى التوصيل', tag), notify(shop, 'مندوب سيستلم الطلب', d.courierName || '', tag)); break;
         case 'pickup': jobs.push(notify(cust, 'استلم المندوب طلبك 📦', d.providerName || '', tag)); break;
         case 'go': jobs.push(notify(cust, 'المندوب في الطريق إليك 🚀', '', tag)); break;
@@ -198,7 +216,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'ready': jobs.push(notify(row.courier_user_id ? [row.courier_user_id] : [], 'الطلب جاهز للاستلام ✅', d.providerName || '', tag)); break;
         case 'reject': jobs.push(notify(cust, 'اعتذر المتجر عن طلبك', d.rejectReason || '', tag)); break;
         case 'cancel': jobs.push(actorRole === 'customer' ? notify([...shop, row.courier_user_id], 'ألغى العميل الطلب', `#${row.order_number}`, tag) : notify(cust, 'تم إلغاء طلبك', d.rejectReason || '', tag)); break;
-        case 'decline_quote': jobs.push(notify(shop, 'رفض العميل السعر', `#${row.order_number}`, tag)); break;
+        case 'decline_quote': jobs.push(d.providerType === 'custom' ? notifyCouriers([row]) : notify(shop, 'رفض العميل السعر', `#${row.order_number}`, tag)); break;
         default: break;
       }
       await Promise.allSettled(jobs);
@@ -333,7 +351,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const region = await regionOf(db, Number(req.auth.sub));
       const orders = [];
       for (const g of groups.values()) {
-        const fee = g.p.ptype === 'clinic' ? 0 : region ? ((await routeFee(db, g.p.provider_id, region.id)) ?? region.fee) : Number(g.p.pfee);
+        const fee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee);
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
           providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub))),
@@ -380,10 +398,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
-      const fee = region ? region.fee : FALLBACK_CUSTOM_FEE;
+      const fee = 0; // the courier who takes the errand sets the price of the goods and his delivery fee
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: CUSTOM_NAME, providerType: 'custom', providerOwnerId: '', items: [],
-        customText: text.slice(0, 1000), subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub))),
+        customText: text.slice(0, 1000), subtotal: 0, deliveryFee: fee, errandQuote: 'open', regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub))),
         history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
       };
       let o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,NULL,\'accepted\',$2,$3,$4) RETURNING *',
@@ -421,7 +439,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
-      const fee = region ? ((await routeFee(db, prov.id, region.id)) ?? region.fee) : Number(prov.delivery_fee);
+      const fee = await deliveryFeeFor(db, prov, region, prov.delivery_fee);
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
         items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub))),
@@ -596,11 +614,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       // back to "waiting" at the new shop: the refusal / cancellation, any courier and (for a written request) the old price are cleared
       let total = 0;
       let patch = { ...d, rejectReason: undefined, cancelledBy: undefined, staffHandled: undefined, readyDate: undefined, readyTime: undefined };
-      if (isReq) patch = { ...patch, invoiceId: undefined, subtotal: 0 };
+      // the delivery price follows the new shop's area (a route without a price is closed)
+      const fee = await deliveryFeeFor(db, prov, row.region_id ? { id: row.region_id } : null, num(row.data.deliveryFee));
+      if (isReq) patch = { ...patch, invoiceId: undefined, subtotal: 0, deliveryFee: fee };
       else {
-        // the order keeps its items and prices; only the delivery price follows the new shop's area
-        const reg = row.region_id ? await db.query('SELECT delivery_fee FROM regions WHERE id=$1', [row.region_id]) : { rowCount: 0 };
-        const fee = reg.rowCount ? ((await routeFee(db, prov.id, row.region_id)) ?? Number(reg.rows[0].delivery_fee)) : num(row.data.deliveryFee);
+        // the order keeps its items and prices
         total = num(row.data.subtotal) + fee;
         patch = { ...patch, deliveryFee: fee };
         if (row.data.invoiceId) {
@@ -624,6 +642,38 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       out.oldOwner ? notify([out.oldOwner], 'تم تحويل الطلب لمتجر آخر', `#${out.next.order_number}`, `order-${id}`) : Promise.resolve(),
     ]);
     res.json({ order: orderJsonFor(out.next, req.auth.role) });
+  }));
+
+  /** "اطلب إيه نجيبهولك": the courier who took the errand writes the price of the goods and his delivery fee, and the customer approves or refuses. */
+  app.post('/api/orders/:id/errand-quote', auth, roles('courier', 'admin'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف الطلب غير صالح');
+    const money = v => Math.round(Number(v) * 100) / 100;
+    const subtotal = money((req.body || {}).subtotal), fee = money((req.body || {}).fee);
+    if (!(subtotal > 0) || subtotal > 100000) throw fail(400, 'اكتب سعر المشتريات');
+    if (!(fee >= 0) || fee > 1000) throw fail(400, 'اكتب رسوم التوصيل (من 0 إلى 1000 ج.م)');
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [id]);
+      if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+      const row = f.rows[0];
+      if (!isErrand(row)) throw fail(400, 'هذا ليس طلب «اطلب إيه نجيبهولك»');
+      if (req.auth.role !== 'admin' && Number(row.courier_user_id) !== Number(req.auth.sub)) throw fail(403, 'للمندوب الذي قبل الطلب فقط');
+      if (!['accepted', 'quoted'].includes(row.status) || row.data.errandQuote === 'approved') throw fail(409, 'حالة الطلب لا تسمح بالتسعير الآن');
+      const total = money(subtotal + fee);
+      let invoiceId = row.data.invoiceId ? Number(row.data.invoiceId) : null;
+      if (invoiceId) {
+        const iv = await db.query('SELECT * FROM invoices WHERE id=$1 FOR UPDATE', [invoiceId]);
+        const idata = iv.rowCount ? (iv.rows[0].data || {}) : {};
+        const parts = (idata.parts || []).map(pt => String(pt.orderId) === String(row.id) ? { ...pt, subtotal, deliveryFee: fee } : pt);
+        await db.query('UPDATE invoices SET total=$1, data=$2 WHERE id=$3', [total, JSON.stringify({ ...idata, parts }), invoiceId]);
+      }
+      const d = { ...row.data, subtotal, deliveryFee: fee, errandQuote: 'quoted', history: row.status === 'quoted' ? row.data.history : [...(row.data.history || []), { status: 'quoted', at: Date.now() }] };
+      const r = await db.query("UPDATE orders SET status='quoted', total=$1, data=$2, updated_at=NOW() WHERE id=$3 RETURNING *", [total, JSON.stringify(d), id]);
+      await sysMsg(db, id, `المندوب ${d.courierName || ''} سعّر طلبك: المشتريات ${subtotal} ج.م + التوصيل ${fee} ج.م = ${total} ج.م. راجع الفاتورة ووافق عليها 🧾`);
+      return r.rows[0];
+    });
+    await notify([out.customer_user_id], 'المندوب سعّر طلبك 🧾', `${Number(out.total)} ج.م (شامل التوصيل)`, `order-${id}`);
+    res.json({ order: orderJsonFor(out, req.auth.role) });
   }));
 
   /* ---------- order state machine ---------- */
@@ -671,12 +721,26 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           break;
         case 'approve_quote':
           need(isCustomer); state('quoted');
+          if (isErrand(row)) {
+            // the courier's own invoice: he stays on the order and can go and buy it
+            next = await moveOrder(db, row, 'accepted', { errandQuote: 'approved' });
+            await sysMsg(db, id, 'وافق العميل على فاتورة المندوب، ويمكنه شراء الطلب الآن 🛒');
+            break;
+          }
           next = await moveOrder(db, row, 'accepted');
           await sysMsg(db, id, 'وافق العميل على الفاتورة وجاري تجهيز الطلب 👨‍🍳');
           next = await tryAutoAssign(db, next);
           break;
         case 'decline_quote':
           need(isCustomer); state('quoted', 'unavailable');
+          if (isErrand(row)) {
+            // the customer refused this courier's price: the errand goes back to all couriers, with no price and no courier
+            await db.query('UPDATE orders SET total=0 WHERE id=$1', [id]);
+            if (row.data.invoiceId) await resetErrandInvoice(db, row);
+            next = await moveOrder(db, { ...row, total: 0 }, 'accepted', { errandQuote: 'open', subtotal: 0, deliveryFee: 0, declinedBy: [...(row.data.declinedBy || []), String(row.courier_user_id || '')].filter(Boolean) }, null);
+            await sysMsg(db, id, 'رفض العميل سعر المندوب، وتم إرجاع الطلب للمناديب ليسعّره مندوب آخر 🔁');
+            break;
+          }
           next = await moveOrder(db, row, 'cancelled', { rejectReason: 'رفض العميل الفاتورة' });
           break;
         case 'reject':
@@ -696,15 +760,17 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'courier_accept': {
           need(role === 'courier', 'للمناديب فقط'); state('accepted', 'ready');
           if (row.courier_user_id) throw fail(409, 'تم قبول الطلب بواسطة مندوب آخر');
+          if (isErrand(row) && (row.data.declinedBy || []).includes(String(me))) throw fail(409, 'رفض العميل سعرك لهذا الطلب');
           const c = await db.query("SELECT name, phone, vehicle, available FROM users WHERE id=$1 AND role='courier' AND status='active'", [me]);
           if (!c.rowCount) throw fail(403, 'حساب المندوب غير مفعّل');
           if (!c.rows[0].available) throw fail(409, 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات');
           next = await moveOrder(db, row, row.status, {}, { id: me, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
-          await sysMsg(db, id, `المندوب ${c.rows[0].name} قبل طلبك وسيتولى التوصيل 🛵`);
+          await sysMsg(db, id, isErrand(row) ? `المندوب ${c.rows[0].name} قبل طلبك، وسيرسل لك فاتورة بسعر المشتريات ورسوم التوصيل لتوافق عليها 🧾` : `المندوب ${c.rows[0].name} قبل طلبك وسيتولى التوصيل 🛵`);
           break;
         }
         case 'pickup': // the courier has the order in hand (the shop does not have to tap "ready" first)
           need(isMyDelivery); state('accepted', 'ready');
+          if (isErrand(row) && row.data.errandQuote !== 'approved') throw fail(409, 'سعّر الطلب وانتظر موافقة العميل على الفاتورة أولاً');
           next = await moveOrder(db, row, 'picked_up');
           await sysMsg(db, id, 'استلم المندوب طلبك 📦');
           break;

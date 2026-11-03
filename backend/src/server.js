@@ -473,12 +473,11 @@ app.get('/api/regions', optionalAuth, asyncRoute(async (req, res) => {
 }));
 app.post('/api/admin/regions', auth, roles('admin'), asyncRoute(async (req, res) => {
   const name = String((req.body || {}).name || '').trim();
-  const fee = Number((req.body || {}).deliveryFee);
   if (name.length < 2) return res.status(400).json({ error: 'اكتب اسم المنطقة' });
-  if (!Number.isFinite(fee) || fee < 0) return res.status(400).json({ error: 'سعر التوصيل غير صالح' });
   try {
+    // delivery prices are set per route in "أسعار التوصيل", never on the area itself (the old column stays 0)
     const next = await pool.query('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM regions');
-    const r = await pool.query('INSERT INTO regions(name, delivery_fee, sort_order) VALUES($1,$2,$3) RETURNING *', [name.slice(0, 80), fee, next.rows[0].n]);
+    const r = await pool.query('INSERT INTO regions(name, delivery_fee, sort_order) VALUES($1,0,$2) RETURNING *', [name.slice(0, 80), next.rows[0].n]);
     res.status(201).json({ region: regionJson(r.rows[0]) });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'المنطقة موجودة بالفعل' });
@@ -492,11 +491,9 @@ app.patch('/api/admin/regions/:id', auth, roles('admin'), asyncRoute(async (req,
   const old = await pool.query('SELECT * FROM regions WHERE id=$1', [id]);
   if (!old.rowCount) return res.status(404).json({ error: 'المنطقة غير موجودة' });
   const name = b.name === undefined ? old.rows[0].name : String(b.name).trim().slice(0, 80);
-  const fee = b.deliveryFee === undefined ? Number(old.rows[0].delivery_fee) : Number(b.deliveryFee);
   if (name.length < 2) return res.status(400).json({ error: 'اكتب اسم المنطقة' });
-  if (!Number.isFinite(fee) || fee < 0) return res.status(400).json({ error: 'سعر التوصيل غير صالح' });
   try {
-    const r = await pool.query('UPDATE regions SET name=$1, delivery_fee=$2, active=$3 WHERE id=$4 RETURNING *', [name, fee, b.active === undefined ? old.rows[0].active : Boolean(b.active), id]);
+    const r = await pool.query('UPDATE regions SET name=$1, delivery_fee=$2, active=$3 WHERE id=$4 RETURNING *', [name, Number(old.rows[0].delivery_fee), b.active === undefined ? old.rows[0].active : Boolean(b.active), id]);
     res.json({ region: regionJson(r.rows[0]) });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'المنطقة موجودة بالفعل' });
@@ -642,7 +639,8 @@ async function listProviders(viewer, type) {
   let sql = `SELECT p.*, u.region_id AS owner_region_id, g.name AS region_name, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v FROM providers p LEFT JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE ${providerVisibility(viewer, values)}`;
   if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
   sql += ' ORDER BY p.created_at DESC LIMIT 500';
-  return (await pool.query(sql, values)).rows.map(providerJson);
+  const hide = !viewer || viewer.role === 'customer'; // a maker's address is for couriers and staff only; customers see the area
+  return (await pool.query(sql, values)).rows.map(providerJson).map(p => (hide && p.type === 'maker' ? { ...p, address: '' } : p));
 }
 async function listProducts(viewer, providerId) {
   const values = [];

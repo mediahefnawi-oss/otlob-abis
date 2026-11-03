@@ -3,7 +3,6 @@ import { View, Pressable, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Sheet, Field, Chip, SectionTitle, Toggle, toast, confirmDialog } from './ui';
 import { useStore, addRegion, updateRegion, deleteRegion, saveRoutePrices } from '../lib/store';
-import { money } from '../lib/format';
 import { Region } from '../lib/types';
 
 /** A field that shows the chosen area and opens the list of areas the owner enabled. */
@@ -52,36 +51,31 @@ export function RegionsManager() {
   const [sheet, setSheet] = useState(false);
   const [edit, setEdit] = useState<Region | null>(null);
   const [name, setName] = useState('');
-  const [fee, setFee] = useState('10');
   const [busy, setBusy] = useState(false);
 
   const open = (r: Region | null) => {
     setEdit(r);
     setName(r?.name || '');
-    setFee(String(r?.deliveryFee ?? 10));
     setSheet(true);
   };
   const save = async () => {
-    const f = Number(fee);
     if (name.trim().length < 2) return toast('اكتب اسم المنطقة', 'err');
-    if (!Number.isFinite(f) || f < 0) return toast('سعر التوصيل غير صالح', 'err');
     setBusy(true);
-    const r = edit ? await updateRegion(edit.id, { name: name.trim(), deliveryFee: f }) : await addRegion(name, f);
+    const r = edit ? await updateRegion(edit.id, { name: name.trim() }) : await addRegion(name);
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     setSheet(false);
-    toast(edit ? 'تم تعديل المنطقة' : 'تمت إضافة المنطقة');
+    toast(edit ? 'تم تعديل المنطقة' : 'تمت إضافة المنطقة. حدد أسعار التوصيل لها من «أسعار التوصيل»');
   };
 
   return (
     <Card style={{ gap: 10 }}>
       <SectionTitle title={`مناطق التوصيل (${db.regions.length})`} action="إضافة" onAction={() => open(null)} />
-      <T size={11.5} color={C.sub}>التطبيق يعمل في هذه المناطق فقط. سعر التوصيل يُحسب حسب منطقة العميل.</T>
+      <T size={11.5} color={C.sub}>التطبيق يعمل في هذه المناطق فقط. أسعار التوصيل بين المناطق تُحدد من «أسعار التوصيل».</T>
       {db.regions.map((r) => (
         <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.line }}>
           <Pressable onPress={() => open(r)} style={{ flex: 1 }}>
             <T w="bold" size={14} color={r.active ? C.text : C.sub}>{r.name}{r.active ? '' : ' (متوقفة)'}</T>
-            <T size={12} color={C.sub}>التوصيل {money(r.deliveryFee)}</T>
           </Pressable>
           <Toggle value={r.active} onValueChange={async (v) => { const x = await updateRegion(r.id, { active: v }); if (!x.ok) toast(x.error, 'err'); }} />
           <Pressable
@@ -97,7 +91,7 @@ export function RegionsManager() {
       ))}
       <Sheet visible={sheet} onClose={() => setSheet(false)} title={edit ? 'تعديل منطقة' : 'إضافة منطقة'}>
         <Field label="اسم المنطقة" icon="location" value={name} onChangeText={setName} placeholder="مثال: ابيس 3/8" />
-        <Field label="سعر التوصيل (ج.م)" icon="bicycle" value={fee} onChangeText={setFee} keyboardType="numeric" />
+        {!edit && <T size={11.5} color={C.sub}>بعد الحفظ حدد سعر التوصيل من وإلى هذه المنطقة من «أسعار التوصيل». أي طريق بدون سعر لا يُقبل عليه طلب.</T>}
         <Btn title="حفظ" icon="checkmark" loading={busy} onPress={save} />
       </Sheet>
     </Card>
@@ -138,7 +132,7 @@ export function RoutePricesManager() {
   return (
     <Card style={{ gap: 10 }}>
       <T w="black" size={15}>أسعار التوصيل بين المناطق</T>
-      <T size={11.5} color={C.sub}>اختر منطقة المتجر، واكتب سعر التوصيل لكل منطقة عميل. كل اتجاه له سعره. أي خط تتركه فاضياً يُحسب بسعر منطقة العميل العادي.</T>
+      <T size={11.5} color={C.sub}>اختر منطقة المتجر، واكتب سعر التوصيل لكل منطقة عميل. كل اتجاه له سعره. أي خط تتركه فاضياً غير متاح للطلب (لا يقدر عميل تلك المنطقة يطلب من متاجر هذه المنطقة).</T>
       <RegionPicker value={from} onChange={setFrom} label="من منطقة المتجر" />
       {!!from && (
         <>
@@ -146,14 +140,14 @@ export function RoutePricesManager() {
             <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <T w="bold" size={13.5} style={{ flex: 1 }}>إلى {r.name}</T>
               <View style={{ width: 120 }}>
-                <Field value={vals[r.id] ?? ''} onChangeText={(t) => setVals((v) => ({ ...v, [r.id]: t }))} keyboardType="decimal-pad" placeholder={`${r.deliveryFee} (عادي)`} />
+                <Field value={vals[r.id] ?? ''} onChangeText={(t) => setVals((v) => ({ ...v, [r.id]: t }))} keyboardType="decimal-pad" placeholder="بدون سعر" />
               </View>
             </View>
           ))}
           <Btn title="حفظ الأسعار" icon="checkmark" loading={busy} onPress={save} />
         </>
       )}
-      {areas.length > 0 && <T size={11.5} color={C.sub}>{areas.map((r) => `${r.name}: ${count(r.id)} خط`).join(' • ')}</T>}
+      {areas.length > 0 && <T size={11.5} color={C.sub}>{areas.map((r) => `${r.name}: ${count(r.id)} من ${areas.length}`).join(' • ')}</T>}
     </Card>
   );
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Image, ScrollView, Modal, Pressable, useWindowDimensions } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Btn, Sheet, Field, Card, Chip, Icon, toast, confirmDialog } from './ui';
-import { quoteOrder, orderImage, orderAction, useMe } from '../lib/store';
+import { quoteOrder, courierQuote, orderImage, orderAction, useMe } from '../lib/store';
 import { money, isoDay, prettyIso, readyLabel } from '../lib/format';
 import { Order, Product } from '../lib/types';
 import { ProductThumb } from './Brand';
@@ -132,6 +132,55 @@ export function QuoteSheet({ o, visible, onClose }: { o: Order; visible: boolean
       </Card>
       <Btn title={isMaker ? 'قبول الطلب وتأكيد الموعد' : 'قبول الطلب وإرسال الفاتورة'} icon="checkmark" loading={busy} onPress={submit} />
     </Sheet>
+  );
+}
+
+/** «اطلب إيه نجيبهولك»: the courier who took the errand writes the price of the goods and his own delivery fee. */
+export function ErrandQuoteSheet({ o, visible, onClose }: { o: Order; visible: boolean; onClose: () => void }) {
+  const had = o.errandQuote === 'quoted';
+  const [goods, setGoods] = useState(had ? String(o.subtotal) : '');
+  const [fee, setFee] = useState(had ? String(o.deliveryFee) : '');
+  const [busy, setBusy] = useState(false);
+  const g = Number(toEn(goods)), f = Number(toEn(fee));
+  const okGoods = Number.isFinite(g) && g > 0, okFee = fee.trim() !== '' && Number.isFinite(f) && f >= 0;
+  const submit = async () => {
+    if (!okGoods) return toast('اكتب سعر المشتريات', 'err');
+    if (!okFee) return toast('اكتب رسوم التوصيل', 'err');
+    setBusy(true);
+    const r = await courierQuote(o.id, g, f);
+    setBusy(false);
+    if (!r.ok) return toast(r.error, 'err');
+    onClose();
+    toast('تم إرسال الفاتورة للعميل ✅');
+  };
+  return (
+    <Sheet visible={visible} onClose={onClose} title="سعّر الطلب">
+      <View style={{ backgroundColor: C.goldSoft, borderRadius: 14, padding: 12, gap: 6 }}>
+        <T w="bold" size={12} color={C.goldDeep}>طلب العميل</T>
+        <T size={13.5}>{o.customText}</T>
+      </View>
+      <Field label="سعر المشتريات (ج.م)" icon="cash" value={goods} onChangeText={setGoods} keyboardType="numeric" placeholder="مثال: 85" />
+      <Field label="رسوم التوصيل (ج.م)" icon="bicycle" value={fee} onChangeText={setFee} keyboardType="numeric" placeholder="مثال: 20" />
+      <Card style={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>المشتريات</T><T w="bold">{okGoods ? money(g) : '—'}</T></View>
+        <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>التوصيل</T><T w="bold">{okFee ? money(f) : '—'}</T></View>
+        <View style={{ flexDirection: 'row' }}><T w="black" style={{ flex: 1 }}>الإجمالي على العميل</T><T w="black" color={C.goldDeep}>{okGoods && okFee ? money(g + f) : '—'}</T></View>
+      </Card>
+      <T size={12} color={C.sub}>العميل هيشوف الفاتورة ويوافق أو يرفض. لو رفض الطلب بيرجع للمناديب.</T>
+      <Btn title="إرسال الفاتورة للعميل" icon="send" loading={busy} onPress={submit} />
+    </Sheet>
+  );
+}
+
+/** The courier's "price the errand" button (and the wait for the customer's answer). */
+export function ErrandQuoteButton({ o, small }: { o: Order; small?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const quoted = o.errandQuote === 'quoted';
+  return (
+    <>
+      <Btn small={small} icon="pricetag" variant={quoted ? 'soft' : undefined} title={quoted ? 'تعديل السعر (بانتظار العميل)' : 'سعّر الطلب'} onPress={() => setOpen(true)} style={small ? { flex: 1.3 } : undefined} />
+      <ErrandQuoteSheet o={o} visible={open} onClose={() => setOpen(false)} />
+    </>
   );
 }
 

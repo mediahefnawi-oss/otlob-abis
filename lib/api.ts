@@ -224,7 +224,7 @@ export type ServerRegion = { id: string; name: string; deliveryFee: number; acti
 export async function apiListRegions() {
   return apiRequest<{ regions: ServerRegion[] }>('/api/regions', {}, true);
 }
-export async function apiAdminCreateRegion(input: { name: string; deliveryFee: number }) {
+export async function apiAdminCreateRegion(input: { name: string }) {
   return apiRequest<{ region: ServerRegion }>('/api/admin/regions', { method: 'POST', body: JSON.stringify(input) });
 }
 export async function apiAdminUpdateRegion(id: string | number, patch: { name?: string; deliveryFee?: number; active?: boolean }) {
@@ -269,6 +269,9 @@ export async function apiPlaceRequest(input: { providerId: string; text: string;
 }
 export async function apiQuote(orderId: string | number, input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string; readyDate?: string; readyTime?: string }) {
   return apiRequest<{ order: any; invoice: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/quote`, { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiErrandQuote(orderId: string | number, subtotal: number, fee: number) {
+  return apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/errand-quote`, { method: 'POST', body: JSON.stringify({ subtotal, fee }) });
 }
 export async function apiOrderImage(orderId: string | number) {
   return apiRequest<{ image: string | null }>(`/api/orders/${encodeURIComponent(String(orderId))}/image`);

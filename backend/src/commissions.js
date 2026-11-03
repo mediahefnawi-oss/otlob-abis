@@ -90,6 +90,7 @@ async function onOrderDelivered(db, o) {
     const d = o.data || {};
     const when = new Date();
     let type = null;
+    if (!o.provider_id) type = 'custom'; // اطلب إيه نجيبهولك: عمولة مستقلة على رسوم التوصيل التي كتبها المندوب
     if (o.provider_id) {
       type = ((await db.query('SELECT type FROM providers WHERE id=$1', [o.provider_id])).rows[0] || {}).type || null;
       const base = Number(d.subtotal) || 0;
@@ -195,7 +196,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     const target = old ? old.target : String(b.target || '');
     if (!['provider', 'courier'].includes(target)) throw fail(400, 'حدد هل القاعدة لمقدم الخدمة أم للمندوب');
     const scope = b.scope === undefined ? o.scope : String(b.scope);
-    const allowed = target === 'provider' ? ['all', 'type', 'provider'] : ['all', 'courier'];
+    const allowed = target === 'provider' ? ['all', 'type', 'provider'] : ['all', 'courier', 'type'];
     if (!allowed.includes(scope)) throw fail(400, 'نطاق القاعدة غير صالح');
     const kind = b.kind === undefined ? o.kind : String(b.kind);
     if (!['percent', 'fixed'].includes(kind)) throw fail(400, 'نوع العمولة: نسبة أو مبلغ ثابت');
@@ -206,7 +207,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     let ptype = null, pid = null, cid = null;
     if (scope === 'type') {
       ptype = b.providerType === undefined ? o.provider_type : String(b.providerType);
-      if (!PROVIDER_TYPES.includes(ptype)) throw fail(400, 'اختر القسم');
+      if (target === 'courier' ? ptype !== 'custom' : !PROVIDER_TYPES.includes(ptype)) throw fail(400, 'اختر القسم');
     }
     if (scope === 'provider') {
       pid = b.providerId === undefined ? o.provider_id : positiveId(b.providerId);

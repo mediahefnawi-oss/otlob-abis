@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Image, Pressable } from 'react-native';
+import { View, Image, Pressable, Text, Modal, useWindowDimensions } from 'react-native';
 import { C } from '../lib/theme';
 import { Provider, Product } from '../lib/types';
 import { TYPES } from '../lib/format';
@@ -8,16 +8,35 @@ import { pickImage, canPickImage } from '../lib/pickImage';
 import { setProviderLogo } from '../lib/store';
 import { T, Icon, EmojiBubble, Btn, toast } from './ui';
 
-/** The provider's logo (a rounded picture) or, when there is none, its emoji. */
-export function ProviderLogo({ p, size = 44 }: { p: Pick<Provider, 'id' | 'emoji' | 'type' | 'logoV'>; size?: number }) {
+/** The provider's logo or, when there is none, its emoji: both fill the whole square, like product pictures. `zoomable` lets the customer tap to open it full size. */
+export function ProviderLogo({ p, size = 44, zoomable = false }: { p: Pick<Provider, 'id' | 'emoji' | 'type' | 'logoV'>; size?: number; zoomable?: boolean }) {
   const [bad, setBad] = useState(false);
+  const [open, setOpen] = useState(false);
+  const { width, height } = useWindowDimensions();
   const uri = providerLogoUrl(p);
-  if (!uri || bad) return <EmojiBubble emoji={p.emoji || TYPES[p.type].emoji} size={size} bg={TYPES[p.type].soft} />;
+  const radius = size * 0.28;
+  if (!uri || bad) {
+    return (
+      <View style={{ width: size, height: size, borderRadius: radius, backgroundColor: TYPES[p.type].soft, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontSize: size * 0.7 }}>{p.emoji || TYPES[p.type].emoji}</Text>
+      </View>
+    );
+  }
+  const img = <Image source={{ uri }} onError={() => setBad(true)} resizeMode="cover" style={{ width: size, height: size, borderRadius: radius, backgroundColor: TYPES[p.type].soft }} />;
+  if (!zoomable) return img;
+  const big = Math.min(width, height) - 32;
   return (
-    <Image
-      source={{ uri }} onError={() => setBad(true)} resizeMode="cover"
-      style={{ width: size, height: size, borderRadius: size * 0.3, backgroundColor: C.line, borderWidth: 1, borderColor: C.line }}
-    />
+    <>
+      <Pressable onPress={() => setOpen(true)}>{img}</Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center' }}>
+          <Image source={{ uri }} resizeMode="contain" style={{ width: big, height: big, borderRadius: 16 }} />
+          <View style={{ position: 'absolute', top: 40, right: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="close" size={24} color="#fff" />
+          </View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 

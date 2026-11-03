@@ -6,6 +6,7 @@ import { C, shadow } from '../lib/theme';
 import { CourierFinanceCard } from '../components/Finance';
 import { T, Icon, Card, Btn, Header, Empty, Segmented, Appear, Stat, confirmDialog, toast, SectionTitle } from '../components/ui';
 import { OrderCard } from '../components/Cards';
+import { ErrandQuoteButton } from '../components/Quote';
 import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { useStore, useMe, setAvailable, orderAction, updateProfile } from '../lib/store';
@@ -19,7 +20,7 @@ const segBus = {
   listeners: new Set<(s: 'offers' | 'mine' | 'done') => void>(),
   set(s: 'offers' | 'mine' | 'done') { this.seg = s; this.listeners.forEach((l) => l(s)); },
 };
-const LIVE = ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'];
+const LIVE = ['accepted', 'quoted', 'ready', 'picked_up', 'on_the_way', 'arrived'];
 const PAGE = 15;
 
 function useCourierLists() {
@@ -177,7 +178,8 @@ export function CourierOrdersScreen({ navigation }: any) {
                 {seg === 'mine' && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="dark" icon="chatbubbles" title="شات العميل" style={{ flex: 1 }} onPress={() => navigation.navigate('Chat', { orderId: item.id })} />
-                    {['accepted', 'ready'].includes(item.status) && <Btn small icon="bag-handle" title={isCustom ? 'تم الشراء' : 'استلمت الطلب'} style={{ flex: 1.3 }} onPress={() => { orderAction(item.id, 'pickup', me); toast('تم تسجيل الاستلام ✅'); }} />}
+                    {isCustom && ['accepted', 'quoted'].includes(item.status) && item.errandQuote !== 'approved' && <ErrandQuoteButton o={item} small />}
+                    {['accepted', 'ready'].includes(item.status) && (!isCustom || item.errandQuote === 'approved') && <Btn small icon="bag-handle" title={isCustom ? 'تم الشراء' : 'استلمت الطلب'} style={{ flex: 1.3 }} onPress={() => { orderAction(item.id, 'pickup', me); toast('تم تسجيل الاستلام ✅'); }} />}
                     {item.status === 'picked_up' && <Btn small icon="bicycle" title="أنا في الطريق" style={{ flex: 1.3 }} onPress={() => { orderAction(item.id, 'go', me); toast('العميل عرف إنك في الطريق 🚀'); }} />}
                     {item.status === 'on_the_way' && <Btn small variant="dark" icon="location" title="وصلت المكان" style={{ flex: 1.3 }} onPress={() => { orderAction(item.id, 'arrive', me); toast('تم إبلاغ العميل بوصولك 📍'); }} />}
                     {item.status === 'arrived' && <Btn small variant="green" icon="checkmark-done" title="تم التسليم" style={{ flex: 1.3 }} onPress={() => deliver(item)} />}

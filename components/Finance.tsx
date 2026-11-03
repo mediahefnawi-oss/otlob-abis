@@ -49,6 +49,7 @@ function RuleSheet({ rule, visible, onClose, onSaved }: { rule?: any; visible: b
   const [target, setTarget] = useState<'provider' | 'courier'>('provider');
   const [sc, setSc] = useState<Scope>(newScope());
   const [courierId, setCourierId] = useState('');
+  const [errand, setErrand] = useState(false);
   const [kind, setKind] = useState<'percent' | 'fixed'>('fixed');
   const [value, setValue] = useState('');
   const [min, setMin] = useState('');
@@ -63,6 +64,7 @@ function RuleSheet({ rule, visible, onClose, onSaved }: { rule?: any; visible: b
     setTarget(rule?.target || 'provider');
     setSc(rule && rule.target === 'provider' ? { scope: rule.scope, providerType: rule.providerType || 'restaurant', providerId: rule.providerId || '' } : newScope());
     setCourierId(rule?.courierUserId || '');
+    setErrand(!!rule && rule.target === 'courier' && rule.scope === 'type' && rule.providerType === 'custom');
     setKind(rule?.kind || 'fixed'); setValue(rule ? String(rule.value) : ''); setMin(rule && rule.minAmount ? String(rule.minAmount) : '');
     setFrom(rule ? isoDay(new Date(rule.effectiveFrom)) : ''); setFromDirty(false); setNote(rule?.note || ''); setActive(rule ? rule.active : true);
   }, [visible, rule?.id]);
@@ -74,9 +76,11 @@ function RuleSheet({ rule, visible, onClose, onSaved }: { rule?: any; visible: b
     if (!rule) {
       body.target = target;
       if (target === 'provider') Object.assign(body, scopeBody(sc));
+      else if (errand) { body.scope = 'type'; body.providerType = 'custom'; }
       else { body.scope = courierId ? 'courier' : 'all'; if (courierId) body.courierUserId = courierId; }
     } else if (target === 'provider') Object.assign(body, scopeBody(sc));
-    else { body.scope = courierId ? 'courier' : 'all'; if (courierId) body.courierUserId = courierId; }
+    else if (errand) { body.scope = 'type'; body.providerType = 'custom'; }
+      else { body.scope = courierId ? 'courier' : 'all'; if (courierId) body.courierUserId = courierId; }
     if (fromDirty && from) body.effectiveFrom = from;
     setBusy(true);
     const okk = await run(apiJson(rule ? `/api/admin/commissions/rules/${rule.id}` : '/api/admin/commissions/rules', rule ? 'PATCH' : 'POST', body), rule ? 'تم تعديل القاعدة' : 'تمت إضافة القاعدة');
@@ -98,8 +102,9 @@ function RuleSheet({ rule, visible, onClose, onSaved }: { rule?: any; visible: b
         <Label>النطاق</Label>
         {target === 'provider' ? <ScopePicker value={sc} onChange={setSc} allLabel="كل مقدمي الخدمة" /> : (
           <Wrap>
-            <Chip label="كل المناديب" active={!courierId} onPress={() => setCourierId('')} />
-            {couriers.map((u) => <Chip key={u.id} label={u.name} active={courierId === u.id} onPress={() => setCourierId(u.id)} />)}
+            <Chip label="كل المناديب" active={!errand && !courierId} onPress={() => { setErrand(false); setCourierId(''); }} />
+            <Chip label="خدمة اطلب إيه نجيبهولك" icon="bag-handle" active={errand} onPress={() => { setErrand(true); setCourierId(''); }} />
+            {couriers.map((u) => <Chip key={u.id} label={u.name} active={!errand && courierId === u.id} onPress={() => { setErrand(false); setCourierId(u.id); }} />)}
           </Wrap>
         )}
       </View>
@@ -150,7 +155,7 @@ function RulesTab() {
     <Card key={r.id} style={{ gap: 8, opacity: r.active ? 1 : 0.6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ flex: 1, gap: 2 }}>
-          <T w="black" size={14.5}>{r.target === 'courier' ? (r.scope === 'courier' ? `المندوب: ${courName(r.courierUserId)}` : 'كل المناديب') : scopeText(r, provName)}</T>
+          <T w="black" size={14.5}>{r.target === 'courier' ? (r.scope === 'courier' ? `المندوب: ${courName(r.courierUserId)}` : r.scope === 'type' ? 'خدمة اطلب إيه نجيبهولك (على رسوم التوصيل)' : 'كل المناديب') : scopeText(r, provName)}</T>
           <T size={13} color={C.goldDeep} w="bold">{ruleSummary(r.kind, r.value, r.minAmount, r.target)}</T>
         </View>
         <Toggle value={r.active} onValueChange={(v) => toggle(r, v)} />

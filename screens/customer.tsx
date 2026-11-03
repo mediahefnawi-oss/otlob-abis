@@ -13,7 +13,7 @@ import { AreaTag } from '../components/Cards';
 import { ProviderLogo } from '../components/Brand';
 import { ProductPhoto } from '../components/Quote';
 import {
-  useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
+  useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, deliveryOpen, feeFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
@@ -304,6 +304,8 @@ export function ProviderScreen({ navigation, route }: any) {
   const cartCount = cart.reduce((s, l) => s + l.qty, 0);
   const det = cartDetails(db, cart);
   const closed = !p.open;
+  const noRoute = !deliveryOpen(p);
+  const blocked = closed || noRoute;
   const mineArea = !!p.regionId && meUser?.regionId === p.regionId;
   const requestOnly = p.type === 'supermarket' || p.type === 'pharmacy';
 
@@ -311,14 +313,14 @@ export function ProviderScreen({ navigation, route }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title={p.name} onBack={() => navigation.goBack()} subtitle={t.single}>
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 14, alignItems: 'center' }}>
-          <ProviderLogo p={p} size={66} />
+          <ProviderLogo p={p} size={66} zoomable />
           <View style={{ flex: 1, gap: 4 }}>
             <T size={12.5} color="#C9D8D2" numberOfLines={2}>{p.desc}</T>
             <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}</T></View>
               {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
               {p.type !== 'clinic' && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {feeFor(p)} ج.م</T></View>}
-              <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{p.regionName ? `${mineArea ? 'في منطقتك — ' : `منطقة ${p.regionName} — `}` : ''}{p.address}</T></View>
+              <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{[p.regionName ? (mineArea ? 'في منطقتك' : `منطقة ${p.regionName}`) : '', p.address].filter(Boolean).join(' — ') || 'أبيس'}</T></View>
             </View>
           </View>
         </View>
@@ -329,7 +331,13 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13}>{p.type === 'clinic' ? 'العيادة لا تستقبل حجوزات حالياً' : 'المكان مغلق حالياً ولا يستقبل طلبات'}</T>
         </View>
       )}
-      {!closed && (p.type === 'supermarket' || p.type === 'pharmacy' || p.type === 'maker') && (
+      {!closed && noRoute && (
+        <View style={{ backgroundColor: C.redSoft, margin: 16, marginBottom: 0, padding: 12, borderRadius: 14, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <Icon name="location" size={18} color={C.red} />
+          <T color={C.red} w="bold" size={13} style={{ flex: 1 }}>التوصيل من منطقة هذا المكان إلى منطقتك غير متاح حالياً</T>
+        </View>
+      )}
+      {!blocked && (p.type === 'supermarket' || p.type === 'pharmacy' || p.type === 'maker') && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.goldSoft, borderWidth: 1.5, borderColor: C.gold }}>
             <Icon name="create" size={28} color={C.goldDeep} />
@@ -385,10 +393,10 @@ export function ProviderScreen({ navigation, route }: any) {
                   {!!item.desc && <T size={11.5} color={C.sub} numberOfLines={1}>{item.desc}</T>}
                   <T w="black" size={14} color={C.goldDeep}>{money(item.price)}</T>
                 </View>
-                {item.available && !closed ? (
+                {item.available && !blocked ? (
                   <Stepper qty={qty(item.id)} onAdd={() => cartAdd(item.id, 1)} onSub={() => cartAdd(item.id, -1)} />
                 ) : (
-                  <Pill label={item.available ? 'مغلق' : 'غير متوفر'} color={C.red} soft={C.redSoft} />
+                  <Pill label={item.available ? (noRoute && !closed ? 'التوصيل غير متاح' : 'مغلق') : 'غير متوفر'} color={C.red} soft={C.redSoft} />
                 )}
               </Card>
             </Appear>
@@ -508,7 +516,7 @@ export function CustomOrderScreen({ navigation }: any) {
   };
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title="اطلب إيه؟ نجيبهولك" onBack={() => navigation.goBack()} subtitle="اكتب طلبك وسيقوم المندوب بتوفيره لك" />
+      <Header title="اطلب إيه؟ نجيبهولك" onBack={() => navigation.goBack()} subtitle="اكتب طلبك والمندوب يحدد السعر ويجيبه لك" />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: 'center' }}><Text style={{ fontSize: 70 }}>🎁</Text></View>
@@ -525,7 +533,7 @@ export function CustomOrderScreen({ navigation }: any) {
               <Icon name="information-circle" size={18} color={C.goldDeep} />
               <T w="bold" size={13} color={C.goldDeep}>كيف يعمل؟</T>
             </View>
-            <T size={12.5} color={C.dark3}>سيقبل أحد المناديب المتاحين طلبك ويتواصل معك عبر الشات الداخلي لتأكيد التفاصيل والسعر. رسوم الخدمة {money(customFee())} + ثمن المشتريات كاش عند الاستلام.</T>
+            <T size={12.5} color={C.dark3}>أول مندوب يقبل طلبك يحدد لك سعر المشتريات ورسوم التوصيل ويبعتلك فاتورة. إنت توافق عليها أو ترفضها (لو رفضت يرجع الطلب للمناديب)، والدفع كاش عند الاستلام.</T>
           </Card>
           <Btn title="إرسال الطلب" icon="send" onPress={submit} />
         </ScrollView>
