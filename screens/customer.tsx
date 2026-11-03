@@ -10,7 +10,8 @@ import {
 } from '../components/ui';
 import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
 import { AreaTag } from '../components/Cards';
-import { ProviderLogo, ProductThumb } from '../components/Brand';
+import { ProviderLogo } from '../components/Brand';
+import { ProductPhoto } from '../components/Quote';
 import {
   useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, customFee, feeFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
@@ -108,13 +109,15 @@ export function HomeScreen({ navigation }: any) {
               <Appear key={k} i={i} style={{ width: '31.3%', flexGrow: 1 }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
-                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, paddingVertical: 14, alignItems: 'center', gap: 8, ...shadow }, pressed && { transform: [{ scale: 0.96 }] }]}
+                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 8, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 ? { paddingBottom: 9 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
-                  <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold, overflow: 'hidden' }}>
-                    {(db.settings.catIconV?.[k] || 0) > 0
-                      ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: 50, height: 50 }} resizeMode="cover" />
-                      : <Icon name={TYPES[k].icon} size={23} color={C.gold} />}
-                  </View>
+                  {(db.settings.catIconV?.[k] || 0) > 0
+                    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
+                    : (
+                      <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold, overflow: 'hidden' }}>
+                        <Icon name={TYPES[k].icon} size={23} color={C.gold} />
+                      </View>
+                    )}
                   <T w="bold" size={11.5} align="center" numberOfLines={1}>{TYPES[k].label}</T>
                 </Pressable>
               </Appear>
@@ -376,7 +379,7 @@ export function ProviderScreen({ navigation, route }: any) {
           ) : (
             <Appear i={index}>
               <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: item.available ? 1 : 0.5 }}>
-                <ProductThumb p={item} size={56} bg={t.soft} />
+                <ProductPhoto p={item} size={56} bg={t.soft} />
                 <View style={{ flex: 1, gap: 2 }}>
                   <T w="bold" size={14.5}>{item.name}</T>
                   {!!item.desc && <T size={11.5} color={C.sub} numberOfLines={1}>{item.desc}</T>}

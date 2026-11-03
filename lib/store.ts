@@ -113,6 +113,7 @@ const fromServer = (s: ServerUser, old?: User): User => ({
   regionId: s.regionId ?? null,
   accountFlag: s.accountFlag || '',
   flagNote: s.flagNote || '',
+  supRegions: s.supRegions,
   createdAt: s.createdAt ? Date.parse(s.createdAt) || Date.now() : old?.createdAt ?? Date.now(),
 });
 
@@ -133,7 +134,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.catIconV || {}]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null]);
 
 function applySettings(c: CentralSettings) {
   const next: Settings = {
@@ -147,6 +148,8 @@ function applySettings(c: CentralSettings) {
     appIconV: c.appIconV || 0,
     catIconV: c.catIconV || {},
     apkUrl: c.apkUrl || '',
+    welcomeLogoV: c.welcomeLogoV || 0,
+    credits: c.credits || null,
   };
   if (settingsKey(next) === settingsKey(state.db.settings)) return;
   mutate((db) => {
@@ -176,7 +179,8 @@ export function feeFor(p: Provider): number {
   if (p.type === 'clinic') return 0;
   const me = state.db.users.find((u) => u.id === state.userId);
   const region = me?.regionId ? state.db.regions.find((r) => r.id === me.regionId) : undefined;
-  return region ? region.deliveryFee : p.deliveryFee;
+  const route = p.regionId && me?.regionId ? (state.db.routePrices || {})[`${p.regionId}:${me.regionId}`] : undefined; // the owner's shop-area -> customer-area price
+  return route !== undefined ? route : region ? region.deliveryFee : p.deliveryFee;
 }
 
 /* ---------- central catalog (providers + products) ---------- */
@@ -328,14 +332,14 @@ async function syncOrders() {
 
 async function syncCatalog() {
   if (pendingWrites > 0) return;
-  const { providers, products, regions, ads } = await apiCatalog<any>();
+  const { providers, products, regions, ads, routePrices } = await apiCatalog<any>();
   if (pendingWrites > 0) return;
   const P = providers.map(toProvider);
   const I = products.map(toProduct);
   const R: Region[] = regions.map((r) => ({ id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active }));
   const A: Ad[] = (ads || []).map(toAd);
   const same = JSON.stringify(P) === JSON.stringify(state.db.providers) && JSON.stringify(I) === JSON.stringify(state.db.products)
-    && JSON.stringify(R) === JSON.stringify(state.db.regions) && JSON.stringify(A) === JSON.stringify(state.db.ads || []);
+    && JSON.stringify(R) === JSON.stringify(state.db.regions) && JSON.stringify(A) === JSON.stringify(state.db.ads || []) && JSON.stringify(routePrices || {}) === JSON.stringify(state.db.routePrices || {});
   if (same) return;
   mutate((db) => {
     const clean = stripDemo(db);
@@ -345,6 +349,7 @@ async function syncCatalog() {
     db.products = I;
     db.regions = R;
     db.ads = A;
+    db.routePrices = routePrices || {};
   });
   const ids = new Set(I.map((p) => p.id));
   if (state.cart.some((l) => !ids.has(l.productId))) saveCart(state.cart.filter((l) => ids.has(l.productId)));
@@ -442,7 +447,7 @@ export async function initStore() {
     // After repeated failures back off (4s, 8s, 16s, 32s) instead of hammering a struggling server.
     if (syncFails >= 3 && syncTick % Math.min(8, 2 ** (syncFails - 2)) !== 0) return;
     const me = state.db.users.find((u) => u.id === state.userId);
-    const fast = !!me && (me.role === 'provider' || me.role === 'courier');
+    const fast = !!me && (me.role === 'provider' || me.role === 'courier' || me.role === 'supervisor');
     const hidden = typeof document !== 'undefined' && document.hidden;
     if (!fast && (syncTick % 2 !== 0 || (hidden && syncTick % 8 !== 0))) return;
     // A little random delay so thousands of phones do not all ask at the same instant.
@@ -656,6 +661,49 @@ export async function placeCustomOrder(me: User, info: { text: string; phone: st
   }
 }
 
+/* ---------- supervisors (owner-created staff who run the orders of their areas) ---------- */
+export async function createSupervisor(i: { name: string; phone: string; password: string; regionIds: string[] }): Promise<Result> {
+  try {
+    const r = await apiJson<{ user: ServerUser }>('/api/admin/supervisors', 'POST', i);
+    mutate((db) => { db.users = [...db.users.filter((u) => u.id !== r.user.id), fromServer(r.user)]; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function updateSupervisor(id: string, patch: { name?: string; regionIds?: string[] }): Promise<Result> {
+  try {
+    const r = await apiJson<{ user: ServerUser }>(`/api/admin/supervisors/${encodeURIComponent(id)}`, 'PATCH', patch);
+    mutate((db) => { db.users = db.users.map((u) => (u.id === id ? fromServer(r.user, u) : u)); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function deleteSupervisor(id: string): Promise<Result> {
+  try {
+    await apiJson(`/api/admin/supervisors/${encodeURIComponent(id)}`, 'DELETE');
+    mutate((db) => { db.users = db.users.filter((u) => u.id !== id); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export type StaffCourier = { id: string; name: string; phone: string; vehicle: string; available: boolean; regionId: string; busy: number };
+export async function listStaffCouriers(): Promise<StaffCourier[]> {
+  try { return (await apiJson<{ couriers: StaffCourier[] }>('/api/staff/couriers')).couriers; } catch { return []; }
+}
+/** Owner / supervisor: link an order to a chosen courier (the order must be accepted and not yet picked up). */
+export async function assignCourier(orderId: string, courierId: string): Promise<Result> {
+  try {
+    const r = await apiJson<{ order: Order }>(`/api/orders/${encodeURIComponent(orderId)}/assign`, 'POST', { courierId });
+    mutate((db) => { db.orders = upsertById(db.orders, [r.order]); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner / supervisor: send a written request nobody has priced yet to another shop / pharmacy / maker. */
+export async function transferOrder(orderId: string, providerId: string): Promise<Result> {
+  try {
+    const r = await apiJson<{ order: Order }>(`/api/orders/${encodeURIComponent(orderId)}/transfer`, 'POST', { providerId });
+    mutate((db) => { db.orders = upsertById(db.orders, [r.order]); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+
 export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver' | 'approve_quote' | 'decline_quote';
 
 export function orderAction(orderId: string, action: OrderAction, by: User, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string }): Result {
@@ -689,7 +737,7 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
         sysMsg(db, orderId, 'الطلب جاهز للاستلام من المندوب ✅');
         break;
       case 'cancel':
-        setStatus(db, orderId, 'cancelled', { rejectReason: by.role === 'admin' ? 'ألغاه المدير' : by.role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
+        setStatus(db, orderId, 'cancelled', { rejectReason: by.role === 'admin' ? 'ألغاه المدير' : by.role === 'supervisor' ? 'ألغاه المشرف' : by.role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
         break;
       case 'courier_accept':
         db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, courierId: by.id, courierName: by.name, courierPhone: by.phone, courierVehicle: by.vehicle, updatedAt: Date.now() } : x));
@@ -1069,6 +1117,14 @@ export async function adminResetPassword(userId: string, newPass: string): Promi
 /* ---------- delivery areas (owner) ---------- */
 const toRegion = (r: { id: string; name: string; deliveryFee: number; active: boolean }): Region => ({ id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active });
 
+/** Owner: the delivery price from one shop area to each customer area (an empty price removes it: that route then uses the customer area's normal price). */
+export async function saveRoutePrices(fromId: string, prices: { toId: string; price: number | null }[]): Promise<Result> {
+  try {
+    const r = await apiJson<{ routePrices: Record<string, number> }>('/api/admin/route-prices', 'PUT', { fromId, prices });
+    mutate((db) => { db.routePrices = r.routePrices || {}; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
 export async function addRegion(name: string, deliveryFee: number): Promise<Result> {
   try {
     const { region } = await apiAdminCreateRegion({ name: name.trim(), deliveryFee });
@@ -1158,6 +1214,15 @@ export async function setLoginImage(image: string | null): Promise<Result> {
   try {
     const r = await apiJson<{ loginImageV: number }>('/api/admin/login-image', image ? 'PUT' : 'DELETE', image ? { image } : undefined);
     mutate((db) => { db.settings = { ...db.settings, loginImageV: r.loginImageV }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+
+/** Owner: set (data URL) or remove (null) the logo shown on the first screen. */
+export async function setWelcomeLogo(image: string | null): Promise<Result> {
+  try {
+    const r = await apiJson<{ welcomeLogoV: number }>('/api/admin/welcome-logo', image ? 'PUT' : 'DELETE', image ? { image } : undefined);
+    mutate((db) => { db.settings = { ...db.settings, welcomeLogoV: r.welcomeLogoV }; });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }

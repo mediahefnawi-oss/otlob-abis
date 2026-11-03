@@ -613,6 +613,34 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     });
     res.json({ type: t, v: 0 });
   }));
+  /* ---------- the logo on the first screen (the owner can replace it; PNG keeps its transparent background) ---------- */
+  app.get('/api/welcome-logo', asyncRoute(async (_req, res) => {
+    const r = await pool.query("SELECT image, mime FROM site_images WHERE key='welcome_logo'");
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable'); // the link changes (?v=) with the picture
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(r.rows[0].image);
+  }));
+  app.put('/api/admin/welcome-logo', ...admin, guard(async (req, res) => {
+    const s = String((req.body || {}).image || '');
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(s);
+    if (!m || s.length > MAX_LOGIN_IMAGE) throw fail(400, 'ارفع لوجو صالح (PNG أو JPG) بحجم أصغر');
+    const v = await withTx(async db => {
+      const r = await db.query("INSERT INTO site_images(key, image, mime, updated_at) VALUES('welcome_logo',$1,$2,NOW()) ON CONFLICT (key) DO UPDATE SET image=EXCLUDED.image, mime=EXCLUDED.mime, updated_at=NOW() RETURNING (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v",
+        [Buffer.from(m[2], 'base64'), m[1]]);
+      await audit(db, me(req), 'welcome-logo.set', 'site_image', 'welcome_logo', null, { bytes: Buffer.byteLength(m[2], 'base64') });
+      return Number(r.rows[0].v);
+    });
+    res.json({ welcomeLogoV: v });
+  }));
+  app.delete('/api/admin/welcome-logo', ...admin, guard(async (req, res) => {
+    await withTx(async db => {
+      await db.query("DELETE FROM site_images WHERE key='welcome_logo'");
+      await audit(db, me(req), 'welcome-logo.remove', 'site_image', 'welcome_logo', null, null);
+    });
+    res.json({ welcomeLogoV: 0 });
+  }));
   app.delete('/api/admin/login-image', ...admin, guard(async (req, res) => {
     await withTx(async db => {
       await db.query("DELETE FROM site_images WHERE key='login'");

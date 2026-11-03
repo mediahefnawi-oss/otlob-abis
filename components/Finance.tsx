@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, Image } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
-import { useStore, setLoginImage, setAppIcon, setCatIcon, updateSettings } from '../lib/store';
-import { TYPES, money, fmtDateTime, isoDay, DAYS } from '../lib/format';
+import { useStore, setWelcomeLogo, setLoginImage, setAppIcon, setCatIcon, updateSettings } from '../lib/store';
+import { TYPES, DEFAULT_CREDITS, money, fmtDateTime, isoDay, DAYS } from '../lib/format';
 import { ProviderType } from '../lib/types';
 import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
-import { loginImageUrl, appIconUrl, catIconUrl } from '../lib/api';
+import { loginImageUrl, welcomeLogoUrl, appIconUrl, catIconUrl } from '../lib/api';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useRC } from '../screens/customer';
 
@@ -376,7 +376,7 @@ function CountersTab() {
 const ACTION: Record<string, string> = {
   'rule.create': 'إضافة قاعدة عمولة', 'rule.update': 'تعديل قاعدة عمولة', 'rule.delete': 'حذف قاعدة عمولة', 'commission.reverse': 'تسوية إلغاء / مرتجع', 'commission.settle': 'تسوية مستحقات',
   'counters.reset.manual': 'تصفير يدوي', 'counters.reset.schedule': 'تصفير تلقائي', 'counters.schedule.create': 'إضافة جدولة', 'counters.schedule.update': 'تعديل جدولة', 'counters.schedule.delete': 'حذف جدولة',
-  'login-image.set': 'تغيير صورة الدخول', 'login-image.remove': 'حذف صورة الدخول',
+  'order.assign': 'تعيين مندوب لطلب', 'order.transfer': 'تحويل طلب لمتجر آخر', 'welcome-logo.set': 'تغيير لوجو الشاشة الأولى', 'welcome-logo.remove': 'حذف لوجو الشاشة الأولى', 'login-image.set': 'تغيير صورة الدخول', 'login-image.remove': 'حذف صورة الدخول',
 };
 function AuditTab() {
   const [log, setLog] = useState<any[]>([]);
@@ -536,6 +536,66 @@ export function LoginImageManager() {
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Btn variant="soft" icon="camera" title={v > 0 ? 'تغيير الصورة' : 'رفع صورة'} style={{ flex: 1 }} loading={busy} onPress={choose} />
         {v > 0 && <Btn variant="danger" icon="trash" title="حذف" style={{ flex: 0.5 }} onPress={remove} />}
+      </View>
+    </Card>
+  );
+}
+
+
+/** Owner: the logo on the first screen, the support number and the developer lines at the bottom of that screen. */
+export function WelcomeScreenManager() {
+  const { db } = useStore();
+  const s = db.settings;
+  const v = s.welcomeLogoV || 0;
+  const [busy, setBusy] = useState(false);
+  const [phone, setPhone] = useState(s.supportPhone || '');
+  const cr = s.credits || DEFAULT_CREDITS;
+  const [a, setA] = useState(cr.a);
+  const [b, setB] = useState(cr.b);
+  const [c, setC] = useState(cr.c);
+  const [d, setD] = useState(cr.d);
+  const choose = async () => {
+    const img = await pickImage(900, true);
+    if (!img) return toast('تعذر قراءة الصورة، جرّب صورة أخرى', 'err');
+    setBusy(true);
+    const r = await setWelcomeLogo(img);
+    setBusy(false);
+    toast(r.ok ? 'تم تغيير اللوجو ويظهر للجميع الآن' : r.error, r.ok ? 'ok' : 'err');
+  };
+  const remove = () => confirmDialog({ title: 'حذف اللوجو؟', message: 'سيعود اللوجو الأصلي للتطبيق.', danger: true, confirmText: 'حذف', onConfirm: async () => { const r = await setWelcomeLogo(null); toast(r.ok ? 'عاد اللوجو الأصلي' : r.error, r.ok ? 'ok' : 'err'); } });
+  const savePhone = async () => {
+    const p = phone.replace(/[^\d+]/g, '');
+    if (p.length < 8) return toast('اكتب رقم صحيح', 'err');
+    const r = await updateSettings({ supportPhone: p });
+    toast(r.ok ? 'تم حفظ رقم الدعم' : r.error, r.ok ? 'ok' : 'err');
+  };
+  const saveCredits = async () => { const r = await updateSettings({ credits: { a, b, c, d } }); toast(r.ok ? 'تم حفظ البيانات' : r.error, r.ok ? 'ok' : 'err'); };
+  const resetCredits = async () => { const r = await updateSettings({ credits: null }); if (r.ok) { setA(DEFAULT_CREDITS.a); setB(DEFAULT_CREDITS.b); setC(DEFAULT_CREDITS.c); setD(DEFAULT_CREDITS.d); } toast(r.ok ? 'عادت البيانات الأصلية' : r.error, r.ok ? 'ok' : 'err'); };
+  return (
+    <Card style={{ gap: 12 }}>
+      <T w="black" size={15}>الشاشة الأولى: اللوجو والدعم والبيانات</T>
+      <T size={12} color={C.sub}>اللوجو يفضّل أن يكون PNG بخلفية شفافة. كل تغيير هنا يظهر عند كل المستخدمين فور حفظه.</T>
+      <View style={{ backgroundColor: C.dark, borderRadius: 14, padding: 12, alignItems: 'center' }}>
+        {v > 0 ? <Image source={{ uri: welcomeLogoUrl(v) }} style={{ width: 220, height: 110 }} resizeMode="contain" /> : <T size={12.5} color="#C9D8D2">اللوجو الحالي: اللوجو الأصلي للتطبيق.</T>}
+      </View>
+      {canPickImage && (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Btn variant="soft" icon="camera" title={v > 0 ? 'تغيير اللوجو' : 'رفع لوجو جديد'} style={{ flex: 1 }} loading={busy} onPress={choose} />
+          {v > 0 && <Btn variant="danger" icon="trash" title="حذف" style={{ flex: 0.5 }} onPress={remove} />}
+        </View>
+      )}
+      <View style={{ height: 1, backgroundColor: C.line }} />
+      <Field label="رقم الدعم (واتساب)" icon="logo-whatsapp" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="01xxxxxxxxx" />
+      <Btn title="حفظ رقم الدعم" icon="checkmark" onPress={savePhone} />
+      <View style={{ height: 1, backgroundColor: C.line }} />
+      <T w="bold" size={13}>البيانات أسفل الصفحة</T>
+      <Field label="السطر الأول (إنجليزي صغير)" value={a} onChangeText={setA} autoCapitalize="none" />
+      <Field label="الاسم (يظهر بالذهبي)" value={b} onChangeText={setB} autoCapitalize="none" />
+      <Field label="السطر العربي" value={c} onChangeText={setC} />
+      <Field label="سطر الحقوق" value={d} onChangeText={setD} autoCapitalize="none" />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn title="حفظ البيانات" icon="checkmark" style={{ flex: 1 }} onPress={saveCredits} />
+        <Btn title="الأصلية" variant="ghost" style={{ flex: 0.6 }} onPress={resetCredits} />
       </View>
     </Card>
   );

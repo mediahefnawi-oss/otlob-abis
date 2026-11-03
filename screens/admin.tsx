@@ -12,11 +12,11 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
 } from '../lib/store';
-import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS } from '../lib/format';
-import { RegionsManager, RegionPicker } from '../components/Regions';
-import { LoginImageManager, AppIconManager, CatIconsManager } from '../components/Finance';
+import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue } from '../lib/format';
+import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
+import { LoginImageManager, WelcomeScreenManager, AppIconManager, CatIconsManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { AdsManager } from '../components/Ads';
 import { ProviderType, AccountStatus } from '../lib/types';
@@ -98,6 +98,15 @@ export function AdminDashboardScreen({ navigation, go }: any) {
           <View style={{ flex: 1 }}>
             <T w="bold" size={15}>إدارة العملاء</T>
             <T size={12} color={C.sub}>إيقاف الحسابات ووضع علامات (معتمد / مراقبة / احتيالي)</T>
+          </View>
+          <Icon name="chevron-back" size={18} color={C.sub} />
+        </Card>
+
+        <Card onPress={() => navigation.navigate('AdminSupervisors')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <IconBubble icon="shield-checkmark" color={C.green} bg={C.greenSoft} size={46} />
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={15}>المشرفون</T>
+            <T size={12} color={C.sub}>حسابات تدير الطلبات في مناطق محددة: قبول وتحويل وتعيين مندوب</T>
           </View>
           <Icon name="chevron-back" size={18} color={C.sub} />
         </Card>
@@ -431,8 +440,10 @@ export function AdminSettingsScreen({ navigation }: any) {
     <>
       <AppSwitch />
       <RegionsManager />
+      <RoutePricesManager />
       <AdsManager />
       <LoginImageManager />
+      <WelcomeScreenManager />
       <CatIconsManager />
       <AppIconManager />
       <Card style={{ gap: 12 }}>
@@ -593,6 +604,135 @@ export function AdminCustomerScreen({ navigation, route }: any) {
           <OrderCard key={o.id} o={o} perspective="admin" onPress={() => navigation.navigate('OrderDetail', { id: o.id })} />
         ))}
       </ScrollView>
+    </View>
+  );
+}
+
+
+/* ---------------- Supervisors: staff accounts that run the orders of their own areas ---------------- */
+function RegionChecks({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const { db } = useStore();
+  const list = db.regions.filter((r) => r.active);
+  return (
+    <View style={{ gap: 6 }}>
+      <T w="semi" size={13} color={C.dark3}>المناطق التي يديرها</T>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {list.map((r) => <Chip key={r.id} label={r.name} active={value.includes(r.id)} onPress={() => onChange(value.includes(r.id) ? value.filter((x) => x !== r.id) : [...value, r.id])} />)}
+      </View>
+      {list.length === 0 && <T size={12} color={C.sub}>أضف مناطق أولاً من الإعدادات.</T>}
+    </View>
+  );
+}
+
+export function AdminSupervisorsScreen({ navigation }: any) {
+  const rc = useRC();
+  const { db } = useStore();
+  const list = db.users.filter((u) => u.role === 'supervisor');
+  const [sheet, setSheet] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pw, setPw] = useState('');
+  const [regions, setRegions] = useState<string[]>([]);
+  const [newPw, setNewPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const editing = editId ? list.find((u) => u.id === editId) : undefined;
+  const openNew = () => { setEditId(null); setName(''); setPhone(''); setPw(''); setRegions([]); setSheet(true); };
+  const openEdit = (u: typeof list[number]) => { setEditId(u.id); setName(u.name); setRegions(u.supRegions || []); setNewPw(''); setSheet(true); };
+  const regionNames = (ids?: string[]) => (ids || []).map((id) => db.regions.find((r) => r.id === id)?.name).filter(Boolean).join('، ');
+  const save = async () => {
+    setBusy(true);
+    const r = editing ? await updateSupervisor(editing.id, { name: name.trim(), regionIds: regions }) : await createSupervisor({ name: name.trim(), phone: phone.trim(), password: pw, regionIds: regions });
+    setBusy(false);
+    if (!r.ok) return toast(r.error, 'err');
+    setSheet(false);
+    toast(editing ? 'تم حفظ التعديل' : 'تم إضافة المشرف ✅');
+  };
+  const savePw = async () => {
+    if (!editing) return;
+    setBusy(true);
+    const r = await adminResetPassword(editing.id, newPw);
+    setBusy(false);
+    if (!r.ok) return toast(r.error, 'err');
+    setNewPw('');
+    toast('تم تعيين كلمة المرور');
+  };
+  const toggle = async () => {
+    if (!editing) return;
+    await done(setUserStatus(editing.id, editing.status === 'suspended' ? 'active' : 'suspended'), editing.status === 'suspended' ? 'تم تفعيل الحساب' : 'تم إيقاف الحساب');
+  };
+  const remove = () => editing && confirmDialog({ title: 'حذف المشرف؟', message: 'سيتم إيقاف الحساب نهائياً ولن يستطيع الدخول.', danger: true, confirmText: 'حذف', onConfirm: async () => { const r = await deleteSupervisor(editing.id); if (!r.ok) return toast(r.error, 'err'); setSheet(false); toast('تم حذف المشرف'); } });
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="المشرفون" subtitle={`${list.length} حساب`} onBack={() => navigation.goBack()} />
+      <FlatList
+        data={list}
+        keyExtractor={(u) => u.id}
+        refreshControl={rc}
+        contentContainerStyle={{ padding: 16, gap: 12 }}
+        ListHeaderComponent={<Btn title="إضافة مشرف جديد" icon="person-add" onPress={openNew} />}
+        ListEmptyComponent={<Empty icon="shield-checkmark" title="لا يوجد مشرفون" text="أضف مشرفاً ليدير الطلبات في مناطق تحددها له" />}
+        renderItem={({ item, index }) => (
+          <Appear i={index}>
+            <Card onPress={() => openEdit(item)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <IconBubble icon="shield-checkmark" color={C.green} bg={C.greenSoft} size={46} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <T w="bold" size={15}>{item.name}</T>
+                <T size={11.5} color={C.sub}>{item.phone}</T>
+                <T size={11.5} color={C.dark3}>{regionNames(item.supRegions) || 'لم تُحدد مناطق (لا يرى طلبات)'}</T>
+              </View>
+              <AcctPill s={item.status} />
+            </Card>
+          </Appear>
+        )}
+      />
+      <Sheet visible={sheet} onClose={() => setSheet(false)} title={editing ? 'تعديل مشرف' : 'مشرف جديد'}>
+        <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ gap: 12 }}>
+          <Field label="الاسم" icon="person" value={name} onChangeText={setName} />
+          {!editing && <Field label="رقم الموبايل (للدخول)" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />}
+          {!editing && <Field label="كلمة المرور (8 أحرف على الأقل)" icon="key" value={pw} onChangeText={setPw} secureTextEntry autoCapitalize="none" />}
+          <RegionChecks value={regions} onChange={setRegions} />
+          <Btn title="حفظ" icon="checkmark" loading={busy} disabled={name.trim().length < 3 || (!editing && (!/^01[0-9]{9}$/.test(phone.trim()) || pw.length < 8))} onPress={save} />
+          {editing && (
+            <>
+              <View style={{ height: 1, backgroundColor: C.line }} />
+              <Field label="كلمة مرور جديدة" icon="key" value={newPw} onChangeText={setNewPw} secureTextEntry autoCapitalize="none" />
+              <Btn variant="outline" title="تعيين كلمة المرور" disabled={busy || newPw.length < 8} onPress={savePw} />
+              <Btn variant={editing.status === 'suspended' ? 'green' : 'danger'} icon={editing.status === 'suspended' ? 'play' : 'ban'} title={editing.status === 'suspended' ? 'إعادة تفعيل' : 'إيقاف الحساب'} onPress={toggle} />
+              <Btn variant="ghost" icon="trash" title="حذف المشرف" onPress={remove} />
+            </>
+          )}
+        </ScrollView>
+      </Sheet>
+    </View>
+  );
+}
+
+/* ---------------- Supervisor: the orders of his areas ---------------- */
+export function SupervisorOrdersScreen({ navigation }: any) {
+  const rc = useRC();
+  const { db } = useStore();
+  const me = useMe()!;
+  const [f, setF] = useState('stuck');
+  const ACTIVE = ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'];
+  // orders run by themselves; these are the ones a shop left unanswered or refused (or he already took over)
+  const stuck = (o: typeof db.orders[number]) => inStaffQueue(o);
+  const chips = [
+    { k: 'stuck', l: 'تحتاج تدخل', n: db.orders.filter(stuck).length },
+    { k: 'active', l: 'جارية', n: db.orders.filter((o) => ACTIVE.includes(o.status)).length },
+    { k: 'delivered', l: 'مكتملة', n: 0 },
+    { k: 'dead', l: 'ملغية', n: 0 },
+  ];
+  const orders = db.orders.filter((o) => (f === 'stuck' ? stuck(o) : f === 'active' ? ACTIVE.includes(o.status) : f === 'dead' ? ['rejected', 'cancelled', 'unavailable'].includes(o.status) : o.status === 'delivered')).sort((a, b) => b.createdAt - a.createdAt);
+  const areas = (me.supRegions || []).map((id) => db.regions.find((r) => r.id === id)?.name).filter(Boolean).join('، ');
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="طلبات مناطقي" subtitle={areas || 'لم يتم تحديد مناطق لك بعد'} />
+      <View style={{ padding: 16, paddingBottom: 6 }}>
+        <FlatList horizontal data={chips} keyExtractor={(x) => x.k} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} renderItem={({ item }) => <Chip label={item.n ? `${item.l} (${item.n})` : item.l} active={f === item.k} onPress={() => setF(item.k)} />} />
+      </View>
+      <FlatList data={orders} keyExtractor={(o) => o.id} refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 12 }} ListEmptyComponent={<Empty icon="receipt" title="لا توجد طلبات" text={areas ? undefined : 'تواصل مع المالك ليحدد لك المناطق'} />}
+        renderItem={({ item, index }) => <Appear i={index}><OrderCard o={item} perspective="admin" onPress={() => navigation.navigate('OrderDetail', { id: item.id })} /></Appear>} />
     </View>
   );
 }

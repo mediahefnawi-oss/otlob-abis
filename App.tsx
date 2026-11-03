@@ -25,9 +25,10 @@ import { OrderDetailScreen, ApptDetailScreen, InvoiceScreen, ChatScreen, Support
 import { ProviderOrdersScreen, ProviderCatalogScreen, ProviderInvoicesScreen, ProviderProfileScreen } from './screens/provider';
 import { CourierWorkScreen, CourierOrdersScreen, CourierProfileScreen } from './screens/courier';
 import {
-  AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen,
+  AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen, AdminSupervisorsScreen, SupervisorOrdersScreen,
 } from './screens/admin';
 import { AdminFinanceScreen } from './components/Finance';
+import { inStaffQueue } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 
 // the phone app must not close because of one failing action: show a message instead (a crash in a screen is caught by ErrorBoundary)
@@ -75,6 +76,13 @@ function Main({ navigation }: any) {
       { key: 'orders', label: 'الطلبات', icon: 'receipt', badge: offers, render: () => <CourierOrdersScreen navigation={navigation} /> },
       { key: 'support', label: 'الدعم', icon: 'headset', render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <CourierProfileScreen navigation={navigation} /> },
+    ];
+  } else if (me.role === 'supervisor') {
+    const fresh = db.orders.filter((o) => inStaffQueue(o)).length;
+    tabs = [
+      { key: 'orders', label: 'الطلبات', icon: 'receipt', badge: fresh, render: () => <SupervisorOrdersScreen navigation={navigation} /> },
+      { key: 'support', label: 'الدعم', icon: 'headset', render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
+      { key: 'profile', label: 'حسابي', icon: 'person', render: () => <ProfileScreen navigation={navigation} /> },
     ];
   } else {
     const pend = db.providers.filter((p) => p.status === 'pending').length;
@@ -132,6 +140,7 @@ function Root() {
         <Stack.Screen name="AdminDetail" component={AdminDetailScreen} />
         <Stack.Screen name="AdminCustomers" component={AdminCustomersScreen} />
         <Stack.Screen name="AdminCustomer" component={AdminCustomerScreen} />
+        <Stack.Screen name="AdminSupervisors" component={AdminSupervisorsScreen} />
       </>
     );
   }

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Pressable, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Sheet, Field, Chip, SectionTitle, Toggle, toast, confirmDialog } from './ui';
-import { useStore, addRegion, updateRegion, deleteRegion } from '../lib/store';
+import { useStore, addRegion, updateRegion, deleteRegion, saveRoutePrices } from '../lib/store';
 import { money } from '../lib/format';
 import { Region } from '../lib/types';
 
@@ -100,6 +100,60 @@ export function RegionsManager() {
         <Field label="سعر التوصيل (ج.م)" icon="bicycle" value={fee} onChangeText={setFee} keyboardType="numeric" />
         <Btn title="حفظ" icon="checkmark" loading={busy} onPress={save} />
       </Sheet>
+    </Card>
+  );
+}
+
+const toEn = (s: string) => s.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٫,]/g, '.');
+
+/** Owner: the delivery price from a shop's area to each customer area. A route without a price uses the customer area's normal price. */
+export function RoutePricesManager() {
+  const { db } = useStore();
+  const areas = db.regions.filter((r) => r.active);
+  const [from, setFrom] = useState('');
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const prices = db.routePrices || {};
+  useEffect(() => {
+    if (!from) return setVals({});
+    const v: Record<string, string> = {};
+    for (const r of areas) { const p = prices[`${from}:${r.id}`]; v[r.id] = p === undefined ? '' : String(p); }
+    setVals(v);
+  }, [from, JSON.stringify(prices), areas.length]);
+  const count = (id: string) => areas.filter((r) => prices[`${id}:${r.id}`] !== undefined).length;
+  const save = async () => {
+    const list: { toId: string; price: number | null }[] = [];
+    for (const r of areas) {
+      const raw = toEn((vals[r.id] || '').trim());
+      if (raw === '') { list.push({ toId: r.id, price: null }); continue; }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) return toast(`سعر غير صحيح في ${r.name}`, 'err');
+      list.push({ toId: r.id, price: n });
+    }
+    setBusy(true);
+    const r = await saveRoutePrices(from, list);
+    setBusy(false);
+    toast(r.ok ? 'تم حفظ الأسعار' : r.error, r.ok ? 'ok' : 'err');
+  };
+  return (
+    <Card style={{ gap: 10 }}>
+      <T w="black" size={15}>أسعار التوصيل بين المناطق</T>
+      <T size={11.5} color={C.sub}>اختر منطقة المتجر، واكتب سعر التوصيل لكل منطقة عميل. كل اتجاه له سعره. أي خط تتركه فاضياً يُحسب بسعر منطقة العميل العادي.</T>
+      <RegionPicker value={from} onChange={setFrom} label="من منطقة المتجر" />
+      {!!from && (
+        <>
+          {areas.map((r) => (
+            <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <T w="bold" size={13.5} style={{ flex: 1 }}>إلى {r.name}</T>
+              <View style={{ width: 120 }}>
+                <Field value={vals[r.id] ?? ''} onChangeText={(t) => setVals((v) => ({ ...v, [r.id]: t }))} keyboardType="decimal-pad" placeholder={`${r.deliveryFee} (عادي)`} />
+              </View>
+            </View>
+          ))}
+          <Btn title="حفظ الأسعار" icon="checkmark" loading={busy} onPress={save} />
+        </>
+      )}
+      {areas.length > 0 && <T size={11.5} color={C.sub}>{areas.map((r) => `${r.name}: ${count(r.id)} خط`).join(' • ')}</T>}
     </Card>
   );
 }

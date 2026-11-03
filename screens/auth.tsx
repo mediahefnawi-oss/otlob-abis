@@ -7,17 +7,21 @@ import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { C, R } from '../lib/theme';
 import { T, Btn, Field, Logo, Icon, Chip, Header, openWhats, toast, Card } from '../components/ui';
 import { login, register, logout, useStore, useMe } from '../lib/store';
-import { TYPES } from '../lib/format';
+import { TYPES, DEFAULT_CREDITS } from '../lib/format';
 import { ProviderType } from '../lib/types';
 
 import { RegionPicker } from '../components/Regions';
-import { loginImageUrl } from '../lib/api';
+import { loginImageUrl, welcomeLogoUrl } from '../lib/api';
 import { Linking } from 'react-native';
 
 export function WelcomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { db } = useStore();
   const loginV = db.settings.loginImageV || 0; // the owner can replace this picture from the control panel
+  const logoV = db.settings.welcomeLogoV || 0; // ... and the logo, the support number and the lines at the bottom too
+  const supportRaw = (db.settings.supportPhone || '').trim() || '01004379508';
+  const supportShown = supportRaw.replace(/^\+?20(?=1\d{9}$)/, '0');
+  const cr = db.settings.credits || DEFAULT_CREDITS;
   return (
     <View style={{ flex: 1, backgroundColor: C.dark }}>
       <Image
@@ -25,13 +29,13 @@ export function WelcomeScreen({ navigation }: any) {
         style={[StyleSheet.absoluteFill, { top: loginV > 0 ? 0 : '28%' }]} contentFit="cover" contentPosition={loginV > 0 ? 'center' : 'bottom'}
       />
       <LinearGradient colors={[C.dark, 'rgba(0,33,26,0.55)', 'rgba(0,33,26,0.2)', 'rgba(0,33,26,0.92)']} locations={[0, 0.35, 0.6, 1]} style={StyleSheet.absoluteFill} />
-      <View style={{ flex: 1, paddingTop: insets.top + 30, paddingBottom: insets.bottom + 20, paddingHorizontal: 24, alignItems: 'center', maxWidth: 520, width: '100%', alignSelf: 'center' }}>
+      <View style={{ flex: 1, paddingTop: insets.top + 30, paddingBottom: insets.bottom + 8, paddingHorizontal: 24, alignItems: 'center', maxWidth: 520, width: '100%', alignSelf: 'center' }}>
         <Animated.View entering={Platform.OS === 'web' ? FadeIn.duration(700) : undefined} style={{ alignItems: 'center' }}>
-          <Logo width={280} />
+          {logoV > 0 ? <Image source={{ uri: welcomeLogoUrl(logoV) }} style={{ width: 280, height: 131 }} contentFit="contain" /> : <Logo width={280} />}
           <T w="bold" size={17} color="#fff" align="center" style={{ marginTop: 6 }}>كل اللي محتاجه في أبيس.. لحد باب بيتك</T>
         </Animated.View>
         <View style={{ flex: 1 }} />
-        <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(500) : undefined} style={{ alignSelf: 'stretch', gap: 12 }}>
+        <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(500) : undefined} style={{ alignSelf: 'stretch', gap: 10 }}>
           <Btn title="ابدأ الآن" icon="arrow-back" onPress={() => navigation.navigate('Login')} />
           <Btn title="إنشاء حساب عميل جديد" variant="ghost" onPress={() => navigation.navigate('Register', { role: 'customer' })} />
           <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -50,15 +54,15 @@ export function WelcomeScreen({ navigation }: any) {
               <T w="bold" size={12.5} color="#fff">حمّل تطبيق الأندرويد</T>
             </Pressable>
           )}
-          <Pressable onPress={() => openWhats('01004379508', 'مرحباً، أحتاج مساعدة في تطبيق أطلب أبيس')} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, paddingTop: 6 }}>
+          <Pressable onPress={() => openWhats(supportRaw, 'مرحباً، أحتاج مساعدة في تطبيق أطلب أبيس')} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, paddingTop: 2 }}>
             <Icon name="logo-whatsapp" size={18} color="#25D366" />
-            <T w="bold" size={13} color="#C9D8D2">01004379508</T>
+            <T w="bold" size={13} color="#C9D8D2">{supportShown}</T>
           </Pressable>
-          <View style={{ alignItems: 'center', gap: 2, paddingTop: 8 }}>
-            <T size={10} color="#8FA89F" align="center" style={{ letterSpacing: 1.5 }}>DESIGNED & DEVELOPED BY</T>
-            <T w="black" size={13} color={C.gold} align="center" style={{ letterSpacing: 1 }}>ENG. AHMED EL-HEFNAWY</T>
-            <T size={11.5} color="#C9D8D2" align="center">تصميم وتطوير وبرمجة المهندس أحمد الحفناوي</T>
-            <T size={10} color="#8FA89F" align="center">© 2026 All Rights Reserved</T>
+          <View style={{ alignItems: 'center', gap: 0, paddingTop: 2 }}>
+            <T size={7.5} color="#8FA89F" align="center" style={{ letterSpacing: 1.2 }}>{cr.a}</T>
+            <T w="black" size={10} color={C.gold} align="center" style={{ letterSpacing: 0.8 }}>{cr.b}</T>
+            <T size={9} color="#C9D8D2" align="center">{cr.c}</T>
+            <T size={7.5} color="#8FA89F" align="center">{cr.d}</T>
           </View>
         </Animated.View>
       </View>

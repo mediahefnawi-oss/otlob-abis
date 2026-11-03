@@ -4,7 +4,7 @@
  */
 export const canPickImage = true;
 
-export async function pickImage(max = 1100): Promise<string | null> {
+export async function pickImage(max = 1100, _png = false): Promise<string | null> {
   try {
     const ImagePicker = require('expo-image-picker');
     const Manipulator = require('expo-image-manipulator');

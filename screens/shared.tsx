@@ -11,11 +11,12 @@ import {
 } from '../components/ui';
 import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened } from '../lib/store';
 import { CommissionTrail } from '../components/Finance';
-import { FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
+import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
 import { QuoteButtons, MakerOrderButtons, RequestPhoto } from '../components/Quote';
 import { PushCard } from '../components/PushCard';
+import { OrderStaffTools } from '../components/StaffTools';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
@@ -53,7 +54,9 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
     else toast('تم تحديث حالة الطلب');
   };
 
-  const canChat = !!o.courierId && !dead && (me.role === 'admin' || me.id === o.customerId || mine);
+  const isStaff = me.role === 'admin' || me.role === 'supervisor';
+  const staffOpen = me.role === 'admin' || (me.role === 'supervisor' && needsStaff(o)); // a supervisor acts only when the shop left the order stuck
+  const canChat = !!o.courierId && !dead && (isStaff || me.id === o.customerId || mine);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -67,7 +70,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
               <View style={{ flex: 1 }}>
                 <T w="black" size={17} color={st.color}>{st.label}</T>
                 <T size={12} color={C.sub}>
-                  {o.status === 'pending' && (isRequest ? 'بانتظار قبول المتجر وتحديد سعر طلبك' : 'في انتظار موافقة مقدم الخدمة')}
+                  {o.status === 'pending' && (isRequest ? 'تم إرسال طلبك، وسيتم تسعيره قريباً' : 'تم إرسال طلبك للمتجر')}
                   {o.status === 'quoted' && 'المتجر حدد السعر، راجع الفاتورة ووافق عليها'}
                   {o.status === 'unavailable' && 'للأسف الأصناف المطلوبة غير متوفرة حالياً'}
                   {o.status === 'accepted' && (o.courierId ? `المندوب ${o.courierName} في الطريق للتجهيز` : 'جاري البحث عن مندوب متاح...')}
@@ -187,7 +190,14 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
 
         {/* actions */}
         <View style={{ gap: 10 }}>
-          {((me.role === 'provider' && o.providerOwnerId === me.id) || me.role === 'admin') && (
+          {me.role === 'supervisor' && !staffOpen && !dead && o.status !== 'delivered' && (
+            <View style={{ flexDirection: 'row', gap: 8, backgroundColor: C.goldSoft, padding: 12, borderRadius: 14, alignItems: 'center' }}>
+              <Icon name="time" size={18} color={C.goldDeep} />
+              <T size={12} color={C.goldDeep} style={{ flex: 1 }}>الطلب ماشي طبيعي مع المتجر والمندوب. تقدر تتدخل لو المتجر رفضه أو ألغاه، أو ما ردّش عليه خلال 30 ثانية (المطاعم: عند الرفض أو الإلغاء فقط).</T>
+            </View>
+          )}
+          {isStaff && <OrderStaffTools o={o} />}
+          {((me.role === 'provider' && o.providerOwnerId === me.id) || staffOpen) && (
             <>
               <QuoteButtons o={o} />
               <MakerOrderButtons o={o} />
@@ -229,10 +239,10 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           {!!o.invoiceId && (me.role === 'customer' || me.role === 'admin' || me.role === 'provider') && (
             <Btn title="عرض الفاتورة" icon="document-text" variant="outline" onPress={() => navigation.navigate('Invoice', { id: o.invoiceId, providerId: me.role === 'provider' ? o.providerId : undefined })} />
           )}
-          {((me.role === 'customer' && o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready'].includes(o.status)) || (me.role === 'admin' && !['delivered', 'cancelled', 'rejected', 'unavailable'].includes(o.status))) && (
+          {((me.role === 'customer' && o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready'].includes(o.status)) || (staffOpen && !['delivered', 'cancelled', 'rejected', 'unavailable'].includes(o.status))) && (
             <Btn title="إلغاء الطلب" icon="close-circle" variant="danger" onPress={() => confirmDialog({ title: 'إلغاء الطلب؟', message: 'لا يمكن التراجع عن الإلغاء', danger: true, confirmText: 'إلغاء الطلب', onConfirm: () => act('cancel') })} />
           )}
-          <Btn title="مشكلة في الطلب؟ تواصل مع الدعم" icon="logo-whatsapp" variant="soft" onPress={() => openWhats('01004379508', `مرحباً، أحتاج مساعدة بخصوص الطلب رقم #${o.number}`)} />
+          <Btn title="مشكلة في الطلب؟ تواصل مع الدعم" icon="logo-whatsapp" variant="soft" onPress={() => openWhats(db.settings.supportPhone || '01004379508', `مرحباً، أحتاج مساعدة بخصوص الطلب رقم #${o.number}`)} />
         </View>
       </ScrollView>
     </View>
@@ -453,7 +463,7 @@ export function ChatScreen({ navigation, route }: any) {
   if (!o) return <Empty title="غير موجود" />;
   const msgs = db.messages.filter((m) => m.orderId === o.id).sort((a, b) => b.createdAt - a.createdAt);
   const other = me.role === 'courier' ? `${o.customerName} (العميل)` : me.role === 'customer' ? `${o.courierName || 'المندوب'} (المندوب)` : `${o.customerName} ↔ ${o.courierName || '—'}`;
-  const canWrite = me.role !== 'admin' && !['delivered', 'cancelled', 'rejected'].includes(o.status);
+  const canWrite = me.role !== 'admin' && me.role !== 'supervisor' && !['delivered', 'cancelled', 'rejected'].includes(o.status);
   const quick = me.role === 'courier' ? ['أنا في الطريق إليك', 'وصلت أمام العنوان', 'ممكن توضح العنوان أكتر؟'] : ['أنا في انتظارك', 'العنوان بجوار المسجد', 'من فضلك اتصل بي عند الوصول'];
 
   const send = (t = text) => {
@@ -464,7 +474,7 @@ export function ChatScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#ECEFE8' }}>
-      <Header title={other} subtitle={`شات طلب #${o.number}`} onBack={() => navigation.goBack()} right={me.role !== 'admin' ? <IconBtn icon="call" onPress={() => callPhone(me.role === 'courier' ? o.phone : db.users.find((u) => u.id === o.courierId)?.phone || '')} /> : undefined} />
+      <Header title={other} subtitle={`شات طلب #${o.number}`} onBack={() => navigation.goBack()} right={me.role !== 'admin' && me.role !== 'supervisor' ? <IconBtn icon="call" onPress={() => callPhone(me.role === 'courier' ? o.phone : db.users.find((u) => u.id === o.courierId)?.phone || '')} /> : undefined} />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <FlatList
           inverted
@@ -580,7 +590,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
   const [regionId, setRegionId] = useState(me.regionId || '');
   const [o, setO] = useState('');
   const [n, setN] = useState('');
-  const roleLabel = { customer: 'عميل', provider: 'مقدم خدمة', courier: 'مندوب توصيل', admin: 'مدير التطبيق' }[me.role];
+  const roleLabel = { customer: 'عميل', provider: 'مقدم خدمة', courier: 'مندوب توصيل', admin: 'مدير التطبيق', supervisor: 'مشرف' }[me.role];
 
   const Item = ({ icon, label, onPress, danger, sub }: { icon: string; label: string; onPress: () => void; danger?: boolean; sub?: string }) => (
     <Pressable onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13 }}>

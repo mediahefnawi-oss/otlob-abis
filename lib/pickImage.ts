@@ -6,7 +6,7 @@ import { Platform } from 'react-native';
  */
 export const canPickImage = Platform.OS === 'web' && typeof document !== 'undefined';
 
-function shrink(file: File, max: number): Promise<string | null> {
+function shrink(file: File, max: number, png = false): Promise<string | null> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onerror = () => resolve(null);
@@ -21,6 +21,18 @@ function shrink(file: File, max: number): Promise<string | null> {
         canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext('2d');
         if (!ctx) return resolve(null);
+        if (png) { // keeps the transparent background (a logo): shrink until it fits what the server accepts
+          let w = canvas.width, h = canvas.height;
+          for (let i = 0; i < 6; i++) {
+            canvas.width = w; canvas.height = h;
+            ctx.clearRect(0, 0, w, h);
+            ctx.drawImage(img, 0, 0, w, h);
+            const out = canvas.toDataURL('image/png');
+            if (out.length < 1300000) return resolve(out);
+            w = Math.round(w * 0.8); h = Math.round(h * 0.8);
+          }
+          return resolve(null);
+        }
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -37,7 +49,7 @@ function shrink(file: File, max: number): Promise<string | null> {
   });
 }
 
-export function pickImage(max = 1100): Promise<string | null> {
+export function pickImage(max = 1100, png = false): Promise<string | null> {
   if (!canPickImage) return Promise.resolve(null);
   return new Promise((resolve) => {
     const input = document.createElement('input');
@@ -45,7 +57,7 @@ export function pickImage(max = 1100): Promise<string | null> {
     input.accept = 'image/*';
     input.onchange = async () => {
       const file = input.files && input.files[0];
-      resolve(file ? await shrink(file, max) : null);
+      resolve(file ? await shrink(file, max, png) : null);
     };
     input.click();
   });

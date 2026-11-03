@@ -50,7 +50,7 @@ export const readyLabel = (date?: string, time?: string) => {
 };
 
 const RAW_ORDER_STATUS: Record<OrderStatus, { label: string; color: string; soft: string; icon: string }> = {
-  pending: { label: 'بانتظار المتجر', color: C.goldDeep, soft: C.goldSoft, icon: 'time' },
+  pending: { label: 'تم إرسال الطلب', color: C.goldDeep, soft: C.goldSoft, icon: 'time' },
   accepted: { label: 'قيد التحضير', color: C.blue, soft: C.blueSoft, icon: 'flame' },
   ready: { label: 'جاهز للاستلام', color: '#8A5CD1', soft: '#EFE6FB', icon: 'bag-check' },
   picked_up: { label: 'استلم المندوب الطلب', color: '#8A5CD1', soft: '#EFE6FB', icon: 'bag-check' },
@@ -120,3 +120,18 @@ export const hash = (s: string) => {
   }
   return 'h' + (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36);
 };
+
+/** The developer lines at the bottom of the first screen (the owner can change them from the control panel). */
+export const DEFAULT_CREDITS = { a: 'DESIGNED & DEVELOPED BY', b: 'ENG. AHMED EL-HEFNAWY', c: 'تصميم وتطوير وبرمجة المهندس أحمد الحفناوي', d: '© 2026 All Rights Reserved' };
+
+/**
+ * Orders run by themselves. A supervisor steps in only when the shop refused the order, cancelled it, left it unanswered for this long
+ * (restaurants: only refuse / cancel), or he already took it over.
+ */
+export const STAFF_WAIT_MS = 30 * 1000;
+export const needsStaff = (o: { status: string; updatedAt: number; staffHandled?: boolean; cancelledBy?: string; providerType?: string }) =>
+  o.status === 'rejected' || !!o.staffHandled || (o.status === 'cancelled' && o.cancelledBy === 'provider')
+  || (o.providerType !== 'restaurant' && o.status === 'pending' && Date.now() - o.updatedAt >= STAFF_WAIT_MS);
+/** The supervisor's "needs attention" list: refused / cancelled orders stay for 24 hours. */
+export const inStaffQueue = (o: { status: string; updatedAt: number; staffHandled?: boolean; cancelledBy?: string; providerType?: string }) =>
+  needsStaff(o) && (['rejected', 'cancelled'].includes(o.status) ? Date.now() - o.updatedAt < 24 * 3600 * 1000 : !['delivered', 'unavailable'].includes(o.status));

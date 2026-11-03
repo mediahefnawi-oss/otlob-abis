@@ -93,7 +93,7 @@ async function maintenanceState() {
   return settingsMemo.set('m', { enabled: r.rows[0].app_enabled, message: r.rows[0].maintenance_message || 'التطبيق متوقف مؤقتًا للصيانة' });
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined });
+const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
 const positiveId = value => {
   const n = Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
@@ -150,7 +150,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261106;
+const SCHEMA_VERSION = 20261109;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -363,6 +363,48 @@ app.get('/api/admin/users', auth, roles('admin'), asyncRoute(async (req, res) =>
   const r = await pool.query(sql, values);
   res.json({ users: r.rows.map(row => ({ ...cleanUser(row), accountFlag: row.account_flag || '', flagNote: row.flag_note || '' })) });
 }));
+// Supervisors: staff accounts the owner creates. They run the orders of the areas given to them and nothing else.
+async function cleanRegionIds(list) {
+  const ids = [...new Set((Array.isArray(list) ? list : []).map(positiveId).filter(Boolean))].slice(0, 200);
+  if (!ids.length) return '';
+  const ok = await pool.query('SELECT id FROM regions WHERE id = ANY($1::bigint[])', [ids]);
+  return ok.rows.map(r => r.id).join(',');
+}
+app.post('/api/admin/supervisors', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const { name, phone, password, regionIds } = req.body || {};
+  const p = String(phone || '').replace(/\s+/g, '');
+  if (!name || String(name).trim().length < 3) return res.status(400).json({ error: 'اكتب اسم المشرف بالكامل' });
+  if (!/^01[0-9]{9}$/.test(p)) return res.status(400).json({ error: 'رقم الهاتف غير صحيح' });
+  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' });
+  const regions = await cleanRegionIds(regionIds);
+  try {
+    const r = await pool.query("INSERT INTO users(name,phone,password_hash,role,address,status,sup_regions) VALUES($1,$2,$3,'supervisor','مشرف','active',$4) RETURNING *", [String(name).trim(), p, await bcrypt.hash(password, 12), regions]);
+    res.status(201).json({ user: { ...cleanUser(r.rows[0]), accountFlag: '', flagNote: '' } });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'رقم الهاتف مسجل بالفعل' });
+    throw e;
+  }
+}));
+app.patch('/api/admin/supervisors/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const b = req.body || {};
+  const cur = await pool.query("SELECT * FROM users WHERE id=$1 AND role='supervisor' AND deleted_at IS NULL", [id]);
+  if (!cur.rowCount) return res.status(404).json({ error: 'المشرف غير موجود' });
+  const name = typeof b.name === 'string' && b.name.trim().length >= 3 ? b.name.trim().slice(0, 100) : cur.rows[0].name;
+  const regions = Array.isArray(b.regionIds) ? await cleanRegionIds(b.regionIds) : cur.rows[0].sup_regions;
+  const r = await pool.query('UPDATE users SET name=$1, sup_regions=$2 WHERE id=$3 RETURNING *', [name, regions, id]);
+  authMemo.clear();
+  res.json({ user: { ...cleanUser(r.rows[0]), accountFlag: '', flagNote: '' } });
+}));
+app.delete('/api/admin/supervisors/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const r = await pool.query("UPDATE users SET deleted_at=NOW(), status='suspended' WHERE id=$1 AND role='supervisor' AND deleted_at IS NULL RETURNING id", [id]);
+  if (!r.rowCount) return res.status(404).json({ error: 'المشرف غير موجود' });
+  authMemo.clear();
+  res.json({ ok: true });
+}));
 // Deleting a courier: orders keep pointing at the account, so it is suspended and hidden for good (never listed again).
 app.delete('/api/admin/couriers/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
   const id = positiveId(req.params.id);
@@ -555,15 +597,19 @@ app.post('/api/push/unsubscribe', auth, asyncRoute(async (req, res) => {
 async function loadSettings() {
   const hit = settingsMemo.get('s');
   if (hit) return hit;
-  const r = await pool.query('SELECT app_enabled,maintenance_message,announcement,auto_assign,support_phone,support_name,apk_url,updated_at FROM app_settings WHERE id=1');
+  const r = await pool.query('SELECT app_enabled,maintenance_message,announcement,auto_assign,support_phone,support_name,apk_url,credits,updated_at FROM app_settings WHERE id=1');
   const x = r.rows[0];
+  let welcomeLogoV = 0;
+  try { const wl = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='welcome_logo'"); if (wl.rowCount) welcomeLogoV = Number(wl.rows[0].v); } catch { /* table not migrated yet */ }
+  let credits = null;
+  try { const c = JSON.parse(x.credits || 'null'); if (c && typeof c === 'object') credits = { a: String(c.a || ''), b: String(c.b || ''), c: String(c.c || ''), d: String(c.d || '') }; } catch { credits = null; }
   let loginImageV = 0;
   try { const li = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='login'"); if (li.rowCount) loginImageV = Number(li.rows[0].v); } catch { /* table not migrated yet */ }
   let appIconV = 0;
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 app.get('/api/settings', asyncRoute(async (_req, res) => {
   res.json({ settings: await loadSettings() });
@@ -573,8 +619,9 @@ app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, re
   const current = (await pool.query('SELECT * FROM app_settings WHERE id=1')).rows[0];
   const boolField = (v, old) => typeof v === 'boolean' ? v : old;
   const textField = (v, old, max=500) => typeof v === 'string' ? v.trim().slice(0,max) : old;
-  const r = await pool.query(`UPDATE app_settings SET app_enabled=$1,maintenance_message=$2,announcement=$3,auto_assign=$4,support_phone=$5,support_name=$6,apk_url=$7,updated_at=NOW() WHERE id=1 RETURNING *`, [
-    boolField(b.appEnabled,current.app_enabled), textField(b.maintenanceMessage,current.maintenance_message), textField(b.announcement,current.announcement), boolField(b.autoAssign,current.auto_assign), textField(b.supportPhone,current.support_phone,40), textField(b.supportName,current.support_name,100), (() => { const u = textField(b.apkUrl, current.apk_url, 500); return u === '' || /^https:\/\/[^\s]+$/i.test(u) ? u : current.apk_url; })()
+  const r = await pool.query(`UPDATE app_settings SET app_enabled=$1,maintenance_message=$2,announcement=$3,auto_assign=$4,support_phone=$5,support_name=$6,apk_url=$7,credits=$8,updated_at=NOW() WHERE id=1 RETURNING *`, [
+    boolField(b.appEnabled,current.app_enabled), textField(b.maintenanceMessage,current.maintenance_message), textField(b.announcement,current.announcement), boolField(b.autoAssign,current.auto_assign), textField(b.supportPhone,current.support_phone,40), textField(b.supportName,current.support_name,100), (() => { const u = textField(b.apkUrl, current.apk_url, 500); return u === '' || /^https:\/\/[^\s]+$/i.test(u) ? u : current.apk_url; })(),
+    (() => { if (b.credits === null) return ''; if (!b.credits || typeof b.credits !== 'object') return current.credits || ''; const f = (v) => String(v == null ? '' : v).trim().slice(0, 120); return JSON.stringify({ a: f(b.credits.a), b: f(b.credits.b), c: f(b.credits.c), d: f(b.credits.d) }); })()
   ]);
   const x = r.rows[0];
   res.json({ settings: await loadSettings() });
@@ -605,6 +652,35 @@ async function listProducts(viewer, providerId) {
   sql += ' ORDER BY pr.created_at ASC LIMIT 2000';
   return (await pool.query(sql, values)).rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available, imageV: x.image_v ? Number(x.image_v) : 0 }));
 }
+/** "fromAreaId:toAreaId" -> delivery price (shop's area -> customer's area) */
+async function listRoutePrices() {
+  try {
+    const r = await pool.query('SELECT from_region_id, to_region_id, price FROM route_prices');
+    return Object.fromEntries(r.rows.map(x => [`${x.from_region_id}:${x.to_region_id}`, Number(x.price)]));
+  } catch { return {}; } // table not migrated yet
+}
+app.put('/api/admin/route-prices', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const from = positiveId((req.body || {}).fromId);
+  const list = Array.isArray((req.body || {}).prices) ? req.body.prices.slice(0, 300) : [];
+  if (!from) return res.status(400).json({ error: 'اختر منطقة المتجر' });
+  const known = new Set((await pool.query('SELECT id FROM regions')).rows.map(r => Number(r.id)));
+  if (!known.has(from)) return res.status(400).json({ error: 'المنطقة غير موجودة' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const it of list) {
+      const to = positiveId(it && it.toId);
+      if (!to || !known.has(to)) continue;
+      const empty = it.price === null || it.price === undefined || it.price === '';
+      if (empty) { await client.query('DELETE FROM route_prices WHERE from_region_id=$1 AND to_region_id=$2', [from, to]); continue; }
+      const price = Number(it.price);
+      if (!Number.isFinite(price) || price < 0 || price > 100000) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'السعر غير صحيح' }); }
+      await client.query('INSERT INTO route_prices(from_region_id, to_region_id, price, updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT (from_region_id, to_region_id) DO UPDATE SET price=EXCLUDED.price, updated_at=NOW()', [from, to, Math.round(price * 100) / 100]);
+    }
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
+  res.json({ routePrices: await listRoutePrices() });
+}));
 async function listRegions(viewer) {
   const all = viewer && viewer.role === 'admin';
   const r = await pool.query(`SELECT * FROM regions ${all ? '' : 'WHERE active=TRUE'} ORDER BY sort_order, id`);
@@ -631,8 +707,8 @@ app.get('/api/catalog', optionalAuth, asyncRoute(async (req, res) => {
   const key = v && (v.role === 'admin' || v.role === 'provider') ? `${v.role}:${v.id}` : 'public';
   const hit = req.query.fresh ? undefined : catalogMemo.get(key);
   if (hit) return res.json(hit);
-  const [providers, products, regions, ads] = await Promise.all([listProviders(v), listProducts(v), listRegions(v), listAds(v).catch(() => [])]);
-  res.json(catalogMemo.set(key, { providers, products, regions, ads }));
+  const [providers, products, regions, ads, routePrices] = await Promise.all([listProviders(v), listProducts(v), listRegions(v), listAds(v).catch(() => []), listRoutePrices()]);
+  res.json(catalogMemo.set(key, { providers, products, regions, ads, routePrices }));
 }));
 
 // Owner of the service (or the app owner) edits the service details / open-closed switch.

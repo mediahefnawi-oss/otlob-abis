@@ -26,7 +26,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
       courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
-      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [],
+      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], staffHandled: d.staffHandled ? true : undefined, cancelledBy: d.cancelledBy || undefined,
     };
   };
   const invoiceJson = r => ({
@@ -57,6 +57,14 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const r = await db.query('SELECT u.region_id, g.name, g.delivery_fee FROM users u LEFT JOIN regions g ON g.id=u.region_id AND g.active=TRUE WHERE u.id=$1', [userId]);
     const row = r.rows[0] || {};
     return row.name ? { id: row.region_id, name: row.name, fee: Number(row.delivery_fee) } : null;
+  }
+  /** The owner's price for delivering from this shop's area to the customer's area (null = none set: the customer's area price is used). */
+  async function routeFee(db, providerId, customerRegionId) {
+    if (!customerRegionId) return null;
+    try {
+      const r = await db.query('SELECT rp.price FROM providers p JOIN users u ON u.id=p.owner_user_id JOIN route_prices rp ON rp.from_region_id=u.region_id AND rp.to_region_id=$2 WHERE p.id=$1', [providerId, customerRegionId]);
+      return r.rowCount ? Number(r.rows[0].price) : null;
+    } catch { return null; } // table not migrated yet: never block an order
   }
   /** The owner's label on the customer (trusted / watch / fraud), copied onto the order so shops and couriers see it. */
   async function flagData(db, userId) {
@@ -95,15 +103,15 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const r = await db.query('UPDATE orders SET status=$1, data=$2, courier_user_id=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [status, JSON.stringify(d), cid, row.id]);
     return r.rows[0];
   }
-  /** Auto-assign: least busy available courier, preferring the order's own area. */
+  /** Auto-assign (when the owner switched it on): the least busy available courier whose area is the order's area. No courier there = the order waits for a courier to take it. */
   async function tryAutoAssign(db, row) {
     if (row.courier_user_id) return row;
     const s = await db.query('SELECT auto_assign FROM app_settings WHERE id=1');
     if (!s.rowCount || !s.rows[0].auto_assign) return row;
     const c = await db.query(
-      `SELECT u.id, u.name, u.phone, u.vehicle FROM users u WHERE u.role='courier' AND u.status='active' AND u.available=TRUE
-       ORDER BY (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1)) ASC,
-                (u.region_id IS NOT DISTINCT FROM $2::bigint) DESC, u.available_since ASC NULLS LAST LIMIT 1`, [BUSY, row.region_id]);
+      `SELECT u.id, u.name, u.phone, u.vehicle FROM users u WHERE u.role='courier' AND u.status='active' AND u.available=TRUE AND u.deleted_at IS NULL
+         AND $2::bigint IS NOT NULL AND u.region_id = $2::bigint
+       ORDER BY (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1)) ASC, u.available_since ASC NULLS LAST LIMIT 1`, [BUSY, row.region_id]);
     if (!c.rowCount) return row;
     const updated = await moveOrder(db, row, row.status, {}, { id: c.rows[0].id, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
     await sysMsg(db, row.id, `تم تعيين المندوب ${c.rows[0].name} تلقائياً لتوصيل طلبك 🛵`);
@@ -122,6 +130,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     } finally { client.release(); }
   }
   const fail = (status, error) => Object.assign(new Error(error), { http: status });
+  const audit = (db, actorId, action, entity, entityId, before, after) => db.query(
+    `INSERT INTO audit_log(actor_user_id, actor_name, action, entity, entity_id, before, after, note)
+     VALUES($1::bigint, COALESCE((SELECT name FROM users WHERE id=$1::bigint), 'النظام'), $2, $3, $4, $5, $6, '')`,
+    [actorId || null, action, entity, String(entityId || ''), before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null]);
   const guard = fn => asyncRoute(async (req, res) => {
     try { await fn(req, res); } catch (e) {
       if (e && e.http) return res.status(e.http).json({ error: e.message });
@@ -176,7 +188,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const tag = `order-${row.id}`;
       const jobs = [];
       switch (action) {
-        case 'accept': if (d.providerType === 'maker') jobs.push(notify(cust, 'قبل الصانع طلبك 🧵', d.readyDate ? `جاهز ${d.readyDate} الساعة ${d.readyTime}` : (row.status === 'ready' ? 'جاهز للتسليم الآن' : (d.providerName || '')), tag), notifyCouriers([row])); break;
+        case 'accept': jobs.push(notify(cust, d.providerType === 'maker' ? 'قبل الصانع طلبك 🧵' : 'قبل المتجر طلبك 👨‍🍳', d.providerType === 'maker' && d.readyDate ? `جاهز ${d.readyDate} الساعة ${d.readyTime}` : (row.status === 'ready' ? 'جاهز للتسليم الآن' : (d.providerName || '')), tag), notifyCouriers([row])); break;
         case 'approve_quote': jobs.push(notify(shop, 'وافق العميل على السعر ✅', `${d.customerName || ''} — ${Number(row.total)} ج.م`, tag), notifyCouriers([row])); break;
         case 'courier_accept': jobs.push(notify(cust, `المندوب ${d.courierName || ''} قبل طلبك 🛵`, 'وسيتولى التوصيل', tag), notify(shop, 'مندوب سيستلم الطلب', d.courierName || '', tag)); break;
         case 'pickup': jobs.push(notify(cust, 'استلم المندوب طلبك 📦', d.providerName || '', tag)); break;
@@ -197,9 +209,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   // a parameter is added only when the returned SQL really uses it (PostgreSQL rejects extra parameters)
   function orderScope(user, values) {
     if (user.role === 'admin') return 'TRUE';
-    if (!['customer', 'provider', 'courier'].includes(user.role)) return 'FALSE';
+    if (!['customer', 'provider', 'courier', 'supervisor'].includes(user.role)) return 'FALSE';
     values.push(Number(user.sub));
     const i = values.length;
+    // a supervisor sees only the orders of the areas the owner gave him
+    if (user.role === 'supervisor') return `o.region_id IN (SELECT unnest(string_to_array(NULLIF(sup_regions,''),','))::bigint FROM users WHERE id=$${i})`;
     if (user.role === 'customer') return `o.customer_user_id=$${i}`;
     if (user.role === 'provider') return `o.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i})`;
     return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('accepted','ready')))`;
@@ -232,6 +246,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         (SELECT COUNT(*)||':'||COALESCE(MAX(m.id),0) FROM messages m WHERE m.order_id IN (SELECT id FROM ord)) AS m,
         (SELECT updated_at::text FROM app_settings WHERE id=1) AS s,
         (SELECT updated_at::text FROM site_images WHERE key='login') AS li,
+        (SELECT updated_at::text FROM site_images WHERE key='welcome_logo') AS wl,
         (SELECT MAX(updated_at)::text||':'||COUNT(*) FROM site_images WHERE key LIKE 'cat\\_%') AS ci,
         (SELECT COUNT(*) FROM users WHERE role='courier' AND status='active' AND available=TRUE) AS c,
         (SELECT COALESCE(SUM(hashtextextended(x.id::text||x.status||x.updated_at::text,0)::numeric),0)::text FROM appointments x WHERE x.status IN ('pending','confirmed') AND x.appointment_date >= CURRENT_DATE - 1) AS sl`, p);
@@ -318,15 +333,15 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const region = await regionOf(db, Number(req.auth.sub));
       const orders = [];
       for (const g of groups.values()) {
-        const fee = g.p.ptype === 'clinic' ? 0 : region ? region.fee : Number(g.p.pfee);
+        const fee = g.p.ptype === 'clinic' ? 0 : region ? ((await routeFee(db, g.p.provider_id, region.id)) ?? region.fee) : Number(g.p.pfee);
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
           providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub))),
-          // a maker decides first (ready now / a day and hour / apologise); every other shop starts preparing at once
-          history: g.p.ptype === 'maker' ? [{ status: 'pending', at: Date.now() }] : [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
+          // every shop decides first: it must press accept or reject (a maker also picks the ready day and hour); nothing starts by itself
+          history: [{ status: 'pending', at: Date.now() }],
         };
         const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
-          [Number(req.auth.sub), g.p.provider_id, g.p.ptype === 'maker' ? 'pending' : 'accepted', g.subtotal + fee, region ? region.id : null, JSON.stringify(d)]);
+          [Number(req.auth.sub), g.p.provider_id, 'pending', g.subtotal + fee, region ? region.id : null, JSON.stringify(d)]);
         orders.push(r.rows[0]);
       }
       const total = orders.reduce((s, o) => s + Number(o.total), 0);
@@ -342,11 +357,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       for (const o of orders) {
         const d = { ...o.data, groupId: String(inv.rows[0].id), invoiceId: String(inv.rows[0].id) };
         let row = (await db.query('UPDATE orders SET updated_at=NOW(), data=$1 WHERE id=$2 RETURNING *', [JSON.stringify(d), o.id])).rows[0];
-        if (row.status === 'pending') await sysMsg(db, row.id, 'تم إرسال طلبك للصانع، وسيقبله ويحدد موعد جاهزيته أو يعتذر عنه 🧵');
-        else {
-          await sysMsg(db, row.id, 'تم استلام طلبك وجاري التحضير 👨‍🍳');
-          row = await tryAutoAssign(db, row);
-        }
+        await sysMsg(db, row.id, (o.data || {}).providerType === 'maker' ? 'تم إرسال طلبك للصانع، وسيقبله ويحدد موعد جاهزيته أو يعتذر عنه 🧵' : 'تم إرسال طلبك للمتجر ✅');
         finalOrders.push(row);
       }
       const u = await db.query('UPDATE users SET address=$1 WHERE id=$2 RETURNING *', [address, Number(req.auth.sub)]);
@@ -410,7 +421,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
-      const fee = region ? region.fee : Number(prov.delivery_fee);
+      const fee = region ? ((await routeFee(db, prov.id, region.id)) ?? region.fee) : Number(prov.delivery_fee);
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
         items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub))),
@@ -427,7 +438,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   }));
 
   /** The shop prices the request (lines of name × price × quantity), or says the items are not available. */
-  app.post('/api/orders/:id/quote', auth, roles('provider', 'admin'), guard(async (req, res) => {
+  app.post('/api/orders/:id/quote', auth, roles('provider', 'admin', 'supervisor'), guard(async (req, res) => {
     const id = positiveId(req.params.id);
     if (!id) throw fail(400, 'معرّف الطلب غير صالح');
     const b = req.body || {};
@@ -456,7 +467,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const f = await db.query('SELECT o.*, p.owner_user_id AS powner FROM orders o JOIN providers p ON p.id=o.provider_id WHERE o.id=$1 FOR UPDATE OF o', [id]);
       if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
       const row = f.rows[0];
-      if (req.auth.role !== 'admin' && Number(row.powner) !== Number(req.auth.sub)) throw fail(403, 'غير مسموح');
+      if (req.auth.role === 'supervisor') {
+        // a supervisor may price a written request only in his areas and only when the shop left it stuck (or he already took it over)
+        if (!(await staffCan(db, req.auth, row))) throw fail(403, 'هذا الطلب خارج مناطقك');
+        if (!needsStaff(row)) throw fail(409, 'المتجر ما زال أمامه وقت للرد على الطلب');
+      } else if (req.auth.role !== 'admin' && Number(row.powner) !== Number(req.auth.sub)) throw fail(403, 'غير مسموح');
       if (!row.data || !row.data.request) throw fail(400, 'هذا ليس طلباً مكتوباً');
       if (!['pending', 'quoted'].includes(row.status)) throw fail(409, 'حالة الطلب لا تسمح بالتسعير الآن');
       const isMaker = row.data.providerType === 'maker';
@@ -478,7 +493,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       if (invoiceId) await db.query('UPDATE invoices SET total=$1, data=$2 WHERE id=$3', [total, JSON.stringify(invData), invoiceId]);
       else invoiceId = (await db.query('INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,\'delivery\',$3,$4) RETURNING id',
         [row.customer_user_id, row.id, total, JSON.stringify(invData)])).rows[0].id;
-      const d = { ...row.data, items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, invoiceId: String(invoiceId), groupId: String(invoiceId), quoteNote: note, ...(isMaker && !unavailable ? { readyDate, readyTime } : {}) };
+      const d = { ...row.data, ...(req.auth.role === 'supervisor' ? { staffHandled: true } : {}), items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, invoiceId: String(invoiceId), groupId: String(invoiceId), quoteNote: note, ...(isMaker && !unavailable ? { readyDate, readyTime } : {}) };
       const r = await db.query('UPDATE orders SET status=$1, total=$2, data=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [unavailable ? 'unavailable' : 'quoted', total, JSON.stringify({ ...d, history: [...(d.history || []), { status: unavailable ? 'unavailable' : 'quoted', at: Date.now() }] }), row.id]);
       await sysMsg(db, row.id, unavailable
         ? (isMaker ? `اعتذر الصانع عن تنفيذ الطلب${note ? `: ${note}` : ''}` : `للأسف الأصناف المطلوبة غير متوفرة حالياً${note ? `: ${note}` : ''}`)
@@ -495,13 +510,120 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   app.get('/api/orders/:id/image', auth, guard(async (req, res) => {
     const id = positiveId(req.params.id);
     if (!id) throw fail(400, 'معرّف الطلب غير صالح');
-    const f = await pool.query('SELECT o.customer_user_id, o.courier_user_id, p.owner_user_id AS powner, i.image FROM orders o LEFT JOIN providers p ON p.id=o.provider_id LEFT JOIN order_images i ON i.order_id=o.id WHERE o.id=$1', [id]);
+    const f = await pool.query('SELECT o.customer_user_id, o.courier_user_id, o.region_id, p.owner_user_id AS powner, i.image FROM orders o LEFT JOIN providers p ON p.id=o.provider_id LEFT JOIN order_images i ON i.order_id=o.id WHERE o.id=$1', [id]);
     if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
     const r = f.rows[0]; const me = Number(req.auth.sub);
-    const ok = req.auth.role === 'admin' || [r.customer_user_id, r.courier_user_id, r.powner].some(v => v && Number(v) === me);
+    const ok = req.auth.role === 'admin' || (req.auth.role === 'supervisor' && await staffCan(pool, req.auth, r)) || [r.customer_user_id, r.courier_user_id, r.powner].some(v => v && Number(v) === me);
     if (!ok) throw fail(403, 'غير مسموح');
     res.set('Cache-Control', 'private, max-age=3600');
     res.json({ image: r.image || null });
+  }));
+
+  /* ---------- supervisors: owner-created staff who step in only when a shop leaves an order stuck ---------- */
+  const STAFF_WAIT_MS = 30 * 1000; // a shop that has not answered for this long is considered not to have seen the order
+  /** Orders run by themselves. A supervisor may act only on one the shop refused, one it left unanswered, or one he already took over. */
+  // restaurants: the supervisor steps in only when the restaurant refused or cancelled; every other shop also when it stays silent
+  const needsStaff = row => {
+    const d = row.data || {};
+    if (row.status === 'rejected' || d.staffHandled || (row.status === 'cancelled' && d.cancelledBy === 'provider')) return true;
+    return d.providerType !== 'restaurant' && row.status === 'pending' && Date.now() - new Date(row.updated_at).getTime() >= STAFF_WAIT_MS;
+  };
+  /** May this account manage that order? The owner: any. A supervisor: only orders of his areas. */
+  async function staffCan(db, auth, row) {
+    if (auth.role === 'admin') return true;
+    if (auth.role !== 'supervisor' || !row.region_id) return false;
+    const r = await db.query('SELECT sup_regions FROM users WHERE id=$1', [Number(auth.sub)]);
+    const list = String((r.rows[0] || {}).sup_regions || '').split(',').filter(Boolean).map(Number);
+    return list.includes(Number(row.region_id));
+  }
+  app.get('/api/staff/couriers', auth, roles('admin', 'supervisor'), asyncRoute(async (_req, res) => {
+    const r = await pool.query(`SELECT u.id, u.name, u.phone, u.vehicle, u.available, u.region_id,
+        (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1)) AS busy
+      FROM users u WHERE u.role='courier' AND u.status='active' AND u.deleted_at IS NULL ORDER BY u.available DESC, u.name LIMIT 300`, [BUSY]);
+    res.json({ couriers: r.rows.map(c => ({ id: String(c.id), name: c.name, phone: c.phone, vehicle: c.vehicle || '', available: !!c.available, regionId: c.region_id ? String(c.region_id) : '', busy: Number(c.busy) })) });
+  }));
+  /** Link an order to a chosen courier (also moves it from one courier to another while it has not been picked up). */
+  app.post('/api/orders/:id/assign', auth, roles('admin', 'supervisor'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    const cid = positiveId((req.body || {}).courierId);
+    if (!id || !cid) throw fail(400, 'اختر المندوب');
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [id]);
+      if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+      const row = f.rows[0];
+      if (!(await staffCan(db, req.auth, row))) throw fail(403, 'هذا الطلب خارج مناطقك');
+      if (!['accepted', 'ready'].includes(row.status)) throw fail(409, 'يمكن تعيين مندوب بعد قبول الطلب وقبل استلامه فقط');
+      if (req.auth.role === 'supervisor' && !needsStaff(row)) throw fail(409, 'الطلب ماشي طبيعي مع المتجر، لا يمكن التدخل فيه');
+      const c = await db.query("SELECT id, name, phone, vehicle FROM users WHERE id=$1 AND role='courier' AND status='active' AND deleted_at IS NULL", [cid]);
+      if (!c.rowCount) throw fail(404, 'المندوب غير متاح');
+      if (Number(row.courier_user_id) === cid) throw fail(409, 'الطلب معيّن لهذا المندوب بالفعل');
+      const next = await moveOrder(db, row, row.status, {}, { id: c.rows[0].id, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
+      await sysMsg(db, id, `تم تعيين المندوب ${c.rows[0].name} لتوصيل طلبك 🛵`);
+      await audit(db, Number(req.auth.sub), 'order.assign', 'order', String(id), { courierId: row.courier_user_id ? String(row.courier_user_id) : null }, { courierId: String(cid) });
+      return { next, prev: row.courier_user_id };
+    });
+    await Promise.allSettled([
+      notify([cid], 'تم تعيين طلب لك 🛵', `${(out.next.data || {}).providerName || ''} — ${(out.next.data || {}).regionName || (out.next.data || {}).address || ''}`, `order-${id}`),
+      notify([out.next.customer_user_id], `المندوب ${(out.next.data || {}).courierName || ''} سيوصّل طلبك 🛵`, '', `order-${id}`),
+      out.prev && Number(out.prev) !== cid ? notify([out.prev], 'تم سحب الطلب منك', `#${out.next.order_number}`, `order-${id}`) : Promise.resolve(),
+    ]);
+    res.json({ order: orderJsonFor(out.next, req.auth.role) });
+  }));
+  /** Send a written request that its shop refused to another shop / pharmacy / maker. */
+  app.post('/api/orders/:id/transfer', auth, roles('admin', 'supervisor'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    const pid = positiveId((req.body || {}).providerId);
+    if (!id || !pid) throw fail(400, 'اختر مقدم الخدمة');
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [id]);
+      if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+      const row = f.rows[0];
+      if (!(await staffCan(db, req.auth, row))) throw fail(403, 'هذا الطلب خارج مناطقك');
+      const isReq = !!(row.data && row.data.request);
+      const byShop = row.status === 'cancelled' && row.data && row.data.cancelledBy === 'provider';
+      if (!row.provider_id || !row.data || (!isReq && !(row.data.items || []).length)) throw fail(409, 'هذا الطلب لا يُحوَّل');
+      // only an order the shop has not accepted (still waiting, or refused / cancelled by the shop); once accepted it stays with that shop
+      if (!['pending', 'rejected'].includes(row.status) && !byShop) throw fail(409, 'لا يمكن تحويل الطلب بعد أن قبله مقدم الخدمة');
+      if (req.auth.role === 'supervisor' && !needsStaff(row)) throw fail(409, 'المتجر ما زال أمامه وقت للرد على الطلب');
+      if (Number(row.provider_id) === pid) throw fail(409, 'الطلب عند هذا المتجر بالفعل');
+      const p = await db.query("SELECT id, owner_user_id, type, name, status FROM providers WHERE id=$1 AND deleted_at IS NULL", [pid]);
+      const prov = p.rows[0];
+      if (!prov || prov.status !== 'active') throw fail(404, 'مقدم الخدمة غير متاح');
+      if (isReq && !['supermarket', 'pharmacy', 'maker'].includes(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
+      if (!isReq && prov.type !== row.data.providerType) throw fail(400, 'حوّل الطلب إلى نفس نوع الخدمة');
+      const oldOwner = row.data.providerOwnerId;
+      const d = { ...row.data, providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id), providerRegionName: await providerRegionName(db, prov.id) };
+      // back to "waiting" at the new shop: the refusal / cancellation, any courier and (for a written request) the old price are cleared
+      let total = 0;
+      let patch = { ...d, rejectReason: undefined, cancelledBy: undefined, staffHandled: undefined, readyDate: undefined, readyTime: undefined };
+      if (isReq) patch = { ...patch, invoiceId: undefined, subtotal: 0 };
+      else {
+        // the order keeps its items and prices; only the delivery price follows the new shop's area
+        const reg = row.region_id ? await db.query('SELECT delivery_fee FROM regions WHERE id=$1', [row.region_id]) : { rowCount: 0 };
+        const fee = reg.rowCount ? ((await routeFee(db, prov.id, row.region_id)) ?? Number(reg.rows[0].delivery_fee)) : num(row.data.deliveryFee);
+        total = num(row.data.subtotal) + fee;
+        patch = { ...patch, deliveryFee: fee };
+        if (row.data.invoiceId) {
+          const iv = await db.query('SELECT * FROM invoices WHERE id=$1 FOR UPDATE', [Number(row.data.invoiceId)]);
+          if (iv.rowCount) {
+            const idata = iv.rows[0].data || {};
+            const parts = (idata.parts || []).map(pt => String(pt.orderId) === String(row.id) ? { ...pt, providerId: String(prov.id), providerName: prov.name, providerType: prov.type, deliveryFee: fee } : pt);
+            await db.query('UPDATE invoices SET total=total-$1+$2, data=$3 WHERE id=$4', [num(row.total), total, JSON.stringify({ ...idata, parts }), iv.rows[0].id]);
+          }
+        }
+      }
+      await moveOrder(db, row, 'pending', patch, null);
+      const r = await db.query('UPDATE orders SET provider_id=$1, total=$2 WHERE id=$3 RETURNING *', [prov.id, total, id]);
+      await sysMsg(db, id, isReq ? `تم تحويل طلبك إلى ${prov.name}، وسيقوم بتسعيره قريباً 🔁` : `تم تحويل طلبك إلى ${prov.name}، وبانتظار قبوله 🔁`);
+      await audit(db, Number(req.auth.sub), 'order.transfer', 'order', String(id), { providerId: row.provider_id ? String(row.provider_id) : null }, { providerId: String(pid) });
+      return { next: r.rows[0], oldOwner, isReq };
+    });
+    await Promise.allSettled([
+      notify([out.next.data.providerOwnerId], out.isReq ? 'طلب مكتوب جديد 📝' : 'طلب جديد 🔔', out.isReq ? `${out.next.data.customerName || ''} — يحتاج تسعير` : `${out.next.data.customerName || ''} — ${Number(out.next.total)} ج.م`, `order-${id}`),
+      notify([out.next.customer_user_id], 'تم تحويل طلبك لمتجر آخر 🔁', out.next.data.providerName || '', `order-${id}`),
+      out.oldOwner ? notify([out.oldOwner], 'تم تحويل الطلب لمتجر آخر', `#${out.next.order_number}`, `order-${id}`) : Promise.resolve(),
+    ]);
+    res.json({ order: orderJsonFor(out.next, req.auth.role) });
   }));
 
   /* ---------- order state machine ---------- */
@@ -515,7 +637,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const found = await db.query('SELECT o.*, p.owner_user_id AS powner FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1 FOR UPDATE OF o', [id]);
       if (!found.rowCount) throw fail(404, 'الطلب غير موجود');
       const row = found.rows[0];
-      const isShop = role === 'admin' || (role === 'provider' && Number(row.powner) === me);
+      const supOk = role === 'supervisor' && await staffCan(db, req.auth, row) && needsStaff(row); // only for his areas, and only when the shop left the order stuck
+      const isShop = role === 'admin' || supOk || (role === 'provider' && Number(row.powner) === me);
       const isCustomer = role === 'admin' || (role === 'customer' && Number(row.customer_user_id) === me);
       const isMyDelivery = role === 'admin' || (role === 'courier' && Number(row.courier_user_id) === me);
       const need = (ok, why = 'غير مسموح بهذا الإجراء') => { if (!ok) throw fail(403, why); };
@@ -529,7 +652,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
             const b = req.body || {};
             const maker = !!(row.data && row.data.providerType === 'maker');
             const rd = String(b.readyDate || '').trim(), rt = String(b.readyTime || '').trim();
-            const patch = {};
+            const patch = role === 'supervisor' ? { staffHandled: true } : {};
             if (maker && rd) {
               const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
               if (!/^\d{4}-\d{2}-\d{2}$/.test(rd) || Number.isNaN(Date.parse(rd)) || rd < today) throw fail(400, 'حدد يوم التسليم (اليوم أو بعده)');
@@ -568,7 +691,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'cancel':
           need(isCustomer || isShop);
           if (['picked_up', 'on_the_way', 'arrived', 'delivered', 'rejected', 'cancelled'].includes(row.status)) throw fail(409, 'لا يمكن إلغاء الطلب الآن');
-          next = await moveOrder(db, row, 'cancelled', { rejectReason: role === 'admin' ? 'ألغاه المدير' : role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
+          next = await moveOrder(db, row, 'cancelled', { cancelledBy: role, rejectReason: role === 'admin' ? 'ألغاه المدير' : role === 'supervisor' ? 'ألغاه المشرف' : role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
           break;
         case 'courier_accept': {
           need(role === 'courier', 'للمناديب فقط'); state('accepted', 'ready');
@@ -614,10 +737,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const id = positiveId(req.params.id);
     const body = String((req.body || {}).text || '').trim().slice(0, 2000);
     if (!id || !body) throw fail(400, 'اكتب رسالة');
-    const o = await pool.query('SELECT o.customer_user_id, o.courier_user_id, p.owner_user_id AS powner FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1', [id]);
+    const o = await pool.query('SELECT o.customer_user_id, o.courier_user_id, o.region_id, p.owner_user_id AS powner FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1', [id]);
     if (!o.rowCount) throw fail(404, 'الطلب غير موجود');
     const me = Number(req.auth.sub); const x = o.rows[0];
-    const allowed = req.auth.role === 'admin' || [x.customer_user_id, x.courier_user_id, x.powner].some(v => v && Number(v) === me);
+    const allowed = req.auth.role === 'admin' || (req.auth.role === 'supervisor' && await staffCan(pool, req.auth, x)) || [x.customer_user_id, x.courier_user_id, x.powner].some(v => v && Number(v) === me);
     if (!allowed) throw fail(403, 'غير مسموح بالمشاركة في هذه المحادثة');
     const u = await pool.query('SELECT name, role FROM users WHERE id=$1', [me]);
     const r = await pool.query('INSERT INTO messages(order_id, sender_user_id, sender_name, sender_role, body) VALUES($1,$2,$3,$4,$5) RETURNING *', [id, me, u.rows[0].name, u.rows[0].role, body]);

@@ -4,7 +4,9 @@ import { C } from '../lib/theme';
 import { T, Btn, Sheet, Field, Card, Chip, Icon, toast, confirmDialog } from './ui';
 import { quoteOrder, orderImage, orderAction, useMe } from '../lib/store';
 import { money, isoDay, prettyIso, readyLabel } from '../lib/format';
-import { Order } from '../lib/types';
+import { Order, Product } from '../lib/types';
+import { ProductThumb } from './Brand';
+import { productImageUrl } from '../lib/api';
 
 // accepts Arabic-Indic digits too (٣٥ → 35)
 const toEn = (s: string) => s.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٫,]/g, '.');
@@ -54,6 +56,23 @@ export function PhotoViewer({ uri, visible, onClose }: { uri: string; visible: b
         </View>
       </View>
     </Modal>
+  );
+}
+
+/** A product picture the customer can tap to see it big (and zoom) before ordering. */
+export function ProductPhoto({ p, size = 56, bg }: { p: Pick<Product, 'id' | 'emoji' | 'imageV'>; size?: number; bg: string }) {
+  const [open, setOpen] = useState(false);
+  if (!p.imageV) return <ProductThumb p={p} size={size} bg={bg} />;
+  return (
+    <>
+      <Pressable onPress={() => setOpen(true)} accessibilityLabel="عرض صورة المنتج">
+        <ProductThumb p={p} size={size} bg={bg} />
+        <View style={{ position: 'absolute', bottom: 3, left: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="expand" size={11} color="#fff" />
+        </View>
+      </Pressable>
+      <PhotoViewer uri={productImageUrl(p)} visible={open} onClose={() => setOpen(false)} />
+    </>
   );
 }
 

@@ -333,8 +333,21 @@ CREATE INDEX IF NOT EXISTS idx_messages_order ON messages(order_id, id);
 
 -- Download link of the Android app (the owner edits it from the panel)
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS apk_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS credits TEXT NOT NULL DEFAULT '';
 
 -- Owner's label on a customer account, shown to shops and couriers on that customer's orders ('' = none, 'trusted', 'watch', 'fraud')
 ALTER TABLE users ADD COLUMN IF NOT EXISTS account_flag TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS flag_note TEXT NOT NULL DEFAULT '';
+-- supervisors (owner-created staff): the role is allowed, and the areas they run are kept as "1,4,7"
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('customer','provider','courier','admin','supervisor'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sup_regions TEXT NOT NULL DEFAULT '';
+-- delivery price from the shop's area to the customer's area (each direction has its own price)
+CREATE TABLE IF NOT EXISTS route_prices (
+  from_region_id BIGINT NOT NULL,
+  to_region_id BIGINT NOT NULL,
+  price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (from_region_id, to_region_id)
+);

@@ -1,4 +1,4 @@
-export type Role = 'customer' | 'provider' | 'courier' | 'admin';
+export type Role = 'customer' | 'provider' | 'courier' | 'admin' | 'supervisor';
 export type ProviderType = 'restaurant' | 'supermarket' | 'pharmacy' | 'clinic' | 'store' | 'maker';
 export type AccountStatus = 'active' | 'pending' | 'rejected' | 'suspended';
 
@@ -20,6 +20,8 @@ export interface User {
   // owner's label on a customer account (only the owner's app receives these)
   accountFlag?: string;
   flagNote?: string;
+  // supervisor: the areas (region ids) whose orders he runs
+  supRegions?: string[];
 }
 
 export interface Ad {
@@ -97,6 +99,8 @@ export interface OrderItem {
 }
 
 export interface Order {
+  staffHandled?: boolean; // a supervisor took the order over (the shop left it stuck)
+  cancelledBy?: string; // who cancelled it: customer / provider / admin / supervisor
   id: string;
   number: number;
   groupId: string;
@@ -219,7 +223,10 @@ export interface Settings {
   appIconV?: number; // 0 / missing = the built-in icon
   catIconV?: Record<string, number>; // the owner's picture for each service icon on the home screen (type -> version)
   apkUrl?: string; // download link of the Android app
+  welcomeLogoV?: number; // 0 / missing = the built-in logo on the first screen
+  credits?: Credits | null; // the developer lines at the bottom of the first screen (null = the defaults)
 }
+export interface Credits { a: string; b: string; c: string; d: string }
 
 export interface DB {
   rev: number;
@@ -228,6 +235,7 @@ export interface DB {
   providers: Provider[];
   products: Product[];
   regions: Region[];
+  routePrices?: Record<string, number>; // "shopAreaId:customerAreaId" -> delivery price
   ads?: Ad[];
   couriersOnline?: number; // couriers who are switched on right now (the server counts them)
   bookedSlots: { doctorId: string; date: string; time: string }[];

@@ -102,6 +102,8 @@ export type CentralSettings = {
   appIconV?: number;
   catIconV?: Record<string, number>;
   apkUrl?: string;
+  welcomeLogoV?: number;
+  credits?: { a: string; b: string; c: string; d: string } | null;
   updatedAt?: string;
 };
 
@@ -176,7 +178,7 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string };
+export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[] };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');
@@ -276,6 +278,7 @@ export async function apiOrderImage(orderId: string | number) {
 export type ServerAd = { id: string; title: string; link: string; active: boolean; sortOrder: number; v: number };
 export const appIconUrl = (v: number) => `${API_BASE}/api/app-icon?v=${v}`;
 export const catIconUrl = (type: string, v: number) => `${API_BASE}/api/cat-icon/${encodeURIComponent(type)}?v=${v}`;
+export const welcomeLogoUrl = (v: number) => `${API_BASE}/api/welcome-logo?v=${v}`;
 export const loginImageUrl = (v: number) => `${API_BASE}/api/login-image?v=${v}`;
 export const adImageUrl = (ad: { id: string; v: number }) => `${API_BASE}/api/ads/${encodeURIComponent(ad.id)}/image?v=${ad.v}`;
 export async function apiAdminCreateAd(input: { title: string; link: string; image: string }) {
