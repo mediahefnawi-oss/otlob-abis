@@ -260,7 +260,7 @@ export async function apiApptAction(id: string | number, action: string) {
 
 /** Providers + products + delivery areas in one request. */
 export async function apiCatalog<T = any>() {
-  return apiRequest<{ providers: T[]; products: T[]; regions: ServerRegion[]; ads?: ServerAd[] }>('/api/catalog', {}, true);
+  return apiRequest<{ providers: T[]; products: T[]; regions: ServerRegion[]; ads?: ServerAd[]; routePrices?: Record<string, number>; services?: any[] }>('/api/catalog', {}, true);
 }
 
 /** Free-text requests to supermarkets / pharmacies, priced by the shop. */

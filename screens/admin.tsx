@@ -430,6 +430,28 @@ export function AdminDetailScreen({ navigation, route }: any) {
   );
 }
 
+/** A settings section that opens and closes with a tap, so the settings page stays short and tidy. */
+function Section({ icon, title, sub, children }: { icon: string; title: string; sub?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ gap: 12 }}>
+      <Pressable onPress={() => setOpen((v) => !v)}>
+        <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: open ? C.goldSoft : C.card }}>
+          <View style={{ width: 42, height: 42, borderRadius: 13, backgroundColor: C.goldSoft, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name={icon} size={21} color={C.goldDeep} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <T w="black" size={15}>{title}</T>
+            {!!sub && <T size={11.5} color={C.sub} numberOfLines={1}>{sub}</T>}
+          </View>
+          <Icon name={open ? 'chevron-down' : 'chevron-back'} size={20} color={C.sub} />
+        </Card>
+      </Pressable>
+      {open && children}
+    </View>
+  );
+}
+
 /* ---------------- Settings ---------------- */
 export function AdminSettingsScreen({ navigation }: any) {
   const { db } = useStore();
@@ -438,14 +460,8 @@ export function AdminSettingsScreen({ navigation }: any) {
   const [ann, setAnn] = useState(s.announcement);
   const extra = (
     <>
-      <AppSwitch />
-      <RegionsManager />
-      <RoutePricesManager />
-      <AdsManager />
-      <LoginImageManager />
-      <WelcomeScreenManager />
-      <ServicesManager />
-      <AppIconManager />
+      <Section icon="settings" title="التطبيق" sub="تشغيل وإيقاف، الصيانة، الإعلان، التعيين التلقائي">
+        <AppSwitch />
       <Card style={{ gap: 12 }}>
         <T w="black" size={15}>إعدادات التطبيق</T>
         <Field label="رسالة الصيانة (عند إيقاف التطبيق)" value={msg} onChangeText={setMsg} multiline icon="construct" />
@@ -460,6 +476,23 @@ export function AdminSettingsScreen({ navigation }: any) {
           <Toggle value={s.autoAssign} onValueChange={(v) => done(updateSettings({ autoAssign: v }), v ? 'تم تفعيل التعيين التلقائي' : 'تم إيقاف التعيين التلقائي')} />
         </View>
       </Card>
+      </Section>
+      <Section icon="grid" title="الخدمات" sub={`${(db.services && db.services.length ? db.services.filter((x) => x.template !== 'errand').length : 6)} خدمات • أسماء وترتيب وأحجام`}>
+        <ServicesManager />
+      </Section>
+      <Section icon="location" title="المناطق والتوصيل" sub={`${db.regions.length} منطقة • أسعار التوصيل`}>
+        <RegionsManager />
+        <RoutePricesManager />
+      </Section>
+      <Section icon="images" title="الإعلانات والصور" sub={`${(db.ads || []).length} إعلانات • صورة الدخول`}>
+        <AdsManager />
+        <LoginImageManager />
+      </Section>
+      <Section icon="color-palette" title="الهوية" sub="الشاشة الأولى • البيانات • أيقونة التطبيق">
+        <WelcomeScreenManager />
+        <AppIconManager />
+      </Section>
+      <Section icon="server" title="قاعدة البيانات" sub="إحصائيات المستخدمين والأنشطة والطلبات">
       <Card style={{ gap: 10 }}>
         <T w="black" size={15}>قاعدة البيانات</T>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -471,6 +504,7 @@ export function AdminSettingsScreen({ navigation }: any) {
           ))}
         </View>
       </Card>
+      </Section>
     </>
   );
   return <ProfileScreen navigation={navigation} extra={extra} title="الإعدادات" />;

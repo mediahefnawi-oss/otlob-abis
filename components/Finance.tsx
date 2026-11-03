@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, ScrollView, Image } from 'react-native';
+import { View, ScrollView, Image, Pressable } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
 import { useStore, setWelcomeLogo, setLoginImage, setAppIcon, setCatIcon, updateSettings, createService, updateService, reorderServices, deleteService } from '../lib/store';
@@ -676,7 +676,8 @@ export function CatIconsManager() {
 
 
 /* ============================== services (names, order, sizes, on/off, new services) ============================== */
-const SIZE_LABEL = { small: 'صغير', medium: 'متوسط', large: 'كبير' } as const;
+/** The stored sizes keep their old names so nothing in the database changes: small = 3 icons in a row (the biggest option, as before), medium = 4, large = 5. */
+const SIZE_LABEL = { small: 'كبير', medium: 'متوسط', large: 'صغير' } as const;
 const EMOJIS = ['🍔', '🛒', '💊', '🩺', '🏬', '🧵', '💧', '🔧', '🧹', '🥖', '🌸', '📦', '🚗', '✂️', '🐾', '🎁'];
 
 function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: ServiceDef | null; onClose: () => void }) {
@@ -735,10 +736,11 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
   );
 }
 
-/** Owner: rename / stop / order / resize the services and add new ones. «اطلب إيه؟ نجيبهولك» is in its own section. */
+/** Owner: rename / stop / order / resize the services and add new ones. «اطلب إيه؟ نجيبهولك» is the last row. Each row opens with a tap. */
 export function ServicesManager() {
   const { db } = useStore();
   const [busy, setBusy] = useState('');
+  const [openKey, setOpenKey] = useState('');
   const [edit, setEdit] = useState<ServiceDef | null>(null);
   const [open, setOpen] = useState(false);
   const vs = db.settings.catIconV || {};
@@ -763,66 +765,70 @@ export function ServicesManager() {
   };
   const remove = (t: ProviderType) => confirmDialog({ title: 'حذف الصورة؟', message: 'ستعود الأيقونة الأصلية.', danger: true, confirmText: 'حذف', onConfirm: () => { act(t, setCatIcon(t, null)); } });
   const del = (d: ServiceDef) => confirmDialog({ title: `حذف خدمة «${d.label}»؟`, message: 'تُحذف الخدمة نهائياً. لو فيها مقدمو خدمة سيرفض النظام الحذف، وأوقفها بدلاً منه.', danger: true, confirmText: 'حذف', onConfirm: () => { act(d.key, deleteService(d.key), 'تم حذف الخدمة'); } });
+  const Head = ({ d, i, isErrand }: { d: ServiceDef; i: number; isErrand?: boolean }) => {
+    const v = vs[d.key] || 0;
+    const isOpen = openKey === d.key;
+    return (
+      <Pressable onPress={() => setOpenKey(isOpen ? '' : d.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 }}>
+        <View style={{ width: 44, height: 44, borderRadius: isErrand ? 14 : 22, backgroundColor: isErrand ? C.goldSoft : C.dark, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          {v > 0 ? <Image source={{ uri: catIconUrl(d.key, v) }} style={{ width: 44, height: 44 }} resizeMode="cover" /> : <T size={20}>{d.emoji}</T>}
+        </View>
+        <View style={{ flex: 1, gap: 1 }}>
+          <T w="black" size={14} numberOfLines={1}>{d.label}</T>
+          <T size={11} color={C.sub} numberOfLines={1}>{isErrand ? 'خدمة خاصة' : `${TEMPLATE_LABEL[d.template as ServiceTemplate]} • ${count(d.key)} مقدم خدمة`}</T>
+        </View>
+        <Toggle value={d.active} onValueChange={(x) => act(d.key, updateService(d.key, { active: x }), x ? 'تم تشغيل الخدمة' : 'تم إيقاف الخدمة')} />
+        <Icon name={isOpen ? 'chevron-down' : 'chevron-back'} size={18} color={C.sub} />
+      </Pressable>
+    );
+  };
   return (
     <>
-      <Card style={{ gap: 12 }}>
-        <T w="black" size={15}>الخدمات</T>
-        <T size={12} color={C.sub}>غيّر اسم الخدمة أو أيقونتها أو حجمها أو ترتيبها، أو أوقفها، أو أضف خدمة جديدة. الإيقاف يخفيها عن العملاء ويمنع الطلب منها.</T>
+      <Card style={{ gap: 4 }}>
+        <T size={12} color={C.sub} style={{ marginBottom: 6 }}>اضغط على أي خدمة لتغيير حجمها أو ترتيبها أو اسمها أو صورتها. زرار التشغيل يوقفها: تختفي عن العملاء ولا يُطلب منها.</T>
         {list.map((d, i) => {
           const v = vs[d.key] || 0;
           return (
-            <View key={d.key} style={{ gap: 10, paddingTop: 12, borderTopWidth: i ? 1 : 0, borderTopColor: C.line, opacity: d.active ? 1 : 0.6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: C.dark, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  {v > 0 ? <Image source={{ uri: catIconUrl(d.key, v) }} style={{ width: 54, height: 54 }} resizeMode="cover" /> : <T size={24}>{d.emoji}</T>}
+            <View key={d.key} style={{ borderTopWidth: i ? 1 : 0, borderTopColor: C.line, opacity: d.active ? 1 : 0.6 }}>
+              <Head d={d} i={i} />
+              {openKey === d.key && (
+                <View style={{ gap: 10, paddingBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <T size={12} color={C.sub}>حجم الأيقونة</T>
+                    {(['small', 'medium', 'large'] as const).map((k) => <Chip key={k} label={SIZE_LABEL[k]} active={d.size === k} onPress={() => act(d.key, updateService(d.key, { size: k }))} />)}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <T size={12} color={C.sub}>الترتيب</T>
+                    <Btn small variant="soft" icon="arrow-up" title="" disabled={i === 0 || !!busy} onPress={() => move(i, -1)} />
+                    <Btn small variant="soft" icon="arrow-down" title="" disabled={i === list.length - 1 || !!busy} onPress={() => move(i, 1)} />
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <T w="semi" size={13} style={{ flex: 1 }}>تظهر في الرئيسية</T><Toggle value={d.showHome} onValueChange={(x) => act(d.key, updateService(d.key, { showHome: x }))} />
+                  </View>
+                  <Wrap>
+                    <Btn small variant="soft" icon="create" title="الاسم والتفاصيل" onPress={() => { setEdit(d); setOpen(true); }} />
+                    {canPickImage && <Btn small variant="soft" icon="image" title={v > 0 ? 'تغيير الصورة' : 'رفع صورة'} loading={busy === d.key} onPress={() => choose(d.key)} />}
+                    {v > 0 && <Btn small variant="danger" icon="trash" title="حذف الصورة" onPress={() => remove(d.key)} />}
+                    {!d.builtin && <Btn small variant="danger" icon="close-circle" title="حذف الخدمة" onPress={() => del(d)} />}
+                  </Wrap>
                 </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <T w="black" size={14.5} numberOfLines={1}>{d.label}</T>
-                  <T size={11.5} color={C.sub}>{TEMPLATE_LABEL[d.template as ServiceTemplate]} • {count(d.key)} مقدم خدمة</T>
-                </View>
-                <View style={{ gap: 4 }}>
-                  <Btn small variant="soft" icon="arrow-up" title="" disabled={i === 0 || !!busy} onPress={() => move(i, -1)} />
-                  <Btn small variant="soft" icon="arrow-down" title="" disabled={i === list.length - 1 || !!busy} onPress={() => move(i, 1)} />
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <T size={12} color={C.sub}>الحجم</T>
-                {(['small', 'medium', 'large'] as const).map((k) => <Chip key={k} label={SIZE_LABEL[k]} active={d.size === k} onPress={() => act(d.key, updateService(d.key, { size: k }))} />)}
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <T w="semi" size={13} style={{ flex: 1 }}>مُشغَّلة</T><Toggle value={d.active} onValueChange={(x) => act(d.key, updateService(d.key, { active: x }), x ? 'تم تشغيل الخدمة' : 'تم إيقاف الخدمة')} />
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <T w="semi" size={13} style={{ flex: 1 }}>تظهر في الرئيسية</T><Toggle value={d.showHome} onValueChange={(x) => act(d.key, updateService(d.key, { showHome: x }))} />
-              </View>
-              <Wrap>
-                <Btn small variant="soft" icon="create" title="الاسم والتفاصيل" onPress={() => { setEdit(d); setOpen(true); }} />
-                {canPickImage && <Btn small variant="soft" icon="image" title={v > 0 ? 'تغيير الصورة' : 'رفع صورة'} loading={busy === d.key} onPress={() => choose(d.key)} />}
-                {v > 0 && <Btn small variant="danger" icon="trash" title="حذف الصورة" onPress={() => remove(d.key)} />}
-                {!d.builtin && <Btn small variant="danger" icon="close-circle" title="حذف الخدمة" onPress={() => del(d)} />}
-              </Wrap>
+              )}
             </View>
           );
         })}
-        <Btn title="خدمة جديدة" icon="add" onPress={() => { setEdit(null); setOpen(true); }} />
-      </Card>
-
-      <Card style={{ gap: 10, opacity: errand.active ? 1 : 0.6 }}>
-        <T w="black" size={15}>خدمة خاصة</T>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={{ width: 54, height: 54, borderRadius: 18, backgroundColor: C.goldSoft, alignItems: 'center', justifyContent: 'center' }}><T size={26}>{errand.emoji}</T></View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <T w="black" size={14.5}>{errand.label}</T>
-            <T size={11.5} color={C.sub}>المندوب يحدد سعر التوصيل والمشتريات</T>
-          </View>
+        <View style={{ borderTopWidth: 1, borderTopColor: C.line, backgroundColor: C.goldSoft, borderRadius: 14, paddingHorizontal: 8, marginTop: 6, opacity: errand.active ? 1 : 0.6 }}>
+          <Head d={errand} i={list.length} isErrand />
+          {openKey === errand.key && (
+            <View style={{ gap: 10, paddingBottom: 12 }}>
+              <T size={11.5} color={C.sub}>المندوب يحدد سعر التوصيل والمشتريات.</T>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <T w="semi" size={13} style={{ flex: 1 }}>تظهر في الرئيسية</T><Toggle value={errand.showHome} onValueChange={(x) => act('errand', updateService('errand', { showHome: x }))} />
+              </View>
+              <Btn small variant="soft" icon="create" title="الاسم والأيقونة" onPress={() => { setEdit(errand); setOpen(true); }} />
+            </View>
+          )}
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <T w="semi" size={13} style={{ flex: 1 }}>مُشغَّلة</T><Toggle value={errand.active} onValueChange={(x) => act('errand', updateService('errand', { active: x }), x ? 'تم تشغيل الخدمة' : 'تم إيقاف الخدمة')} />
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <T w="semi" size={13} style={{ flex: 1 }}>تظهر في الرئيسية</T><Toggle value={errand.showHome} onValueChange={(x) => act('errand', updateService('errand', { showHome: x }))} />
-        </View>
-        <Btn small variant="soft" icon="create" title="الاسم والأيقونة" onPress={() => { setEdit(errand); setOpen(true); }} />
+        <View style={{ marginTop: 8 }}><Btn title="خدمة جديدة" icon="add" onPress={() => { setEdit(null); setOpen(true); }} /></View>
       </Card>
       <ServiceSheet visible={open} def={edit} onClose={() => setOpen(false)} />
     </>

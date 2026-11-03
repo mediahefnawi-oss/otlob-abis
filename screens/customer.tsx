@@ -106,19 +106,19 @@ export function HomeScreen({ navigation }: any) {
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
             {cats.map((k, i) => { const sz = serviceDefs().find((x) => x.key === k)?.size || 'small'; return (
-              <Appear key={k} i={i} style={{ width: sz === 'large' ? '100%' : sz === 'medium' ? '48%' : '31.3%', flexGrow: 1 }}>
+              <Appear key={k} i={i} style={{ width: sz === 'large' ? '18%' : sz === 'medium' ? '23%' : '31.3%', flexGrow: 1 }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 8, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 ? { paddingBottom: 9 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {(db.settings.catIconV?.[k] || 0) > 0
-                    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: sz === 'large' ? 2.2 : 1 }} resizeMode="cover" />
+                    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
                     : (
                       <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold, overflow: 'hidden' }}>
                         <Icon name={TYPES[k].icon} size={23} color={C.gold} />
                       </View>
                     )}
-                  <T w="bold" size={sz === 'small' ? 11.5 : 14} align="center" numberOfLines={1}>{TYPES[k].label}</T>
+                  <T w="bold" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 11.5} align="center" numberOfLines={1}>{TYPES[k].label}</T>
                 </Pressable>
               </Appear>
             ); })}
