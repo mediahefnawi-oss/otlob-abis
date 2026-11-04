@@ -85,12 +85,24 @@ app.use(['/api/sync', '/api/catalog', '/api/counters'], (req, res, next) => {
 process.on('unhandledRejection', e => console.error('unhandledRejection:', e && e.message ? e.message : e));
 process.on('uncaughtException', e => console.error('uncaughtException:', e && e.message ? e.message : e));
 
-async function maintenanceState() {
-  const hit = settingsMemo.get('m');
-  if (hit) return hit;
-  const r = await pool.query('SELECT app_enabled,maintenance_message FROM app_settings WHERE id=1');
-  if (!r.rowCount) return { enabled: true, message: '' };
-  return settingsMemo.set('m', { enabled: r.rows[0].app_enabled, message: r.rows[0].maintenance_message || 'التطبيق متوقف مؤقتًا للصيانة' });
+// Is the app open for this role right now? Manual stop (app_enabled) always wins; otherwise the opening hours decide.
+// The row is cached for a couple of seconds, the clock is read on every call.
+async function maintenanceState(role) {
+  let row = settingsMemo.get('m');
+  if (!row) {
+    let r;
+    try { r = await pool.query('SELECT app_enabled,maintenance_message,hours_enabled,open_time,close_time,open_days,grace_min,closed_message FROM app_settings WHERE id=1'); }
+    catch (e) { if (e.code !== '42703') throw e; r = await pool.query('SELECT app_enabled,maintenance_message FROM app_settings WHERE id=1'); } // columns not migrated yet
+    row = settingsMemo.set('m', r.rowCount ? r.rows[0] : null);
+  }
+  if (!row) return { enabled: true, message: '' };
+  const manual = row.maintenance_message || 'التطبيق متوقف مؤقتًا للصيانة';
+  if (!row.app_enabled) return { enabled: false, message: manual, phase: 'manual' };
+  const h = hours.fromRow(row);
+  const now = Date.now();
+  const { phase, next } = hours.phaseAt(h, now, hours.cairoOffsetMin(now));
+  if (hours.allowed(phase, role)) return { enabled: true, message: '', phase };
+  return { enabled: false, message: hours.renderMessage(h, next), phase };
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
@@ -145,12 +157,13 @@ function providerVisibility(viewer, values) {
   return "p.deleted_at IS NULL AND p.status='active'";
 }
 const services = require('./services');
+const hours = require('./hours');
 const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261111;
+const SCHEMA_VERSION = 20261112;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -258,7 +271,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
 app.post('/api/auth/register', asyncRoute(async (req, res) => {
   const { name, phone, password, address = '', role = 'customer', provider, regionId, vehicle } = req.body || {};
   await services.ensure(pool);
-  const mt = await maintenanceState();
+  const mt = await maintenanceState(role);
   if (!mt.enabled) return res.status(503).json({ error: mt.message });
   const normalizedPhone = String(phone || '').replace(/\s+/g, '');
   if (!name || String(name).trim().length < 3) return res.status(400).json({ error: 'اكتب الاسم بالكامل' });
@@ -334,7 +347,7 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
   const user = result.rows[0];
   if (user.status === 'suspended' || user.status === 'rejected') return res.status(403).json({ error: 'الحساب غير مفعّل. تواصل مع الدعم' });
   if (user.role !== 'admin') {
-    const mt = await maintenanceState();
+    const mt = await maintenanceState(user.role);
     if (!mt.enabled) return res.status(503).json({ error: mt.message });
   }
   res.json({ token: tokenFor(user), user: cleanUser(user) });
@@ -618,10 +631,10 @@ app.post('/api/push/unsubscribe', auth, asyncRoute(async (req, res) => {
 
 // Public runtime settings are read from PostgreSQL, so maintenance mode and announcements
 // apply consistently to every client using this API.
-async function loadSettings() {
+async function loadSettingsBase() {
   const hit = settingsMemo.get('s');
   if (hit) return hit;
-  const r = await pool.query('SELECT app_enabled,maintenance_message,announcement,auto_assign,support_phone,support_name,apk_url,credits,updated_at FROM app_settings WHERE id=1');
+  const r = await pool.query('SELECT * FROM app_settings WHERE id=1');
   const x = r.rows[0];
   let welcomeLogoV = 0;
   try { const wl = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='welcome_logo'"); if (wl.rowCount) welcomeLogoV = Number(wl.rows[0].v); } catch { /* table not migrated yet */ }
@@ -633,13 +646,21 @@ async function loadSettings() {
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+}
+// the clock part is never cached: the app uses it to know when to open / close without asking again
+async function loadSettings() {
+  const base = await loadSettingsBase();
+  const now = Date.now();
+  return { ...base, tzOffsetMin: hours.cairoOffsetMin(now), serverNow: now };
 }
 app.get('/api/settings', asyncRoute(async (_req, res) => {
   res.json({ settings: await loadSettings() });
 }));
 app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, res) => {
   const b = req.body || {};
+  const hp = hours.parseInput(b); // checked first so a wrong time never half-saves the other settings
+  if (!hp.ok) return res.status(400).json({ error: hp.error });
   const current = (await pool.query('SELECT * FROM app_settings WHERE id=1')).rows[0];
   const boolField = (v, old) => typeof v === 'boolean' ? v : old;
   const textField = (v, old, max=500) => typeof v === 'string' ? v.trim().slice(0,max) : old;
@@ -647,7 +668,12 @@ app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, re
     boolField(b.appEnabled,current.app_enabled), textField(b.maintenanceMessage,current.maintenance_message), textField(b.announcement,current.announcement), boolField(b.autoAssign,current.auto_assign), textField(b.supportPhone,current.support_phone,40), textField(b.supportName,current.support_name,100), (() => { const u = textField(b.apkUrl, current.apk_url, 500); return u === '' || /^https:\/\/[^\s]+$/i.test(u) ? u : current.apk_url; })(),
     (() => { if (b.credits === null) return ''; if (!b.credits || typeof b.credits !== 'object') return current.credits || ''; const f = (v) => String(v == null ? '' : v).trim().slice(0, 120); return JSON.stringify({ a: f(b.credits.a), b: f(b.credits.b), c: f(b.credits.c), d: f(b.credits.d) }); })()
   ]);
-  const x = r.rows[0];
+  const hcols = Object.keys(hp.value);
+  if (hcols.length) {
+    try { await pool.query(`UPDATE app_settings SET ${hcols.map((c, i) => `${c}=$${i + 1}`).join(',')}, updated_at=NOW() WHERE id=1`, hcols.map(c => hp.value[c])); }
+    catch (e) { if (e.code === '42703') return res.status(503).json({ error: 'قاعدة البيانات لم تُحدَّث بعد' }); throw e; }
+  }
+  settingsMemo.clear();
   res.json({ settings: await loadSettings() });
 }));
 

@@ -10,7 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { C } from './lib/theme';
-import { initStore, useStore, useMe, availableCouriers, setStoreErrorHandler, setStoreNoticeHandler } from './lib/store';
+import { initStore, useStore, useMe, useAppGate, availableCouriers, setStoreErrorHandler, setStoreNoticeHandler } from './lib/store';
 import { Overlays, Logo, toast } from './components/ui';
 import { SoundGate } from './components/SoundGate';
 import { SyncBanner } from './components/SyncBanner';
@@ -102,11 +102,11 @@ function Main({ navigation }: any) {
 function Root() {
   const { db, ready } = useStore();
   const me = useMe();
-  const enabled = db.settings.appEnabled;
+  const gate = useAppGate(me?.role ?? null); // manual stop or opening hours; the owner is never blocked
   const isAdmin = me?.role === 'admin';
 
   let screens: React.ReactNode;
-  if (!enabled && !isAdmin) {
+  if (gate.blocked) {
     screens = (
       <>
         <Stack.Screen name="Maintenance">{(p) => <MaintenanceScreen {...p} canLogin />}</Stack.Screen>

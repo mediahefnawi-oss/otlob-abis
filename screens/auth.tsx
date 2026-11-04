@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { C, R } from '../lib/theme';
 import { T, Btn, Field, Logo, Icon, Chip, Header, openWhats, toast, Card } from '../components/ui';
-import { login, register, logout, useStore, useMe } from '../lib/store';
+import { login, register, logout, useStore, useMe, useAppGate } from '../lib/store';
+import { timeLabel, dayLabel } from '../lib/hours';
 import { TYPES, DEFAULT_CREDITS, isBooking, typeKeys } from '../lib/format';
 import { ProviderType } from '../lib/types';
 
@@ -261,15 +262,23 @@ export function PendingScreen() {
 export function MaintenanceScreen({ navigation, canLogin }: any) {
   const { db } = useStore();
   const me = useMe();
+  const gate = useAppGate(me?.role ?? null);
   const insets = useSafeAreaInsets();
+  const byHours = gate.byHours;
   return (
     <View style={{ flex: 1, backgroundColor: C.dark, paddingTop: insets.top + 40, paddingBottom: insets.bottom + 20, paddingHorizontal: 24, alignItems: 'center' }}>
       <Logo width={240} />
       <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: 'rgba(242,181,29,0.15)', alignItems: 'center', justifyContent: 'center', marginTop: 40, borderWidth: 2, borderColor: C.gold }}>
-        <Icon name="construct" size={52} color={C.gold} />
+        <Icon name={byHours ? 'moon' : 'construct'} size={52} color={C.gold} />
       </View>
-      <T w="black" size={24} color="#fff" align="center" style={{ marginTop: 22 }}>التطبيق متوقف مؤقتاً</T>
-      <T color="#C9D8D2" align="center" size={14} style={{ marginTop: 8, maxWidth: 380 }}>{db.settings.maintenanceMessage}</T>
+      <T w="black" size={24} color="#fff" align="center" style={{ marginTop: 22 }}>{byHours ? 'تم إغلاق التطبيق' : 'التطبيق متوقف مؤقتاً'}</T>
+      <T color="#C9D8D2" align="center" size={byHours ? 17 : 14} style={{ marginTop: 8, maxWidth: 380, lineHeight: byHours ? 28 : undefined }}>{byHours ? gate.message : db.settings.maintenanceMessage}</T>
+      {byHours && gate.next ? (
+        <View style={{ marginTop: 22, backgroundColor: C.gold, borderRadius: 30, paddingHorizontal: 26, paddingVertical: 12, alignItems: 'center' }}>
+          <T w="black" size={22} color={C.dark}>{timeLabel(gate.next.minuteOfDay)}</T>
+          <T size={13} color={C.dark}>{dayLabel(gate.next)}</T>
+        </View>
+      ) : null}
       <View style={{ flex: 1 }} />
       <View style={{ alignSelf: 'stretch', maxWidth: 420, gap: 10 }}>
         <Btn title="تواصل مع الدعم الفني" icon="logo-whatsapp" variant="green" onPress={() => openWhats(db.settings.supportPhone)} />

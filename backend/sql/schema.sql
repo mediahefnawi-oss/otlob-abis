@@ -378,3 +378,11 @@ CREATE TABLE IF NOT EXISTS login_attempts(
   first_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   locked_until TIMESTAMPTZ
 );
+
+-- opening hours: the owner sets when the app opens / closes (Cairo time); outside them customers see a closed screen
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS hours_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS open_time TEXT NOT NULL DEFAULT '10:00';
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS close_time TEXT NOT NULL DEFAULT '00:00';
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS open_days TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6';
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS grace_min INT NOT NULL DEFAULT 30;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS closed_message TEXT NOT NULL DEFAULT 'تم إغلاق التطبيق، سيتم التشغيل الساعة {وقت_الفتح}';

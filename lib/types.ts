@@ -1,3 +1,4 @@
+import type { Hours } from './hours';
 export type Role = 'customer' | 'provider' | 'courier' | 'admin' | 'supervisor';
 /** the key of a service (restaurant, pharmacy... or one the owner added). */
 export type ProviderType = string;
@@ -233,6 +234,8 @@ export interface Settings {
   apkUrl?: string; // download link of the Android app
   welcomeLogoV?: number; // 0 / missing = the built-in logo on the first screen
   credits?: Credits | null; // the developer lines at the bottom of the first screen (null = the defaults)
+  hours?: Hours; // opening hours (Cairo time); outside them customers see the closed screen
+  tzOffsetMin?: number; // Cairo's offset from UTC when the settings were fetched (120 or 180)
 }
 export interface Credits { a: string; b: string; c: string; d: string }
 

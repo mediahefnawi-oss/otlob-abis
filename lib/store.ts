@@ -2,7 +2,8 @@ import { storage } from './storage';
 import { alertNewOrder, setAlarm } from './alerts';
 import { syncPushSubscription, forgetPushSubscription } from './push';
 import * as SecureStore from 'expo-secure-store';
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { phaseAt, allowedIn, renderMessage, type HoursPhase, type NextOpen } from './hours';
 import { AppState } from 'react-native';
 import {
   ApiError, ServerUser, apiDeleteCourier, apiLogin, apiSetUserFlag, apiRegister, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
@@ -134,9 +135,11 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0]);
 
+let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
+  if (typeof c.serverNow === 'number') clockSkewMs = c.serverNow - Date.now();
   const next: Settings = {
     appEnabled: c.appEnabled,
     maintenanceMessage: c.maintenanceMessage,
@@ -150,11 +153,34 @@ function applySettings(c: CentralSettings) {
     apkUrl: c.apkUrl || '',
     welcomeLogoV: c.welcomeLogoV || 0,
     credits: c.credits || null,
+    hours: c.hours,
+    tzOffsetMin: c.tzOffsetMin,
   };
   if (settingsKey(next) === settingsKey(state.db.settings)) return;
   mutate((db) => {
     db.settings = next;
   });
+}
+
+/** Is the app closed for this role right now? A manual stop by the owner and the opening hours both close it; the owner is never blocked. */
+export function appGate(role?: string | null): { blocked: boolean; message: string; byHours: boolean; phase: HoursPhase; next: NextOpen | null } {
+  const s = state.db.settings;
+  if (!s.appEnabled) return { blocked: role !== 'admin', message: s.maintenanceMessage, byHours: false, phase: 'open', next: null };
+  const { phase, next } = phaseAt(s.hours, Date.now() + clockSkewMs, s.tzOffsetMin || 120);
+  const blocked = !allowedIn(phase, role);
+  return { blocked, message: blocked ? renderMessage(s.hours, next) : '', byHours: blocked, phase, next };
+}
+/** the same, as a hook: re-checks every few seconds so the screen closes and opens by itself at the set times */
+export function useAppGate(role?: string | null) {
+  useStore();
+  const [, setTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 15000); return () => clearInterval(t); }, []);
+  return appGate(role);
+}
+/** closed by the opening hours (not a manual stop): the app stops asking the server, so the database can rest */
+function closedByHoursNow(role?: string | null) {
+  const g = appGate(role);
+  return g.blocked && g.byHours;
 }
 
 const EMOJI: Record<ProviderType, string> = { restaurant: '🍽️', supermarket: '🛒', pharmacy: '💊', clinic: '🩺', store: '🏬', maker: '🧵' };
@@ -449,13 +475,14 @@ export async function initStore() {
     }
   } catch {}
   // Fetch maintenance state before the first screen, but never hang the splash if the server is slow.
-  await Promise.race([syncRemote(), new Promise((r) => setTimeout(r, 4000))]);
+  if (!closedByHoursNow(state.db.users.find((u) => u.id === state.userId)?.role)) await Promise.race([syncRemote(), new Promise((r) => setTimeout(r, 4000))]);
   setState({ ready: true });
 
   // Live sync. Shops and couriers must hear about new orders right away (every ~4s); customers can wait (~8s),
   // and a customer in a background tab hardly polls at all. The catalog changes slowly (every ~32s).
   setInterval(() => {
     syncTick++;
+    if (closedByHoursNow(state.db.users.find((u) => u.id === state.userId)?.role)) return; // closed by the opening hours: stay silent until opening time
     // After repeated failures back off (4s, 8s, 16s, 32s) instead of hammering a struggling server.
     if (syncFails >= 3 && syncTick % Math.min(8, 2 ** (syncFails - 2)) !== 0) return;
     const me = state.db.users.find((u) => u.id === state.userId);
@@ -619,7 +646,7 @@ export function cartDetails(db: DB, cart: CartLine[]) {
 }
 
 export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string }): Promise<Result<{ invoiceId: string }>> {
-  if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
+  { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
@@ -664,7 +691,7 @@ export async function courierQuote(orderId: string, subtotal: number, fee: numbe
   }
 }
 export async function placeCustomOrder(me: User, info: { text: string; phone: string; address: string }): Promise<Result<{ orderId: string }>> {
-  if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
+  { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (info.text.trim().length < 3) return { ok: false, error: 'اكتب ما تريد طلبه' };
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
@@ -823,7 +850,7 @@ export async function bookAppointment(
   me: User,
   info: { doctor: Product; date: string; time: string; patientName: string; phone: string; notes: string }
 ): Promise<Result<{ id: string }>> {
-  if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
+  { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const prov = state.db.providers.find((p) => p.id === info.doctor.providerId);
   if (!prov || prov.status !== 'active' || !prov.open) return { ok: false, error: 'العيادة لا تستقبل حجوزات حالياً' };
   if (info.patientName.trim().length < 3) return { ok: false, error: 'اكتب اسم المريض' };
@@ -1044,6 +1071,16 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Result> 
     return { ok: false, error: errMsg(e) };
   }
 }
+/** the owner's opening hours; sent to the server in its own field names */
+export async function updateHours(p: { hoursEnabled?: boolean; openTime?: string; closeTime?: string; openDays?: number[]; graceMin?: number; closedMessage?: string }): Promise<Result> {
+  try {
+    const { settings } = await apiUpdateSettings(p as any);
+    applySettings(settings);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
 export async function resetAll() {
   const db = buildSeed();
   db.rev = state.db.rev + 1;
@@ -1186,7 +1223,7 @@ export async function placeRequestOrder(
   me: User,
   info: { provider: Provider; text: string; image?: string | null; phone: string; address: string }
 ): Promise<Result<{ orderId: string }>> {
-  if (!state.db.settings.appEnabled) return { ok: false, error: 'التطبيق متوقف حالياً' };
+  { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المتجر مغلق حالياً' };
   if (!deliveryOpen(info.provider)) return { ok: false, error: 'التوصيل من منطقة هذا المتجر إلى منطقتك غير متاح حالياً' };
   if (info.text.trim().length < 3 && !info.image) return { ok: false, error: 'اكتب طلبك أو ارفع صورة' };

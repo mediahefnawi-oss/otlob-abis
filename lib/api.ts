@@ -1,4 +1,5 @@
 import { storage } from './storage';
+import type { Hours } from './hours';
 import * as SecureStore from 'expo-secure-store';
 
 /**
@@ -104,6 +105,9 @@ export type CentralSettings = {
   apkUrl?: string;
   welcomeLogoV?: number;
   credits?: { a: string; b: string; c: string; d: string } | null;
+  hours?: Hours;
+  tzOffsetMin?: number;
+  serverNow?: number;
   updatedAt?: string;
 };
 

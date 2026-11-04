@@ -19,6 +19,7 @@ import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/
 import { LoginImageManager, WelcomeScreenManager, AppIconManager, ServicesManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { AdsManager } from '../components/Ads';
+import { HoursSettings } from '../components/HoursSettings';
 import { ProviderType, AccountStatus } from '../lib/types';
 
 // Runs a server-backed action and only reports success when the server accepted it.
@@ -476,6 +477,9 @@ export function AdminSettingsScreen({ navigation }: any) {
           <Toggle value={s.autoAssign} onValueChange={(v) => done(updateSettings({ autoAssign: v }), v ? 'تم تفعيل التعيين التلقائي' : 'تم إيقاف التعيين التلقائي')} />
         </View>
       </Card>
+      </Section>
+      <Section icon="moon" title="مواعيد التشغيل" sub="ساعة الفتح والغلق، الأيام، رسالة الغلق للعميل">
+        <HoursSettings />
       </Section>
       <Section icon="grid" title="الخدمات" sub={`${(db.services && db.services.length ? db.services.filter((x) => x.template !== 'errand').length : 6)} خدمات • أسماء وترتيب وأحجام`}>
         <ServicesManager />
