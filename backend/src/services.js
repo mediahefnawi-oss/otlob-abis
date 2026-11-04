@@ -27,7 +27,7 @@ const TTL = 8000;
 
 const json = r => ({
   key: r.key, label: r.label, single: r.single, emoji: r.emoji, template: r.template, order: Number(r.sort_order), size: r.size,
-  active: !!r.active, showHome: !!r.show_home, canProducts: !!r.can_products, builtin: !!r.builtin,
+  tagline: r.tagline || '', active: !!r.active, showHome: !!r.show_home, canProducts: !!r.can_products, builtin: !!r.builtin,
 });
 
 async function load(db) {
@@ -104,6 +104,7 @@ function register(app, { pool, auth, roles, asyncRoute }) {
     if (b.single !== undefined) { const v = text(b.single, 30); if (v.length < 2) throw fail(400, 'اكتب الاسم المفرد'); put('single', v); }
     if (b.emoji !== undefined) put('emoji', text(b.emoji, 8) || s.emoji);
     if (b.size !== undefined) { if (!SIZES.includes(b.size)) throw fail(400, 'حجم غير صالح'); put('size', b.size); }
+    if (b.tagline !== undefined) put('tagline', text(b.tagline, 160) || null);
     if (b.active !== undefined) put('active', !!b.active);
     if (b.showHome !== undefined) put('show_home', !!b.showHome);
     if (b.canProducts !== undefined) { if (s.template !== 'request' && s.template !== 'errand' && s.template !== 'lab') put('can_products', !!b.canProducts); }

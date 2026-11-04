@@ -1369,7 +1369,7 @@ const takeServices = (list: ServiceDef[]) => { applyServices(list); mutate((db) 
 export async function createService(inp: { label: string; single?: string; emoji: string; template: string; size: string; canProducts: boolean; showHome: boolean }): Promise<Result> {
   try { const r = await apiJson<{ services: ServiceDef[] }>('/api/admin/services', 'POST', inp); takeServices(r.services); return { ok: true }; } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
-export async function updateService(key: string, patch: Partial<Pick<ServiceDef, 'label' | 'single' | 'emoji' | 'size' | 'active' | 'showHome' | 'canProducts'>>): Promise<Result> {
+export async function updateService(key: string, patch: Partial<Pick<ServiceDef, 'label' | 'single' | 'emoji' | 'tagline' | 'size' | 'active' | 'showHome' | 'canProducts'>>): Promise<Result> {
   try { const r = await apiJson<{ services: ServiceDef[] }>(`/api/admin/services/${encodeURIComponent(key)}`, 'PATCH', patch); takeServices(r.services); return { ok: true }; } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 export async function reorderServices(keys: string[]): Promise<Result> {

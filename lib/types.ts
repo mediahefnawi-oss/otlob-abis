@@ -6,7 +6,7 @@ export type ProviderType = string;
 export type ServiceTemplate = 'cart' | 'request' | 'booking' | 'maker' | 'lab';
 export interface ServiceDef {
   key: string; label: string; single: string; emoji: string; template: ServiceTemplate | 'errand'; order: number;
-  size: 'small' | 'medium' | 'large'; active: boolean; showHome: boolean; canProducts: boolean; builtin: boolean;
+  size: 'small' | 'medium' | 'large'; tagline?: string; active: boolean; showHome: boolean; canProducts: boolean; builtin: boolean;
 }
 export type AccountStatus = 'active' | 'pending' | 'rejected' | 'suspended';
 

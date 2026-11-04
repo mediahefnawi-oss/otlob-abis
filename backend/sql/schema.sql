@@ -410,3 +410,5 @@ CREATE TABLE IF NOT EXISTS lab_files (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (appointment_id, kind)
 );
+
+ALTER TABLE service_types ADD COLUMN IF NOT EXISTS tagline VARCHAR(160);

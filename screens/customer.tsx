@@ -106,24 +106,48 @@ export function HomeScreen({ navigation }: any) {
           )}
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-            {cats.map((k, i) => { const sz = serviceDefs().find((x) => x.key === k)?.size || 'small'; return (
-              <Appear key={k} i={i} style={{ width: sz === 'large' ? '18%' : sz === 'medium' ? '23%' : '31.3%', flexGrow: 1 }}>
+            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => (
+              <Appear key={k} i={i} style={{ width: '31.3%', flexGrow: 1 }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 8, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 ? { paddingBottom: 9 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {(db.settings.catIconV?.[k] || 0) > 0
                     ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
-                    : (
+                    : isLab(k) ? (
+                      <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold }}>
+                        <Text style={{ fontSize: 24 }}>{TYPES[k].emoji}</Text>
+                      </View>
+                    ) : (
                       <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold, overflow: 'hidden' }}>
                         <Icon name={TYPES[k].icon} size={23} color={C.gold} />
                       </View>
                     )}
-                  <T w="bold" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 11.5} align="center" numberOfLines={1}>{TYPES[k].label}</T>
+                  <T w="bold" size={11.5} align="center" numberOfLines={2}>{TYPES[k].label}</T>
                 </Pressable>
               </Appear>
-            ); })}
+            ))}
           </View>
+
+          {/* makers: one full-width card under the six icons */}
+          {cats.filter((k) => isMakerTpl(k)).map((k, i) => (
+            <Appear key={k} i={i + 3} style={{ marginTop: 12 }}>
+              <Pressable onPress={() => navigation.navigate('Category', { type: k })} style={({ pressed }) => [pressed && { transform: [{ scale: 0.98 }] }]}>
+                <LinearGradient colors={[C.dark3, C.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 22, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 2, borderColor: C.gold, ...shadow }}>
+                  <View style={{ width: 62, height: 62, borderRadius: 31, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 32 }}>{TYPES[k].emoji}</Text>
+                  </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <T w="black" size={18} color="#fff">{TYPES[k].label}</T>
+                    <T size={12} color={C.gold}>{serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'}</T>
+                  </View>
+                  <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name="arrow-back" size={18} color={C.dark} />
+                  </View>
+                </LinearGradient>
+              </Pressable>
+            </Appear>
+          ))}
 
           {active.length > 0 && (
             <Appear style={{ marginTop: 18 }}>

@@ -684,6 +684,7 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
   const isNew = !def;
   const [label, setLabel] = useState('');
   const [single, setSingle] = useState('');
+  const [tagline, setTagline] = useState('');
   const [emoji, setEmoji] = useState('🛍️');
   const [template, setTemplate] = useState<ServiceTemplate>('cart');
   const [size, setSize] = useState<'small' | 'medium' | 'large'>('small');
@@ -692,7 +693,7 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!visible) return;
-    setLabel(def?.label || ''); setSingle(def?.single || ''); setEmoji(def?.emoji || '🛍️');
+    setLabel(def?.label || ''); setSingle(def?.single || ''); setTagline(def?.tagline || ''); setEmoji(def?.emoji || '🛍️');
     setTemplate((def && def.template !== 'errand' ? def.template : 'cart') as ServiceTemplate);
     setSize(def?.size || 'small'); setCanProducts(def ? def.canProducts : true); setShowHome(def ? def.showHome : true);
   }, [visible, def?.key]);
@@ -702,7 +703,7 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
     setBusy(true);
     const r = isNew
       ? await createService({ label: label.trim(), single: single.trim() || label.trim(), emoji, template, size, canProducts, showHome })
-      : await updateService(def!.key, { label: label.trim(), ...(errand ? {} : { single: single.trim() || label.trim() }), emoji, ...(errand || def!.template === 'request' ? {} : { canProducts }) });
+      : await updateService(def!.key, { label: label.trim(), ...(errand ? {} : { single: single.trim() || label.trim() }), emoji, ...(def!.template === 'maker' ? { tagline: tagline.trim() } : {}), ...(errand || def!.template === 'request' ? {} : { canProducts }) });
     setBusy(false);
     if (r.ok) { toast(isNew ? 'تمت إضافة الخدمة' : 'تم الحفظ'); onClose(); } else toast(r.error || 'تعذر الحفظ', 'err');
   };
@@ -710,6 +711,7 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
     <Sheet visible={visible} onClose={onClose} title={isNew ? 'خدمة جديدة' : 'تعديل الخدمة'}>
       <Field label="اسم الخدمة (يظهر في الرئيسية)" icon="pricetag" value={label} onChangeText={setLabel} placeholder="مثال: توصيل مياه" />
       {!errand && <Field label="الاسم المفرد (مثال: مطعم، صيدلية)" icon="storefront" value={single} onChangeText={setSingle} placeholder="مثال: مورّد مياه" />}
+      {!isNew && def!.template === 'maker' && <Field label="الشرح الظاهر في كارت الرئيسية" icon="create" value={tagline} onChangeText={setTagline} placeholder="منتجات يدوية من أهل أبيس.." multiline />}
       <View style={{ gap: 6 }}>
         <Label>الأيقونة</Label>
         <Wrap>{EMOJIS.map((e) => <Chip key={e} label={e} active={emoji === e} onPress={() => setEmoji(e)} />)}</Wrap>
