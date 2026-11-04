@@ -147,7 +147,7 @@ function Root() {
 
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} direction="rtl">
-      <Stack.Navigator key={`${me?.id || 'guest'}-${enabled}-${me?.status}`} screenOptions={{ headerShown: false, animation: 'slide_from_left', contentStyle: { backgroundColor: C.bg } }}>
+      <Stack.Navigator key={`${me?.id || 'guest'}-${!gate.blocked}-${me?.status}`} screenOptions={{ headerShown: false, animation: 'slide_from_left', contentStyle: { backgroundColor: C.bg } }}>
         {screens}
       </Stack.Navigator>
     </NavigationContainer>
