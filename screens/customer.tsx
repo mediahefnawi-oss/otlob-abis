@@ -38,6 +38,8 @@ export const useRC = () => {
 };
 
 /* ---------------- Home ---------------- */
+const rows3 = <X,>(l: X[]): X[][] => { const r: X[][] = []; for (let i = 0; i < l.length; i += 3) r.push(l.slice(i, i + 3)); return r; };
+
 export function HomeScreen({ navigation }: any) {
   const rc = useRC();
   const { db, cart } = useStore();
@@ -105,9 +107,11 @@ export function HomeScreen({ navigation }: any) {
             </Appear>
           )}
 
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => { const sz = serviceDefs().find((x) => x.key === k)?.size || 'small'; return (
-              <Appear key={k} i={i} style={{ width: sz === 'large' ? '18%' : sz === 'medium' ? '23%' : '31.3%', flexGrow: 1 }}>
+          <View style={{ gap: 10 }}>
+            {rows3(cats.filter((k) => !isMakerTpl(k))).map((row, ri) => (
+              <View key={ri} style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
+            {row.map((k, ci) => { const i = ri * 3 + ci; const sz = serviceDefs().find((x) => x.key === k)?.size || 'small'; return (
+              <Appear key={k} i={i} style={{ width: sz === 'large' ? '21%' : sz === 'medium' ? '26%' : '31.3%' }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 8, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || isLab(k) ? { paddingBottom: 9 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
@@ -126,10 +130,12 @@ export function HomeScreen({ navigation }: any) {
                         <Icon name={TYPES[k].icon} size={23} color={C.gold} />
                       </View>
                     )}
-                  <T w="bold" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 11.5} align="center" numberOfLines={2}>{TYPES[k].label}</T>
+                  <T w="bold" size={sz === 'large' ? 9.5 : sz === 'medium' ? 10.5 : 11.5} align="center" numberOfLines={2}>{TYPES[k].label}</T>
                 </Pressable>
               </Appear>
             ); })}
+              </View>
+            ))}
           </View>
 
           {/* makers: one full-width card under the six icons */}
