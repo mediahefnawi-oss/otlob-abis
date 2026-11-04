@@ -132,6 +132,10 @@ export async function apiDeleteCourier(id: string | number) {
   return apiRequest<{ ok: boolean }>(`/api/admin/couriers/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
 }
 
+export async function apiDeleteCustomer(id: string | number) {
+  return apiRequest<{ ok: boolean }>(`/api/admin/customers/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+}
+
 export async function apiSetUserFlag(id: string | number, flag: string, note: string) {
   return apiRequest<{ ok: boolean; flag: string; note: string }>(`/api/admin/users/${encodeURIComponent(String(id))}/flag`, { method: 'PATCH', body: JSON.stringify({ flag, note }) });
 }
@@ -257,6 +261,18 @@ export async function apiSendMessage(orderId: string | number, text: string) {
 }
 export async function apiBookAppointment(input: { doctorId: string; date: string; time: string; patientName: string; phone: string; notes: string }) {
   return apiRequest<{ appointment: any }>('/api/appointments/book', { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiLabRequest(input: { providerId: string; reason: string; rx?: string | null; patientName: string; phone: string }) {
+  return apiRequest<{ appointment: any }>('/api/lab/request', { method: 'POST', body: JSON.stringify(input) });
+}
+export async function apiLabAction(id: string | number, body: { action: string; date?: string; time?: string; fee?: number; note?: string; file?: string; name?: string }) {
+  return apiRequest<{ appointment: any }>(`/api/lab/${encodeURIComponent(String(id))}/action`, { method: 'POST', body: JSON.stringify(body) });
+}
+export async function apiLabFile(id: string | number, kind: 'rx' | 'report') {
+  return apiRequest<{ file: { data: string; mime: string; name: string } | null }>(`/api/lab/${encodeURIComponent(String(id))}/file/${kind}`);
+}
+export async function apiLabLink(id: string | number, kind: 'rx' | 'report') {
+  return apiRequest<{ url: string }>(`/api/lab/${encodeURIComponent(String(id))}/link/${kind}`);
 }
 export async function apiApptAction(id: string | number, action: string) {
   return apiRequest<{ appointment: any }>(`/api/appointments/${encodeURIComponent(String(id))}/action`, { method: 'POST', body: JSON.stringify({ action }) });

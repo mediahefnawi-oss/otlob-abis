@@ -160,7 +160,7 @@ export function CatalogEditor({ prov }: { prov: Provider }) {
         <Field label={isClinic ? 'رسوم الكشف (ج.م)' : 'السعر (ج.م)'} value={price} onChangeText={setPrice} keyboardType="numeric" icon="cash" />
         {isClinic ? (
           <View style={{ gap: 6 }}>
-            <T w="semi" size={13} color={C.dark3}>التخصص</T>
+            <Field label="تخصص الطبيب (اكتبه بنفسك)" icon="pulse" value={category} onChangeText={setCategory} placeholder="مثال: باطنة، أسنان، مخ وأعصاب…" />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {SPECIALTIES.map((s) => <Chip key={s} label={s} active={category === s} onPress={() => setCategory(s)} />)}
             </View>

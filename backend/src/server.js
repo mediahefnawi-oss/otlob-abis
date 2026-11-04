@@ -126,8 +126,8 @@ async function authCore(req, res, next, allowInactive) {
     // changes must take effect immediately for every protected API request.
     let user = authMemo.get(String(claims.sub));
     if (!user) {
-      const result = await pool.query('SELECT id, role, status FROM users WHERE id=$1', [claims.sub]);
-      if (!result.rowCount) return res.status(401).json({ error: 'الحساب غير موجود' });
+      const result = await pool.query('SELECT id, role, status, deleted_at FROM users WHERE id=$1', [claims.sub]);
+      if (!result.rowCount || result.rows[0].deleted_at) return res.status(401).json({ error: 'الحساب غير موجود' });
       user = authMemo.set(String(claims.sub), result.rows[0]);
     }
     if (!allowInactive && user.status !== 'active') return res.status(403).json({ error: 'الحساب غير مفعّل. تواصل مع الدعم' });
@@ -163,7 +163,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261112;
+const SCHEMA_VERSION = 20261114;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -293,7 +293,9 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
   try {
     await client.query('BEGIN');
     const hash = await bcrypt.hash(password, 12);
-    const status = role === 'customer' ? 'active' : 'pending';
+    // a number that was deleted before always waits for the owner's approval (even a customer); a brand-new customer number is active at once
+    const wasDeleted = await client.query('SAVEPOINT wd').then(() => client.query('SELECT 1 FROM users WHERE orig_phone=$1 AND deleted_at IS NOT NULL LIMIT 1', [normalizedPhone])).then(r => r.rowCount > 0, async () => { await client.query('ROLLBACK TO SAVEPOINT wd'); return false; });
+    const status = role === 'customer' && !wasDeleted ? 'active' : 'pending';
     const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status,region_id,vehicle) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status, region, role === 'courier' ? String(vehicle || 'موتوسيكل').slice(0, 30) : '']);
     const user = result.rows[0];
     if (role === 'provider') {
@@ -394,6 +396,39 @@ app.patch('/api/me/password', auth, asyncRoute(async (req, res) => {
 }));
 
 // Owner tools: list accounts (e.g. pending couriers), reset a password, create a service with its manager account.
+// Live copy of the database: the owner can pause / resume the replication (a paused copy lets the main database sleep when nobody orders).
+// It runs ALTER SUBSCRIPTION on the standby, so it needs DATABASE_URL_BACKUP; it never touches data.
+const SUB_NAME = /^[a-z_][a-z0-9_]{0,40}$/.test(process.env.REPLICATION_SUB || '') ? process.env.REPLICATION_SUB : 'otlob_sub';
+async function replicationStatus() {
+  if (!standby) return { configured: false };
+  const out = { configured: true, subscription: SUB_NAME };
+  const s = await standby.query('SELECT subenabled FROM pg_subscription WHERE subname=$1', [SUB_NAME]);
+  if (!s.rowCount) return { ...out, found: false };
+  out.found = true; out.enabled = !!s.rows[0].subenabled;
+  try { // how far behind the copy is, and how much log the main database keeps for it
+    const l = await pool.query('SELECT active, pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)::bigint AS lag FROM pg_replication_slots WHERE slot_name=$1', [SUB_NAME]);
+    if (l.rowCount) { out.slotActive = !!l.rows[0].active; out.lagBytes = Number(l.rows[0].lag) || 0; }
+  } catch { /* the slot view is only readable by the database owner: the on/off switch still works */ }
+  return out;
+}
+app.get('/api/admin/replication', auth, roles('admin'), asyncRoute(async (_req, res) => {
+  try { res.json(await replicationStatus()); }
+  catch (e) { res.status(502).json({ error: 'تعذر الوصول للقاعدة الاحتياطية الآن' }); }
+}));
+app.post('/api/admin/replication', auth, roles('admin'), asyncRoute(async (req, res) => {
+  if (!standby) return res.status(409).json({ error: 'القاعدة الاحتياطية غير مربوطة بالسيرفر' });
+  if (typeof (req.body || {}).enabled !== 'boolean') return res.status(400).json({ error: 'اختر تشغيل أو إيقاف' });
+  try {
+    const cur = await standby.query('SELECT subenabled FROM pg_subscription WHERE subname=$1', [SUB_NAME]);
+    if (!cur.rowCount) return res.status(404).json({ error: 'لا يوجد ربط على القاعدة الاحتياطية' });
+    if (!!cur.rows[0].subenabled !== req.body.enabled) await standby.query(`ALTER SUBSCRIPTION ${SUB_NAME} ${req.body.enabled ? 'ENABLE' : 'DISABLE'}`);
+    res.json(await replicationStatus());
+  } catch (e) {
+    console.error('replication switch failed:', e.message);
+    res.status(502).json({ error: 'تعذر تغيير حالة الربط: ' + (/permission|must be owner|superuser/i.test(String(e.message)) ? 'صلاحيات الاتصال بالقاعدة الاحتياطية لا تسمح بذلك' : 'القاعدة الاحتياطية لا ترد') });
+  }
+}));
+
 app.get('/api/admin/users', auth, roles('admin'), asyncRoute(async (req, res) => {
   const values = []; let sql = 'SELECT * FROM users WHERE deleted_at IS NULL';
   if (req.query.role) { values.push(String(req.query.role)); sql += ` AND role=$${values.length}`; }
@@ -401,6 +436,29 @@ app.get('/api/admin/users', auth, roles('admin'), asyncRoute(async (req, res) =>
   sql += ' ORDER BY created_at DESC LIMIT 500';
   const r = await pool.query(sql, values);
   res.json({ users: r.rows.map(row => ({ ...cleanUser(row), accountFlag: row.account_flag || '', flagNote: row.flag_note || '' })) });
+}));
+// Deleting an account frees its phone number: the old row keeps its history under a dead number, the real number can register again
+// (as a pending account the owner must approve).
+const FREE_PHONE_SQL = "UPDATE users SET deleted_at=NOW(), status='suspended', orig_phone=COALESCE(orig_phone, phone), phone='d'||id||'_'||right(phone,11) WHERE id=$1 AND deleted_at IS NULL";
+async function freePhone(db, id) { await db.query(FREE_PHONE_SQL, [id]); authMemo.clear(); }
+
+// Deleting a customer: his orders, bookings, invoices and chats go with him (the shops' accounting entries stay).
+app.delete('/api/admin/customers/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const id = positiveId(req.params.id);
+  if (!id) return res.status(400).json({ error: 'معرّف العميل غير صالح' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const u = await client.query("SELECT id FROM users WHERE id=$1 AND role='customer' AND deleted_at IS NULL FOR UPDATE", [id]);
+    if (!u.rowCount) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'العميل غير موجود' }); }
+    await client.query('DELETE FROM invoices WHERE customer_user_id=$1', [id]);
+    await client.query('DELETE FROM orders WHERE customer_user_id=$1', [id]);
+    await client.query('DELETE FROM appointments WHERE customer_user_id=$1', [id]);
+    await client.query('DELETE FROM push_subscriptions WHERE user_id=$1', [id]).catch(() => {});
+    await freePhone(client, id);
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
+  res.json({ ok: true });
 }));
 // Supervisors: staff accounts the owner creates. They run the orders of the areas given to them and nothing else.
 async function cleanRegionIds(list) {
@@ -439,17 +497,18 @@ app.patch('/api/admin/supervisors/:id', auth, roles('admin'), asyncRoute(async (
 app.delete('/api/admin/supervisors/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
   const id = positiveId(req.params.id);
   if (!id) return res.status(400).json({ error: 'معرّف غير صالح' });
-  const r = await pool.query("UPDATE users SET deleted_at=NOW(), status='suspended' WHERE id=$1 AND role='supervisor' AND deleted_at IS NULL RETURNING id", [id]);
+  const r = await pool.query("SELECT id FROM users WHERE id=$1 AND role='supervisor' AND deleted_at IS NULL", [id]);
   if (!r.rowCount) return res.status(404).json({ error: 'المشرف غير موجود' });
-  authMemo.clear();
+  await freePhone(pool, id);
   res.json({ ok: true });
 }));
 // Deleting a courier: orders keep pointing at the account, so it is suspended and hidden for good (never listed again).
 app.delete('/api/admin/couriers/:id', auth, roles('admin'), asyncRoute(async (req, res) => {
   const id = positiveId(req.params.id);
   if (!id) return res.status(400).json({ error: 'معرّف المندوب غير صالح' });
-  const r = await pool.query("UPDATE users SET deleted_at=NOW(), status='suspended' WHERE id=$1 AND role='courier' AND deleted_at IS NULL RETURNING id", [id]);
+  const r = await pool.query("SELECT id FROM users WHERE id=$1 AND role='courier' AND deleted_at IS NULL", [id]);
   if (!r.rowCount) return res.status(404).json({ error: 'المندوب غير موجود' });
+  await freePhone(pool, id);
   res.json({ ok: true });
 }));
 // The owner labels a customer account (trusted / watch / fraud). The label is copied onto that customer's open orders
@@ -802,7 +861,7 @@ app.delete('/api/admin/providers/:id', auth, roles('admin'), asyncRoute(async (r
   if (!r.rowCount) return res.status(404).json({ error: 'مقدم الخدمة غير موجود' });
   const owner = r.rows[0].owner_user_id;
   const left = await pool.query("SELECT 1 FROM providers WHERE owner_user_id=$1 AND deleted_at IS NULL LIMIT 1", [owner]);
-  if (!left.rowCount) await pool.query("UPDATE users SET status='suspended' WHERE id=$1 AND role='provider'", [owner]);
+  if (!left.rowCount) { await pool.query("SELECT 1 FROM users WHERE id=$1 AND role='provider'", [owner]).then(async q => { if (q.rowCount) await freePhone(pool, owner); }); }
   res.json({ ok: true });
 }));
 

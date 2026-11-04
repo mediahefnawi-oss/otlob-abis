@@ -5,6 +5,7 @@
  *   request the customer writes what he wants, no products (supermarkets, pharmacies)
  *   booking appointments (clinics)
  *   maker   products + written requests, the provider prices and sets a ready date (makers)
+ *   lab     the customer writes the reason / sends a prescription, the lab sets the visit day and price, the customer confirms, the lab uploads the report
  * If the table is missing (not migrated yet) the six original services are used, so nothing breaks while deploying.
  */
 const BUILTIN = [
@@ -12,12 +13,13 @@ const BUILTIN = [
   { key: 'supermarket', label: 'السوبر ماركت', single: 'سوبر ماركت', emoji: '🛒', template: 'request', sort_order: 20, size: 'small', active: true, show_home: true, can_products: false, builtin: true },
   { key: 'pharmacy', label: 'الصيدليات', single: 'صيدلية', emoji: '💊', template: 'request', sort_order: 30, size: 'small', active: true, show_home: true, can_products: false, builtin: true },
   { key: 'clinic', label: 'حجز العيادات', single: 'عيادة', emoji: '🩺', template: 'booking', sort_order: 40, size: 'small', active: true, show_home: true, can_products: true, builtin: true },
+  { key: 'lab', label: 'المعامل والتحاليل', single: 'معمل', emoji: '🧪', template: 'lab', sort_order: 45, size: 'large', active: false, show_home: true, can_products: false, builtin: true },
   { key: 'store', label: 'متاجر', single: 'متجر', emoji: '🏬', template: 'cart', sort_order: 50, size: 'small', active: true, show_home: true, can_products: true, builtin: true },
   { key: 'maker', label: 'صُنّاع أبيس', single: 'صانع', emoji: '🧵', template: 'maker', sort_order: 60, size: 'small', active: true, show_home: true, can_products: true, builtin: true },
   // "اطلب إيه؟ نجيبهولك": not a provider type, it has no providers; the courier prices the errand. It is listed here so it is renamed / stopped / ordered like the others.
   { key: 'errand', label: 'اطلب إيه؟ نجيبهولك', single: 'طلب خاص', emoji: '🎁', template: 'errand', sort_order: 70, size: 'large', active: true, show_home: true, can_products: false, builtin: true },
 ];
-const TEMPLATES = ['cart', 'request', 'booking', 'maker'];
+const TEMPLATES = ['cart', 'request', 'booking', 'maker', 'lab'];
 const SIZES = ['small', 'medium', 'large'];
 
 let cache = { at: 0, list: BUILTIN };
@@ -48,7 +50,7 @@ const errandActive = () => { const s = find('errand'); return !s || s.active !==
 /** the order path of a service; unknown types behave like a basket service */
 const tplOf = type => (find(type) || {}).template || 'cart';
 /** the provider can add / edit products */
-const canProducts = type => { const s = find(type); if (!s) return true; return s.template !== 'request' && s.template !== 'errand' && s.can_products !== false; };
+const canProducts = type => { const s = find(type); if (!s) return true; return s.template !== 'request' && s.template !== 'errand' && s.template !== 'lab' && s.can_products !== false; };
 /** the customer may send a written request to this type */
 const acceptsRequests = type => ['request', 'maker'].includes(tplOf(type));
 const listJson = () => cache.list.map(json);
@@ -78,7 +80,7 @@ function register(app, { pool, auth, roles, asyncRoute }) {
     const template = String(b.template || '');
     if (!TEMPLATES.includes(template)) throw fail(400, 'اختر طريقة الشغل');
     const size = SIZES.includes(b.size) ? b.size : 'small';
-    const canP = template !== 'request' ? b.canProducts !== false : false;
+    const canP = template !== 'request' && template !== 'lab' ? b.canProducts !== false : false;
     await seedBuiltin(pool); await load(pool);
     const key = `svc_${Date.now().toString(36)}`;
     const next = Math.max(0, ...cache.list.map(s => Number(s.sort_order))) + 10;
@@ -104,7 +106,7 @@ function register(app, { pool, auth, roles, asyncRoute }) {
     if (b.size !== undefined) { if (!SIZES.includes(b.size)) throw fail(400, 'حجم غير صالح'); put('size', b.size); }
     if (b.active !== undefined) put('active', !!b.active);
     if (b.showHome !== undefined) put('show_home', !!b.showHome);
-    if (b.canProducts !== undefined) { if (s.template !== 'request' && s.template !== 'errand') put('can_products', !!b.canProducts); }
+    if (b.canProducts !== undefined) { if (s.template !== 'request' && s.template !== 'errand' && s.template !== 'lab') put('can_products', !!b.canProducts); }
     if (!sets.length) return res.json({ services: listJson() });
     vals.push(key);
     await pool.query(`UPDATE service_types SET ${sets.join(', ')} WHERE key=$${vals.length}`, vals);

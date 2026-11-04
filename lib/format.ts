@@ -38,7 +38,7 @@ const FALLBACK_TYPE: TypeInfo = { label: 'خدمة', single: 'خدمة', icon: '
 const EXTRA_COLORS: [string, string][] = [['#0E9AA7', '#DDF3F5'], ['#D6457F', '#FBE3EC'], ['#8A5CD1', '#EFE6FB'], ['#2E7D32', '#E3F3E4'], ['#E4572E', '#FDE6DE']];
 /** The services (name, icon, template). It is a live object: applyServices() updates it when the owner changes something. Unknown keys read as a basket service. */
 export const TYPES = new Proxy(BASE_TYPES, { get: (t, k) => (typeof k === 'string' ? (k in t ? t[k] : FALLBACK_TYPE) : (t as any)[k]) }) as Record<ProviderType, TypeInfo>;
-export const TEMPLATE_LABEL: Record<ServiceTemplate, string> = { cart: 'منتجات وسلة', request: 'طلب مكتوب', booking: 'حجز مواعيد', maker: 'منتجات + طلب خاص' };
+export const TEMPLATE_LABEL: Record<ServiceTemplate, string> = { cart: 'منتجات وسلة', request: 'طلب مكتوب', booking: 'حجز مواعيد', maker: 'منتجات + طلب خاص', lab: 'معمل تحاليل' };
 let SERVICE_DEFS: ServiceDef[] = [];
 /** Take the owner's service list (from the catalog) and update TYPES. The errand service is kept apart: it has no providers. */
 export function applyServices(list?: ServiceDef[]) {
@@ -60,11 +60,13 @@ export const errandDef = (): ServiceDef => SERVICE_DEFS.find((s) => s.template =
 /** the keys of every provider service, in the owner's order */
 export const typeKeys = () => Object.keys(BASE_TYPES) as ProviderType[];
 export const tplOf = (type?: string): ServiceTemplate => (type && BASE_TYPES[type] ? BASE_TYPES[type].template : 'cart');
-export const isBooking = (type?: string) => tplOf(type) === 'booking';
+/** appointment-style services: clinics and medical labs share the bookings screens, invoices and commission */
+export const isBooking = (type?: string) => { const t = tplOf(type); return t === 'booking' || t === 'lab'; };
+export const isLab = (type?: string) => tplOf(type) === 'lab';
 export const isRequestOnly = (type?: string) => tplOf(type) === 'request';
 export const isMakerTpl = (type?: string) => tplOf(type) === 'maker';
 /** may the provider of this service add products */
-export const hasProducts = (type?: string) => tplOf(type) !== 'request';
+export const hasProducts = (type?: string) => tplOf(type) !== 'request' && tplOf(type) !== 'lab';
 export const acceptsRequests = (type?: string) => { const t = tplOf(type); return t === 'request' || t === 'maker'; };
 
 /** "الخميس 5/11/2026 • 3:30 م" for a maker's ready day (YYYY-MM-DD) and hour (HH:mm). */

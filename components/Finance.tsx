@@ -718,7 +718,7 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
         <View style={{ gap: 6 }}>
           <Label>طريقة الشغل</Label>
           <Wrap>{(Object.keys(TEMPLATE_LABEL) as ServiceTemplate[]).map((k) => <Chip key={k} label={TEMPLATE_LABEL[k]} active={template === k} onPress={() => setTemplate(k)} />)}</Wrap>
-          <T size={11.5} color={C.sub}>{template === 'cart' ? 'مقدم الخدمة يضيف منتجات والعميل يطلب من سلة.' : template === 'request' ? 'العميل يكتب طلبه والمقدم يحدد السعر، بدون منتجات.' : template === 'booking' ? 'العميل يحجز موعداً عند مقدم الخدمة.' : 'منتجات، ويقدر العميل يطلب طلباً خاصاً والمقدم يحدد السعر وموعد التسليم.'}</T>
+          <T size={11.5} color={C.sub}>{template === 'cart' ? 'مقدم الخدمة يضيف منتجات والعميل يطلب من سلة.' : template === 'request' ? 'العميل يكتب طلبه والمقدم يحدد السعر، بدون منتجات.' : template === 'booking' ? 'العميل يحجز موعداً عند مقدم الخدمة.' : template === 'lab' ? 'العميل يكتب السبب أو يرفع الروشتة، والمعمل يحدد موعد الكشف والسعر، والعميل يؤكد، وبعد الكشف يرفع المعمل التقرير.' : 'منتجات، ويقدر العميل يطلب طلباً خاصاً والمقدم يحدد السعر وموعد التسليم.'}</T>
         </View>
       )}
       {isNew && (

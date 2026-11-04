@@ -17,6 +17,7 @@ import { Order, OrderStatus } from '../lib/types';
 import { QuoteButtons, MakerOrderButtons, RequestPhoto, ErrandQuoteButton } from '../components/Quote';
 import { PushCard } from '../components/PushCard';
 import { OrderStaffTools } from '../components/StaffTools';
+import { LabDetail } from '../components/Lab';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
@@ -256,6 +257,7 @@ export function ApptDetailScreen({ navigation, route }: any) {
   const me = useMe()!;
   const a = db.appointments.find((x) => x.id === route.params.id);
   if (!a) return <View style={{ flex: 1 }}><Header title="الحجز" onBack={() => navigation.goBack()} /><Empty title="الحجز غير موجود" /></View>;
+  if (a.lab) return <LabDetail navigation={navigation} a={a} />;
   const isOwner = (me.role === 'provider' && a.clinicOwnerId === me.id) || me.role === 'admin';
   const act = (x: 'confirm' | 'reject' | 'complete' | 'cancel', msg: string) => {
     apptAction(a.id, x);

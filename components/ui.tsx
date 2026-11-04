@@ -318,18 +318,19 @@ export function Sheet({ visible, onClose, title, children }: { visible: boolean;
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <Pressable style={styles.backdrop} onPress={onClose}>
-          <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} onPress={() => {}}>
+        <View style={styles.backdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
             <View style={{ alignItems: 'center', marginBottom: 8 }}><View style={{ width: 44, height: 5, borderRadius: 3, backgroundColor: C.line }} /></View>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
               <T w="black" size={18} style={{ flex: 1 }}>{title}</T>
               <IconBtn icon="close" onPress={onClose} color={C.text} bg="#EEF1EC" />
             </View>
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <ScrollView style={{ flexShrink: 1 }} nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <View style={{ gap: 14, paddingBottom: 8 }}>{children}</View>
             </ScrollView>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );

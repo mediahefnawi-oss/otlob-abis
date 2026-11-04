@@ -19,7 +19,7 @@ import { navigationRef } from './lib/nav';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
-  HomeScreen, CategoryScreen, ProviderScreen, CartScreen, CustomOrderScreen, RequestOrderScreen, BookingScreen, CustomerOrdersScreen,
+  HomeScreen, CategoryScreen, ProviderScreen, CartScreen, CustomOrderScreen, RequestOrderScreen, LabRequestScreen, BookingScreen, CustomerOrdersScreen,
 } from './screens/customer';
 import { OrderDetailScreen, ApptDetailScreen, InvoiceScreen, ChatScreen, SupportScreen, ProfileScreen } from './screens/shared';
 import { ProviderOrdersScreen, ProviderCatalogScreen, ProviderInvoicesScreen, ProviderProfileScreen } from './screens/provider';
@@ -28,7 +28,7 @@ import {
   AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen, AdminSupervisorsScreen, SupervisorOrdersScreen,
 } from './screens/admin';
 import { AdminFinanceScreen } from './components/Finance';
-import { inStaffQueue, isBooking, isRequestOnly } from './lib/format';
+import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 
 // the phone app must not close because of one failing action: show a message instead (a crash in a screen is caught by ErrorBoundary)
@@ -59,9 +59,9 @@ function Main({ navigation }: any) {
     ];
   } else if (me.role === 'provider') {
     const prov = db.providers.find((p) => p.ownerId === me.id);
-    const pending = prov ? (isBooking(prov.type) ? db.appointments.filter((a) => a.providerId === prov.id && a.status === 'pending').length : db.orders.filter((o) => o.providerId === prov.id && ['pending', 'accepted'].includes(o.status)).length) : 0;
+    const pending = prov ? (isBooking(prov.type) ? db.appointments.filter((a) => a.providerId === prov.id && (a.lab ? a.lab.stage === 'new' || a.lab.stage === 'confirmed' : a.status === 'pending')).length : db.orders.filter((o) => o.providerId === prov.id && ['pending', 'accepted'].includes(o.status)).length) : 0;
     const clinic = isBooking(prov?.type);
-    const noCatalog = isRequestOnly(prov?.type); // these work by written requests only
+    const noCatalog = isRequestOnly(prov?.type) || isLab(prov?.type); // these have no menu: written requests only / a medical lab
     tabs = [
       { key: 'orders', label: clinic ? 'الحجوزات' : 'الطلبات', icon: clinic ? 'calendar' : 'receipt', badge: pending, render: () => <ProviderOrdersScreen navigation={navigation} /> },
       ...(noCatalog ? [] : [{ key: 'catalog', label: clinic ? 'الأطباء' : 'المنتجات', icon: clinic ? 'people' : 'pricetags', render: () => <ProviderCatalogScreen /> }]),
@@ -132,6 +132,7 @@ function Root() {
         <Stack.Screen name="Cart" component={CartScreen} />
         <Stack.Screen name="CustomOrder" component={CustomOrderScreen} />
         <Stack.Screen name="RequestOrder" component={RequestOrderScreen} />
+        <Stack.Screen name="LabRequest" component={LabRequestScreen} />
         <Stack.Screen name="Booking" component={BookingScreen} />
         <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
         <Stack.Screen name="ApptDetail" component={ApptDetailScreen} />

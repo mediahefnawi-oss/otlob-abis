@@ -6,7 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { phaseAt, allowedIn, renderMessage, type HoursPhase, type NextOpen } from './hours';
 import { AppState } from 'react-native';
 import {
-  ApiError, ServerUser, apiDeleteCourier, apiLogin, apiSetUserFlag, apiRegister, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
+  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
@@ -874,6 +874,56 @@ export async function bookAppointment(
   }
 }
 
+/* ---------- medical labs ---------- */
+export async function labRequest(
+  me: User,
+  info: { provider: Provider; reason: string; rx?: string | null; patientName: string; phone: string }
+): Promise<Result<{ id: string }>> {
+  { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
+  if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المعمل لا يستقبل طلبات حالياً' };
+  if (info.reason.trim().length < 3 && !info.rx) return { ok: false, error: 'اكتب سبب الكشف أو ارفع الروشتة' };
+  if (info.patientName.trim().length < 3) return { ok: false, error: 'اكتب اسم المريض' };
+  if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
+  pendingWrites++;
+  try {
+    const { appointment } = await apiLabRequest({ providerId: info.provider.id, reason: info.reason.trim(), rx: info.rx || null, patientName: info.patientName.trim(), phone: normPhone(info.phone) });
+    if (info.rx) labFileCache.set(`${appointment.id}:rx`, { data: info.rx, mime: 'image', name: 'روشتة' });
+    mutate((db) => { db.appointments = upsertById(db.appointments, [appointment as Appointment]); });
+    return { ok: true, id: String(appointment.id) };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
+}
+/** quote / reject / confirm / cancel / visit / report: the server decides, then the screen shows what it answered */
+export async function labAction(id: string, body: { action: 'quote' | 'reject' | 'confirm' | 'cancel' | 'visit' | 'report'; date?: string; time?: string; fee?: number; note?: string; file?: string; name?: string }): Promise<Result> {
+  pendingWrites++;
+  try {
+    const { appointment } = await apiLabAction(id, body);
+    if (body.file) labFileCache.set(`${id}:report`, { data: body.file, mime: body.file.startsWith('data:application/pdf') ? 'pdf' : 'image', name: body.name || '' });
+    mutate((db) => { db.appointments = upsertById(db.appointments, [appointment as Appointment]); });
+    if (body.action === 'confirm') syncOrders().catch(() => {}); // brings the booking invoice
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
+}
+export type LabFile = { data: string; mime: string; name: string };
+const labFileCache = new Map<string, LabFile>();
+export async function fetchLabFile(id: string, kind: 'rx' | 'report'): Promise<LabFile | null> {
+  const key = `${id}:${kind}`;
+  const hit = labFileCache.get(key);
+  if (hit) return hit;
+  try {
+    const { file } = await apiLabFile(id, kind);
+    if (file) labFileCache.set(key, file);
+    return file;
+  } catch { return null; }
+}
+
 export function apptAction(id: string, action: 'confirm' | 'reject' | 'complete' | 'cancel') {
   if (isServerId(id)) backgroundWrite(async () => { await apiApptAction(id, action); });
   mutate((db) => {
@@ -1170,6 +1220,21 @@ export async function adminDeleteCourier(userId: string): Promise<Result> {
   }
   mutate((db) => {
     db.users = db.users.filter((u) => u.id !== userId || u.role !== 'courier');
+  });
+  return { ok: true };
+}
+
+/** Owner: delete a customer. His orders, bookings, invoices and chats are deleted with him; his number can register again (pending). */
+export async function adminDeleteCustomer(userId: string): Promise<Result> {
+  if (isServerId(userId)) {
+    try { await apiDeleteCustomer(userId); }
+    catch (e) { return { ok: false, error: errMsg(e) }; }
+  }
+  mutate((db) => {
+    db.users = db.users.filter((u) => u.id !== userId || u.role !== 'customer');
+    db.orders = db.orders.filter((o) => o.customerId !== userId);
+    db.appointments = db.appointments.filter((a) => a.customerId !== userId);
+    db.invoices = db.invoices.filter((i) => i.customerId !== userId);
   });
   return { ok: true };
 }

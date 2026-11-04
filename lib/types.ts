@@ -3,7 +3,7 @@ export type Role = 'customer' | 'provider' | 'courier' | 'admin' | 'supervisor';
 /** the key of a service (restaurant, pharmacy... or one the owner added). */
 export type ProviderType = string;
 /** how a service works: basket / written request / appointments / products + requests. */
-export type ServiceTemplate = 'cart' | 'request' | 'booking' | 'maker';
+export type ServiceTemplate = 'cart' | 'request' | 'booking' | 'maker' | 'lab';
 export interface ServiceDef {
   key: string; label: string; single: string; emoji: string; template: ServiceTemplate | 'errand'; order: number;
   size: 'small' | 'medium' | 'large'; active: boolean; showHome: boolean; canProducts: boolean; builtin: boolean;
@@ -148,7 +148,11 @@ export interface Order {
 
 export type ApptStatus = 'pending' | 'confirmed' | 'rejected' | 'completed' | 'cancelled';
 
+/** a medical-lab case (stored as an appointment): request -> the lab sets day + price -> the customer confirms -> visit -> report */
+export interface LabInfo { stage: 'new' | 'quoted' | 'confirmed' | 'visited' | 'done' | 'rejected' | 'cancelled'; reason: string; hasRx: boolean; hasReport: boolean; reportName: string; note: string }
+
 export interface Appointment {
+  lab?: LabInfo;
   customerFlag?: string;
   customerFlagNote?: string;
   id: string;

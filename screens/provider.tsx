@@ -5,6 +5,7 @@ import {
   T, Icon, Toggle, Card, Btn, Header, Empty, Segmented, Stat, Appear, EmojiBubble, Sheet, Field, Chip, Pill, IconBubble, toast, confirmDialog, SectionTitle, IconBtn,
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
+import { LabCardActions } from '../components/Lab';
 import { QuoteButtons, MakerOrderButtons } from '../components/Quote';
 import { ProviderLogo, ProductThumb, ProductPicture, LogoPicker } from '../components/Brand';
 import { ProviderFinanceCard } from '../components/Finance';
@@ -101,13 +102,14 @@ export function ProviderOrdersScreen({ navigation }: any) {
           renderItem={({ item, index }) => (
             <Appear i={index}>
               <ApptCard a={item} perspective="provider" onPress={() => navigation.navigate('ApptDetail', { id: item.id })}>
-                {item.status === 'pending' && (
+                {item.lab ? <LabCardActions a={item} navigation={navigation} role="provider" /> : null}
+                {!item.lab && item.status === 'pending' && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="green" icon="checkmark" title="قبول وإصدار الفاتورة" style={{ flex: 2 }} onPress={() => { apptAction(item.id, 'confirm'); toast('تم قبول الحجز وإنشاء الفاتورة ✅'); }} />
                     <Btn small variant="danger" icon="close" title="رفض" style={{ flex: 1 }} onPress={() => { apptAction(item.id, 'reject'); toast('تم رفض الحجز'); }} />
                   </View>
                 )}
-                {item.status === 'confirmed' && (
+                {!item.lab && item.status === 'confirmed' && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="soft" icon="document-text" title="الفاتورة" style={{ flex: 1 }} onPress={() => navigation.navigate('Invoice', { id: item.invoiceId })} />
                     <Btn small variant="dark" icon="checkmark-done" title="تمت الزيارة" style={{ flex: 1 }} onPress={() => { apptAction(item.id, 'complete'); toast('تم تسجيل الزيارة'); }} />
@@ -235,7 +237,7 @@ export function ProviderCatalogScreen() {
         <Field label={isClinic ? 'رسوم الكشف (ج.م)' : 'السعر (ج.م)'} value={price} onChangeText={setPrice} keyboardType="numeric" icon="cash" />
         {isClinic ? (
           <View style={{ gap: 6 }}>
-            <T w="semi" size={13} color={C.dark3}>التخصص</T>
+            <Field label="تخصص الطبيب (اكتبه بنفسك)" icon="pulse" value={category} onChangeText={setCategory} placeholder="مثال: باطنة، أسنان، مخ وأعصاب…" />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {SPECIALTIES.map((s) => <Chip key={s} label={s} active={category === s} onPress={() => setCategory(s)} />)}
             </View>

@@ -12,7 +12,7 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
 import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
@@ -20,6 +20,7 @@ import { LoginImageManager, WelcomeScreenManager, AppIconManager, ServicesManage
 import { useCounters } from '../lib/finance';
 import { AdsManager } from '../components/Ads';
 import { HoursSettings } from '../components/HoursSettings';
+import { ReplicationCard } from '../components/Replication';
 import { ProviderType, AccountStatus } from '../lib/types';
 
 // Runs a server-backed action and only reports success when the server accepted it.
@@ -70,6 +71,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
   const active = orders.filter((o) => ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
   const pendingProv = db.providers.filter((p) => p.status === 'pending');
   const pendingCour = db.users.filter((u) => u.role === 'courier' && u.status === 'pending');
+  const pendingCust = db.users.filter((u) => u.role === 'customer' && u.status === 'pending');
   const couriers = db.users.filter((u) => u.role === 'courier' && u.status === 'active');
   const avail = availableCouriers(db).length;
   const revenue = delivered.reduce((s, o) => s + o.total, 0);
@@ -112,7 +114,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
           <Icon name="chevron-back" size={18} color={C.sub} />
         </Card>
 
-        {(pendingProv.length > 0 || pendingCour.length > 0) && (
+        {(pendingProv.length > 0 || pendingCour.length > 0 || pendingCust.length > 0) && (
           <Appear>
             <Card style={{ backgroundColor: C.goldSoft, gap: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -122,6 +124,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 {pendingProv.length > 0 && <Btn small title={`مقدمو خدمة (${pendingProv.length})`} icon="storefront" style={{ flex: 1 }} onPress={() => go('providers')} />}
                 {pendingCour.length > 0 && <Btn small title={`مناديب (${pendingCour.length})`} icon="bicycle" variant="dark" style={{ flex: 1 }} onPress={() => go('couriers')} />}
+                {pendingCust.length > 0 && <Btn small title={`عملاء (${pendingCust.length})`} icon="person" variant="green" style={{ flex: 1 }} onPress={() => navigation.navigate('AdminCustomers')} />}
               </View>
             </Card>
           </Appear>
@@ -481,6 +484,9 @@ export function AdminSettingsScreen({ navigation }: any) {
       <Section icon="moon" title="مواعيد التشغيل" sub="ساعة الفتح والغلق، الأيام، رسالة الغلق للعميل">
         <HoursSettings />
       </Section>
+      <Section icon="server" title="النسخة الاحتياطية" sub="تشغيل أو إيقاف الربط مع القاعدة الاحتياطية">
+        <ReplicationCard />
+      </Section>
       <Section icon="grid" title="الخدمات" sub={`${(db.services && db.services.length ? db.services.filter((x) => x.template !== 'errand').length : 6)} خدمات • أسماء وترتيب وأحجام`}>
         <ServicesManager />
       </Section>
@@ -518,6 +524,7 @@ export function AdminSettingsScreen({ navigation }: any) {
 /* ---------------- Customers: suspend + label ---------------- */
 const FLAG_FILTERS = [
   { key: 'all', label: 'الكل' },
+  { key: 'pending', label: 'بانتظار القبول' },
   { key: 'trusted', label: 'معتمد' },
   { key: 'watch', label: 'مراقبة' },
   { key: 'fraud', label: 'احتيالي' },
@@ -532,10 +539,10 @@ export function AdminCustomersScreen({ navigation }: any) {
   const regionOf = (id?: string | null) => db.regions.find((x) => x.id === id)?.name || '';
   const all = db.users.filter((u) => u.role === 'customer');
   const list = all
-    .filter((u) => (f === 'all' ? true : f === 'suspended' ? u.status === 'suspended' : u.accountFlag === f))
+    .filter((u) => (f === 'all' ? true : f === 'suspended' ? u.status === 'suspended' : f === 'pending' ? u.status === 'pending' : u.accountFlag === f))
     .filter((u) => !q.trim() || u.name.includes(q.trim()) || (u.phone || '').includes(q.trim()))
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  const cnt = (k: string) => (k === 'all' ? all.length : k === 'suspended' ? all.filter((u) => u.status === 'suspended').length : all.filter((u) => u.accountFlag === k).length);
+  const cnt = (k: string) => (k === 'all' ? all.length : k === 'pending' ? all.filter((u) => u.status === 'pending').length : k === 'suspended' ? all.filter((u) => u.status === 'suspended').length : all.filter((u) => u.accountFlag === k).length);
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="إدارة العملاء" subtitle={`${all.length} عميل`} onBack={() => navigation.goBack()} />
@@ -635,7 +642,23 @@ export function AdminCustomerScreen({ navigation, route }: any) {
           <Field label="كلمة المرور الجديدة" icon="key" value={newPw} onChangeText={setNewPw} secureTextEntry autoCapitalize="none" />
           <Btn title="حفظ" icon="checkmark" disabled={busy || newPw.length < 8} onPress={savePw} />
         </Sheet>
+        {user.status === 'pending' && (
+          <Card style={{ gap: 10, backgroundColor: C.goldSoft }}>
+            <T w="black" size={15} color={C.goldDeep}>رقم سبق حذفه يطلب العودة</T>
+            <T size={12.5} color={C.sub}>هذا الرقم كان محذوفاً من قبل وسجّل من جديد. لن يدخل التطبيق إلا بعد قبولك.</T>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Btn small variant="green" icon="checkmark" title="قبول العميل" style={{ flex: 1 }} onPress={() => done(setUserStatus(user.id, 'active'), 'تم قبول العميل ✅')} />
+              <Btn small variant="danger" icon="close" title="رفض" style={{ flex: 1 }} onPress={() => done(setUserStatus(user.id, 'rejected'), 'تم رفض الطلب', 'info')} />
+            </View>
+          </Card>
+        )}
         <Btn variant={suspended ? 'green' : 'danger'} icon={suspended ? 'play' : 'ban'} title={suspended ? 'إعادة تفعيل الحساب' : 'إيقاف الحساب'} onPress={toggleSuspend} />
+        <Btn variant="danger" icon="trash" title="حذف العميل نهائياً" onPress={() => confirmDialog({
+          title: 'حذف العميل نهائياً؟',
+          message: `سيتم حذف "${user.name}" وجميع طلباته وحجوزاته وفواتيره ومحادثاته. ولو سجّل بنفس الرقم مرة أخرى فلن يدخل إلا بموافقتك. لا يمكن التراجع.`,
+          danger: true, confirmText: 'حذف نهائي',
+          onConfirm: () => { navigation.goBack(); setTimeout(() => { done(adminDeleteCustomer(user.id), 'تم حذف العميل'); }, 150); },
+        })} />
 
         <SectionTitle title="طلبات العميل" />
         {orders.length === 0 ? <T size={13} color={C.sub}>لا توجد طلبات.</T> : orders.slice(0, 15).map((o) => (

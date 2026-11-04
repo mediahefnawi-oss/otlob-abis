@@ -386,3 +386,27 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS close_time TEXT NOT NULL DEFAU
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS open_days TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6';
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS grace_min INT NOT NULL DEFAULT 30;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS closed_message TEXT NOT NULL DEFAULT 'تم إغلاق التطبيق، سيتم التشغيل الساعة {وقت_الفتح}';
+
+-- 20261113: deleting an account frees its phone number; a deleted number registers again as a pending account
+ALTER TABLE users ADD COLUMN IF NOT EXISTS orig_phone VARCHAR(20);
+CREATE INDEX IF NOT EXISTS idx_users_orig_phone ON users(orig_phone) WHERE orig_phone IS NOT NULL;
+UPDATE users SET deleted_at = NOW() WHERE role = 'provider' AND deleted_at IS NULL
+  AND EXISTS (SELECT 1 FROM providers p WHERE p.owner_user_id = users.id AND p.deleted_at IS NOT NULL)
+  AND NOT EXISTS (SELECT 1 FROM providers p WHERE p.owner_user_id = users.id AND p.deleted_at IS NULL);
+UPDATE users SET orig_phone = phone, phone = 'd' || id || '_' || right(phone, 11) WHERE deleted_at IS NOT NULL AND orig_phone IS NULL;
+
+-- 20261113: medical labs
+ALTER TABLE service_types DROP CONSTRAINT IF EXISTS service_types_template_check;
+ALTER TABLE service_types ADD CONSTRAINT service_types_template_check CHECK (template IN ('cart','request','booking','maker','errand','lab'));
+INSERT INTO service_types(key, label, single, emoji, template, sort_order, size, active, show_home, can_products, builtin)
+  SELECT 'lab', 'المعامل والتحاليل', 'معمل', '🧪', 'lab', 45, 'large', FALSE, TRUE, FALSE, TRUE
+  WHERE EXISTS (SELECT 1 FROM service_types) ON CONFLICT (key) DO NOTHING;
+CREATE TABLE IF NOT EXISTS lab_files (
+  appointment_id BIGINT NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('rx','report')),
+  mime TEXT NOT NULL DEFAULT 'image',
+  name TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (appointment_id, kind)
+);

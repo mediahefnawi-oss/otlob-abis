@@ -41,6 +41,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       doctorId: r.doctor_product_id ? String(r.doctor_product_id) : '', doctorName: d.doctorName || '', specialty: d.specialty || '',
       date: r.date_str, time: r.appointment_time, fee: num(r.fee), notes: d.notes || '', status: r.status,
       invoiceId: d.invoiceId ? String(d.invoiceId) : undefined, createdAt: ms(r.created_at), updatedAt: ms(r.updated_at),
+      ...(d.kind === 'lab' && d.lab ? { lab: { stage: d.lab.stage || 'new', reason: d.lab.reason || '', hasRx: !!d.lab.hasRx, hasReport: !!d.lab.hasReport, reportName: d.lab.reportName || '', note: d.lab.note || '' } } : {}),
     };
   };
   const messageJson = r => ({
@@ -68,7 +69,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   }
   /** What a customer pays for delivery from a shop: only the owner's route price counts. A route without a price is closed. */
   async function deliveryFeeFor(db, prov, region, fallback) {
-    if (services.tplOf(prov.type) === 'booking') return 0;
+    if (['booking', 'lab'].includes(services.tplOf(prov.type))) return 0;
     if (!region) return Number(fallback) || 0; // an old customer account with no area: the shop's own price
     const r = await routeFee(db, prov.id, region.id);
     if (r === null) throw fail(409, `التوصيل من منطقة ${prov.name} إلى منطقتك غير متاح حالياً`);
@@ -869,6 +870,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const f = await db.query('SELECT a.*, p.owner_user_id AS powner FROM appointments a JOIN providers p ON p.id=a.provider_id WHERE a.id=$1 FOR UPDATE OF a', [id]);
       if (!f.rowCount) throw fail(404, 'الحجز غير موجود');
       const a = f.rows[0];
+      if ((a.data || {}).kind === 'lab') throw fail(409, 'طلبات المعامل لها خطواتها الخاصة');
       const isClinic = role === 'admin' || (role === 'provider' && Number(a.powner) === me);
       const isCustomer = role === 'admin' || (role === 'customer' && Number(a.customer_user_id) === me);
       const dataNow = { ...(a.data || {}) };
@@ -894,5 +896,169 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     });
     if (['confirm', 'reject'].includes(action)) await notify([out.customer_user_id], action === 'confirm' ? 'تم تأكيد حجزك ✅' : 'اعتذرت العيادة عن الحجز', `${(out.data || {}).clinicName || ''} — ${out.date_str} ${out.appointment_time}`, `appt-${out.id}`);
     res.json({ appointment: apptJsonFor(out, (req.auth || {}).role) });
+  }));
+
+  /* ---------- medical labs: the customer writes the reason / sends a prescription, the lab sets the visit day and price, the customer
+     confirms (a booking invoice is made), and after the visit the case stays open until the lab uploads the report (PDF or picture) ---------- */
+  const LAB_MAX_FILE = 1800000; // characters of base64 text (about 1.3 MB of file)
+  const LAB_MIME = /^data:(image\/(jpeg|png|webp)|application\/pdf);base64,/;
+  const labOf = d => (d && d.kind === 'lab' ? { ...(d.lab || {}) } : null);
+  const stageStatus = { new: 'pending', quoted: 'pending', confirmed: 'confirmed', visited: 'confirmed', done: 'completed' };
+
+  app.post('/api/lab/request', auth, roles('customer'), guard(async (req, res) => {
+    await requireOpen();
+    const b = req.body || {};
+    const providerId = positiveId(b.providerId);
+    const reason = String(b.reason || '').trim().slice(0, 1000);
+    const rx = typeof b.rx === 'string' && b.rx ? b.rx : null;
+    const patientName = String(b.patientName || '').trim().slice(0, 80);
+    const phone = normPhone(b.phone);
+    if (!providerId) throw fail(400, 'اختر المعمل');
+    if (reason.length < 3 && !rx) throw fail(400, 'اكتب سبب الكشف أو ارفع الروشتة');
+    if (rx && (!/^data:image\/(jpeg|png|webp);base64,/.test(rx) || rx.length > 600000)) throw fail(400, 'صورة الروشتة غير صالحة أو كبيرة جداً');
+    if (patientName.length < 3) throw fail(400, 'اكتب اسم المريض');
+    if (!PHONE.test(phone)) throw fail(400, 'رقم الهاتف غير صحيح');
+    await services.ensure(pool);
+    const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
+    const prov = p.rows[0];
+    if (!prov || services.tplOf(prov.type) !== 'lab') throw fail(404, 'المعمل غير موجود');
+    if (prov.status !== 'active' || !prov.is_open) throw fail(409, 'المعمل لا يستقبل طلبات حالياً');
+    if (!services.isActive(prov.type)) throw fail(409, 'هذه الخدمة متوقفة حالياً');
+    const out = await withTx(async db => {
+      const r = await db.query(
+        `INSERT INTO appointments(customer_user_id, provider_id, doctor_product_id, appointment_date, appointment_time, status, fee, data)
+         VALUES($1,$2,NULL,CURRENT_DATE,'--','pending',0,$3) RETURNING id`,
+        [Number(req.auth.sub), prov.id, JSON.stringify({
+          kind: 'lab', patientName, phone, clinicName: prov.name, clinicOwnerId: String(prov.owner_user_id), clinicAddress: prov.address || '',
+          doctorName: 'تحاليل وفحوصات طبية', specialty: 'معمل', notes: reason, lab: { stage: 'new', reason, hasRx: !!rx }, ...(await flagData(db, Number(req.auth.sub))) })]);
+      if (rx) await db.query("INSERT INTO lab_files(appointment_id, kind, mime, name, data) VALUES($1,'rx','image','روشتة',$2)", [r.rows[0].id, rx]);
+      return (await db.query(`${APPT_SQL} WHERE a.id=$1`, [r.rows[0].id])).rows[0];
+    });
+    await notify([prov.owner_user_id], 'طلب تحليل جديد 🧪', `${patientName} — يحتاج تحديد موعد وسعر`, `appt-${out.id}`);
+    res.status(201).json({ appointment: apptJsonFor(out, 'customer') });
+  }));
+
+  app.post('/api/lab/:id/action', auth, guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف الطلب غير صالح');
+    const b = req.body || {};
+    const action = String(b.action || '');
+    const role = req.auth.role; const me = Number(req.auth.sub);
+    let notifyTo = null, notifyTitle = '', notifyBody = '';
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT a.*, p.owner_user_id AS powner FROM appointments a JOIN providers p ON p.id=a.provider_id WHERE a.id=$1 FOR UPDATE OF a', [id]);
+      if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+      const a = f.rows[0];
+      const lab = labOf(a.data);
+      if (!lab) throw fail(409, 'هذا ليس طلب تحليل');
+      const isLab = role === 'admin' || (role === 'provider' && Number(a.powner) === me);
+      const isCust = role === 'admin' || (role === 'customer' && Number(a.customer_user_id) === me);
+      const stage = lab.stage || 'new';
+      const data = { ...(a.data || {}) };
+      let status = a.status, date = null, time = null, fee = null;
+      if (action === 'quote') {
+        if (!isLab) throw fail(403, 'غير مسموح');
+        if (!['new', 'quoted'].includes(stage)) throw fail(409, 'تم البت في هذا الطلب');
+        const d = String(b.date || ''); const t = String(b.time || '');
+        const parsed = /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T00:00:00Z`) : null;
+        if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d) throw fail(400, 'اختر يوم الكشف');
+        if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(t)) throw fail(400, 'اختر ساعة الكشف');
+        const fv = Number(b.fee);
+        if (!Number.isFinite(fv) || fv < 0 || fv > 100000) throw fail(400, 'اكتب سعر الكشف');
+        const chk = await db.query('SELECT ($1::date < CURRENT_DATE) AS past, ($1::date > CURRENT_DATE + 180) AS far', [d]);
+        if (chk.rows[0].past) throw fail(400, 'لا يمكن اختيار يوم سابق');
+        if (chk.rows[0].far) throw fail(400, 'اختر موعداً خلال الأشهر القادمة');
+        date = d; time = t.length === 4 ? '0' + t : t; fee = Math.round(fv * 100) / 100;
+        lab.stage = 'quoted'; lab.note = String(b.note || '').trim().slice(0, 300);
+        notifyTo = a.customer_user_id; notifyTitle = 'حدد المعمل موعد الكشف 🧪'; notifyBody = `${d} ${time} — ${fee} ج، أكّد الحجز من طلبك`;
+      } else if (action === 'reject') {
+        if (!isLab) throw fail(403, 'غير مسموح');
+        if (!['new', 'quoted'].includes(stage)) throw fail(409, 'تم البت في هذا الطلب');
+        status = 'rejected'; lab.stage = 'rejected';
+        notifyTo = a.customer_user_id; notifyTitle = 'اعتذر المعمل عن الطلب'; notifyBody = (data.clinicName || '');
+      } else if (action === 'confirm') {
+        if (!isCust) throw fail(403, 'غير مسموح');
+        if (stage !== 'quoted') throw fail(409, 'لا يوجد موعد لتأكيده الآن');
+        status = 'confirmed'; lab.stage = 'confirmed';
+        const dateStr = (await db.query("SELECT to_char(appointment_date,'YYYY-MM-DD') AS d FROM appointments WHERE id=$1", [a.id])).rows[0].d;
+        const inv = await db.query('INSERT INTO invoices(customer_user_id, appointment_id, kind, total, data) VALUES($1,$2,\'booking\',$3,$4) RETURNING *', [
+          a.customer_user_id, a.id, Number(a.fee),
+          JSON.stringify({ number: `BK-${500 + Number(a.id)}`, customerName: data.patientName, phone: data.phone, address: data.clinicAddress, parts: [],
+            appointmentId: String(a.id), ownerId: data.clinicOwnerId, clinicName: data.clinicName, doctorName: data.doctorName,
+            specialty: data.specialty, date: dateStr, time: a.appointment_time, fee: Number(a.fee) })]);
+        data.invoiceId = String(inv.rows[0].id);
+        notifyTo = a.powner; notifyTitle = 'أكّد العميل الحجز ✅'; notifyBody = `${data.patientName} — ${dateStr} ${a.appointment_time}`;
+      } else if (action === 'cancel') {
+        if (!isCust && !isLab) throw fail(403, 'غير مسموح');
+        if (!['new', 'quoted', 'confirmed'].includes(stage)) throw fail(409, 'لا يمكن إلغاء هذا الطلب الآن');
+        status = 'cancelled'; lab.stage = 'cancelled';
+        notifyTo = isLab && role !== 'customer' ? a.customer_user_id : a.powner; notifyTitle = 'تم إلغاء طلب التحليل'; notifyBody = data.patientName || '';
+      } else if (action === 'visit') {
+        if (!isLab) throw fail(403, 'غير مسموح');
+        if (stage !== 'confirmed') throw fail(409, 'يجب أن يؤكد العميل الحجز أولاً');
+        lab.stage = 'visited';
+        notifyTo = a.customer_user_id; notifyTitle = 'تم الكشف ✅'; notifyBody = 'سيرفع المعمل التقرير في طلبك فور جاهزيته';
+      } else if (action === 'report') {
+        if (!isLab) throw fail(403, 'غير مسموح');
+        if (!['confirmed', 'visited'].includes(stage)) throw fail(409, 'لا يمكن رفع التقرير الآن');
+        const file = typeof b.file === 'string' ? b.file : '';
+        if (!LAB_MIME.test(file) || file.length > LAB_MAX_FILE) throw fail(400, 'ارفع التقرير بصيغة PDF أو صورة (حتى 1.3 ميجا)');
+        const isPdf = file.startsWith('data:application/pdf');
+        const name = String(b.name || (isPdf ? 'تقرير.pdf' : 'تقرير.jpg')).slice(0, 80);
+        await db.query(`INSERT INTO lab_files(appointment_id, kind, mime, name, data) VALUES($1,'report',$2,$3,$4)
+          ON CONFLICT (appointment_id, kind) DO UPDATE SET mime=EXCLUDED.mime, name=EXCLUDED.name, data=EXCLUDED.data, updated_at=NOW()`, [a.id, isPdf ? 'pdf' : 'image', name, file]);
+        lab.stage = 'done'; lab.hasReport = true; lab.reportName = name; status = 'completed';
+        notifyTo = a.customer_user_id; notifyTitle = 'تقريرك جاهز 📄'; notifyBody = `${data.clinicName || 'المعمل'} رفع نتيجة التحليل`;
+      } else throw fail(400, 'إجراء غير معروف');
+      data.lab = lab;
+      if (date) {
+        await db.query('UPDATE appointments SET status=$1, data=$2, appointment_date=$3, appointment_time=$4, fee=$5, updated_at=NOW() WHERE id=$6', [status, JSON.stringify(data), date, time, fee, id]);
+      } else {
+        await db.query('UPDATE appointments SET status=$1, data=$2, updated_at=NOW() WHERE id=$3', [status, JSON.stringify(data), id]);
+      }
+      if (status === 'completed' && a.status !== 'completed') await commissions.onApptCompleted(db, a);
+      return (await db.query(`${APPT_SQL} WHERE a.id=$1`, [id])).rows[0];
+    });
+    if (notifyTo) await notify([notifyTo], notifyTitle, notifyBody, `appt-${id}`);
+    res.json({ appointment: apptJsonFor(out, role) });
+  }));
+
+  /** the prescription (picture) or the report (PDF / picture) of a case: only its customer, its lab and the owner may open it */
+  app.get('/api/lab/:id/file/:kind', auth, guard(async (req, res) => {
+    const id = positiveId(req.params.id); const kind = req.params.kind === 'report' ? 'report' : req.params.kind === 'rx' ? 'rx' : null;
+    if (!id || !kind) throw fail(400, 'طلب غير صالح');
+    const f = await pool.query('SELECT a.customer_user_id, p.owner_user_id AS powner, l.mime, l.name, l.data FROM appointments a JOIN providers p ON p.id=a.provider_id LEFT JOIN lab_files l ON l.appointment_id=a.id AND l.kind=$2 WHERE a.id=$1', [id, kind]);
+    if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+    const r = f.rows[0]; const me = Number(req.auth.sub);
+    if (!(req.auth.role === 'admin' || Number(r.customer_user_id) === me || Number(r.powner) === me)) throw fail(403, 'غير مسموح');
+    res.set('Cache-Control', 'private, max-age=600');
+    res.json({ file: r.data ? { data: r.data, mime: r.mime, name: r.name } : null });
+  }));
+
+  /** a 5-minute link that opens the prescription / report in the phone's browser or PDF viewer (the app cannot show a PDF itself) */
+  app.get('/api/lab/:id/link/:kind', auth, guard(async (req, res) => {
+    const id = positiveId(req.params.id); const kind = req.params.kind === 'report' ? 'report' : req.params.kind === 'rx' ? 'rx' : null;
+    if (!id || !kind) throw fail(400, 'طلب غير صالح');
+    const f = await pool.query('SELECT a.customer_user_id, p.owner_user_id AS powner, (SELECT 1 FROM lab_files l WHERE l.appointment_id=a.id AND l.kind=$2) AS has FROM appointments a JOIN providers p ON p.id=a.provider_id WHERE a.id=$1', [id, kind]);
+    if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+    const r = f.rows[0]; const me = Number(req.auth.sub);
+    if (!(req.auth.role === 'admin' || Number(r.customer_user_id) === me || Number(r.powner) === me)) throw fail(403, 'غير مسموح');
+    if (!r.has) throw fail(404, 'لا يوجد ملف');
+    const k = require('jsonwebtoken').sign({ lab: id, kind }, process.env.JWT_SECRET, { expiresIn: '5m', audience: 'lab-file', issuer: 'otlob-abis-api' });
+    const host = req.get('x-forwarded-host') || req.get('host');
+    res.set('Cache-Control', 'no-store');
+    res.json({ url: `https://${host}/api/lab/${id}/dl/${kind}?k=${encodeURIComponent(k)}` });
+  }));
+  app.get('/api/lab/:id/dl/:kind', guard(async (req, res) => {
+    const id = positiveId(req.params.id); const kind = req.params.kind;
+    let c;
+    try { c = require('jsonwebtoken').verify(String(req.query.k || ''), process.env.JWT_SECRET, { audience: 'lab-file', issuer: 'otlob-abis-api' }); } catch { throw fail(403, 'انتهت صلاحية الرابط، افتح الملف من التطبيق مرة أخرى'); }
+    if (!id || Number(c.lab) !== id || c.kind !== kind) throw fail(403, 'رابط غير صالح');
+    const f = await pool.query('SELECT mime, name, data FROM lab_files WHERE appointment_id=$1 AND kind=$2', [id, kind]);
+    if (!f.rowCount) throw fail(404, 'لا يوجد ملف');
+    const m = /^data:([a-z\/+.-]+);base64,(.*)$/s.exec(f.rows[0].data);
+    if (!m) throw fail(404, 'ملف غير صالح');
+    res.set('Content-Type', m[1]); res.set('Content-Disposition', `inline; filename="lab-${id}-${kind}.${m[1] === 'application/pdf' ? 'pdf' : m[1].split('/')[1]}"`); res.set('Cache-Control', 'no-store');
+    res.send(Buffer.from(m[2], 'base64'));
   }));
 };

@@ -30,7 +30,7 @@ const pass1 = (req, res, next) => next();
 
   // before any change: the six + errand come from the built-in list
   let r = await call('GET /api/services', null);
-  ok(r.json.services.length === 7 && r.json.services.some(s => s.key === 'errand' && s.template === 'errand'), 'built-in list is served before any change: ' + (r.json.services || []).length);
+  ok(r.json.services.length === 8 && r.json.services.some(s => s.key === 'lab' && s.template === 'lab' && s.active === false && s.size === 'large') && r.json.services.some(s => s.key === 'errand' && s.template === 'errand'), 'built-in list is served before any change: ' + (r.json.services || []).length);
   // the order paths still work for the original services
   r = await call('POST /api/orders/checkout', C, { ...base, lines: [{ productId: pr, qty: 1 }] });
   ok(r.status === 201, 'restaurant basket works: ' + JSON.stringify(r.json));
@@ -51,10 +51,10 @@ const pass1 = (req, res, next) => next();
 
   // owner adds a new service (basket template)
   r = await call('POST /api/admin/services', A, { label: 'توصيل مياه', single: 'مورد مياه', emoji: '💧', template: 'cart', size: 'large', canProducts: true, showHome: true });
-  ok(r.status === 201 && r.json.services.length === 8, 'new service added: ' + JSON.stringify(r.json).slice(0, 100));
+  ok(r.status === 201 && r.json.services.length === 9, 'new service added: ' + JSON.stringify(r.json).slice(0, 100));
   const key = r.json.key;
   const n = Number((await q('SELECT COUNT(*)::int AS n FROM service_types')).rows[0].n);
-  ok(n === 8, 'the 7 built-ins were stored with the new one: ' + n);
+  ok(n === 9, 'the 8 built-ins were stored with the new one: ' + n);
   const water = await prov(key, 'مياه أبيس');
   const pw = (await q("INSERT INTO products(provider_id,name,price) VALUES($1,'جركن',25) RETURNING id", [water])).rows[0].id;
   r = await call('POST /api/orders/checkout', C, { ...base, lines: [{ productId: pw, qty: 2 }] });
@@ -82,7 +82,7 @@ const pass1 = (req, res, next) => next();
   await q('DELETE FROM products WHERE provider_id=$1', [water]);
   await q('UPDATE providers SET deleted_at=NOW() WHERE id=$1', [water]);
   r = await call('DELETE /api/admin/services/:key', A, null, { key });
-  ok(r.status === 200 && r.json.services.length === 7, 'an empty custom service can be deleted: ' + r.status);
+  ok(r.status === 200 && r.json.services.length === 8, 'an empty custom service can be deleted: ' + r.status);
   // stop the errand service
   r = await call('PATCH /api/admin/services/:key', A, { active: false }, { key: 'errand' });
   ok(r.status === 200, 'stop errand');

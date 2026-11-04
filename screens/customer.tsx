@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,11 +13,12 @@ import { AreaTag } from '../components/Cards';
 import { ProviderLogo } from '../components/Brand';
 import { ProductPhoto } from '../components/Quote';
 import {
-  useStore, useMe, placeRequestOrder, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, deliveryOpen, feeFor } from '../lib/store';
+  useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, deliveryOpen, feeFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
-import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
+import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isLab, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
+import { LabCardActions } from '../components/Lab';
 import { ProviderType, Provider } from '../lib/types';
 
 const useRefresh = () => {
@@ -226,7 +227,7 @@ export function CategoryScreen({ navigation, route }: any) {
   const list = useMemo(() => {
     let l = db.providers.filter((p) => p.type === type && p.status === 'active');
     if (q.trim()) l = l.filter((p) => p.name.includes(q.trim()) || p.desc.includes(q.trim()) || (p.specialty || '').includes(q.trim()) || db.products.some((x) => x.providerId === p.id && x.name.includes(q.trim())));
-    if (isBooking(type) && spec !== 'الكل') l = l.filter((p) => p.specialty === spec);
+    if (isBooking(type) && spec !== 'الكل') l = l.filter((p) => p.specialty === spec || db.products.some((x) => x.providerId === p.id && x.category === spec));
     if (sort === 'rate') l = [...l].sort((a, b) => b.rating - a.rating);
     if (sort === 'fast') l = [...l].sort((a, b) => parseInt(a.eta) - parseInt(b.eta));
     return l;
@@ -243,8 +244,8 @@ export function CategoryScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={t.label} onBack={() => navigation.goBack()} subtitle={`${list.length} ${isBooking(type) ? 'عيادة' : 'مقدم خدمة'} متاح`}>
-        <View style={{ marginTop: 12 }}><SearchBar value={q} onChange={setQ} placeholder={isBooking(type) ? 'ابحث عن دكتور أو تخصص...' : 'ابحث عن مكان أو منتج...'} /></View>
+      <Header title={t.label} onBack={() => navigation.goBack()} subtitle={`${list.length} ${isLab(type) ? 'معمل' : isBooking(type) ? 'عيادة' : 'مقدم خدمة'} متاح`}>
+        <View style={{ marginTop: 12 }}><SearchBar value={q} onChange={setQ} placeholder={isLab(type) ? 'ابحث عن معمل...' : isBooking(type) ? 'ابحث عن دكتور أو تخصص...' : 'ابحث عن مكان أو منتج...'} /></View>
       </Header>
       <FlatList
         data={list}
@@ -261,10 +262,10 @@ export function CategoryScreen({ navigation, route }: any) {
               </View>
               <T w="black" size={18} color="#fff" style={{ flex: 1 }}>{banner}</T>
             </LinearGradient>
-            {isBooking(type) ? (
+            {isLab(type) ? null : isBooking(type) ? (
               <FlatList
                 horizontal
-                data={['الكل', ...Array.from(new Set(db.providers.filter((p) => isBooking(p.type) && p.status === 'active' && p.specialty).map((p) => p.specialty as string)))]}
+                data={['الكل', ...Array.from(new Set(db.providers.filter((p) => isBooking(p.type) && p.status === 'active').flatMap((p) => [p.specialty as string, ...db.products.filter((x) => x.providerId === p.id).map((x) => x.category as string)]).filter(Boolean)))]}
                 keyExtractor={(x) => x}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: 8 }}
@@ -295,6 +296,8 @@ export function ProviderScreen({ navigation, route }: any) {
   const p = db.providers.find((x) => x.id === route.params.id);
   const [cat, setCat] = useState('الكل');
   const insets = useSafeAreaInsets();
+  // a medical lab has no menu: the customer goes straight to the request form
+  useEffect(() => { if (p && isLab(p.type)) navigation.replace('LabRequest', { id: p.id }); }, [p?.id]);
   if (!p) return <Empty title="غير موجود" />;
   const t = TYPES[p.type];
   const products = db.products.filter((x) => x.providerId === p.id);
@@ -365,7 +368,10 @@ export function ProviderScreen({ navigation, route }: any) {
           !isBooking(p.type) ? (
             <FlatList horizontal data={cats} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 6 }} renderItem={({ item }) => <Chip label={item} active={cat === item} onPress={() => setCat(item)} />} />
           ) : (
-            <SectionTitle title="الأطباء المتاحون" />
+            <View style={{ gap: 8 }}>
+              <SectionTitle title="الأطباء المتاحون" />
+              {cats.length > 2 ? <FlatList horizontal data={cats} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 6 }} renderItem={({ item }) => <Chip label={item === 'الكل' ? item : `${SPEC_EMOJI[item] || '🩺'} ${item}`} active={cat === item} onPress={() => setCat(item)} />} /> : null}
+            </View>
           )
         }
         ListEmptyComponent={<Empty icon={isBooking(p.type) ? 'pulse' : 'pricetag'} title={isBooking(p.type) ? 'لا يوجد أطباء بعد' : 'لا توجد منتجات بعد'} />}
@@ -682,6 +688,7 @@ export function CustomerOrdersScreen({ navigation }: any) {
           renderItem={({ item, index }) => (
             <Appear i={index}>
               <ApptCard a={item} perspective="customer" onPress={() => navigation.navigate('ApptDetail', { id: item.id })}>
+                {item.lab ? <LabCardActions a={item} navigation={navigation} role="customer" /> : null}
                 {item.invoiceId && <Btn small variant="soft" title="فاتورة الحجز" icon="document-text" onPress={() => navigation.navigate('Invoice', { id: item.invoiceId })} />}
               </ApptCard>
             </Appear>
@@ -752,6 +759,56 @@ export function RequestOrderScreen({ navigation, route }: any) {
         <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
         <Field label="العنوان التفصيلي" icon="location" value={address} onChangeText={setAddress} multiline />
         <Btn title={maker ? 'إرسال الطلب للصانع' : 'إرسال الطلب للمتجر'} icon="send" loading={busy} onPress={submit} />
+      </ScrollView>
+    </View>
+  );
+}
+
+
+/* ---------------- Medical lab: the customer writes the reason or sends the prescription ---------------- */
+export function LabRequestScreen({ navigation, route }: any) {
+  const { db } = useStore();
+  const me = useMe()!;
+  const p = db.providers.find((x) => x.id === route.params.id);
+  const [reason, setReason] = useState('');
+  const [rx, setRx] = useState<string | null>(null);
+  const [patient, setPatient] = useState(me.name);
+  const [phone, setPhone] = useState(me.phone);
+  const [busy, setBusy] = useState(false);
+  if (!p) return <View style={{ flex: 1 }}><Header title="طلب تحليل" onBack={() => navigation.goBack()} /><Empty title="المعمل غير موجود" /></View>;
+  const choose = async () => {
+    if (!canPickImage) return toast('رفع الصور غير متاح هنا', 'info');
+    const img = await pickImage();
+    if (img) setRx(img); else toast('تعذر تحميل الصورة، جرّب صورة أخرى', 'err');
+  };
+  const submit = async () => {
+    setBusy(true);
+    const r = await labRequest(me, { provider: p, reason, rx, patientName: patient, phone });
+    setBusy(false);
+    if (!r.ok) return toast(r.error, 'err');
+    toast('تم إرسال طلبك للمعمل ✅');
+    navigation.replace('ApptDetail', { id: r.id });
+  };
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="طلب تحليل أو كشف" subtitle={p.name} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+        <Card style={{ gap: 6, backgroundColor: C.goldSoft }}>
+          <T w="black" size={14} color={C.goldDeep}>إزاي بيشتغل؟</T>
+          <T size={12.5} color={C.dark3}>1) اكتب سبب الكشف أو ارفع الروشتة.  2) المعمل يحدد يوم الكشف وساعته والسعر.  3) توافق وتؤكد الحجز وتوصلك فاتورة الحجز.  4) تروح المعمل في الميعاد.  5) بعد الكشف، المعمل يرفع التقرير أو النتيجة في نفس الطلب وتفتحه من عندك.</T>
+        </Card>
+        <Field label="سبب الكشف" icon="create" value={reason} onChangeText={setReason} multiline placeholder="مثال: تحليل سكر تراكمي وصورة دم كاملة" />
+        <View style={{ gap: 8 }}>
+          <T w="semi" size={13} color={C.dark3}>صورة الروشتة (اختياري)</T>
+          {rx ? <Image source={{ uri: rx }} style={{ width: '100%', height: 260, borderRadius: 14, backgroundColor: C.line }} resizeMode="contain" /> : null}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn variant="soft" icon="camera" title={rx ? 'تغيير الصورة' : 'ارفع صورة الروشتة'} style={{ flex: 1 }} onPress={choose} />
+            {rx ? <Btn variant="danger" icon="trash" title="حذف" style={{ flex: 0.5 }} onPress={() => setRx(null)} /> : null}
+          </View>
+        </View>
+        <Field label="اسم المريض" icon="person" value={patient} onChangeText={setPatient} />
+        <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+        <Btn title="إرسال الطلب للمعمل" icon="send" loading={busy} onPress={submit} />
       </ScrollView>
     </View>
   );

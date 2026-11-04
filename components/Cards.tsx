@@ -6,6 +6,7 @@ import { Provider, Order, Appointment, Invoice } from '../lib/types';
 import { C } from '../lib/theme';
 import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel, isBooking } from '../lib/format';
 import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill, FlagPill } from './ui';
+import { LabPill, fmt12 } from './Lab';
 
 /** "في منطقتك" when the place is in the customer's own area, otherwise "منطقة X". */
 export function AreaTag({ p }: { p: Pick<Provider, 'regionId' | 'regionName'> }) {
@@ -119,16 +120,19 @@ export function ApptCard({ a, onPress, perspective, children }: { a: Appointment
   return (
     <Card onPress={onPress} style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <EmojiBubble emoji={SPEC_EMOJI[a.specialty] || '🩺'} size={44} bg="#EFE6FB" />
+        <EmojiBubble emoji={a.lab ? '🧪' : SPEC_EMOJI[a.specialty] || '🩺'} size={44} bg="#EFE6FB" />
         <View style={{ flex: 1 }}>
           <T w="bold" size={14.5} numberOfLines={1}>{perspective === 'provider' ? a.patientName : a.doctorName}</T>
           <T size={11.5} color={C.sub} numberOfLines={1}>
             {perspective === 'customer' ? a.clinicName : perspective === 'admin' ? `${a.clinicName} • ${a.patientName}` : a.doctorName} • حجز #{a.number}
           </T>
         </View>
-        <ApptPill s={a.status} />
+        {a.lab ? <LabPill stage={a.lab.stage} /> : <ApptPill s={a.status} />}
       </View>
       {perspective !== 'customer' && !!a.customerFlag && <View style={{ flexDirection: 'row' }}><FlagPill flag={a.customerFlag} /></View>}
+      {a.lab && a.lab.stage === 'new' ? (
+        <T size={12.5} color={C.sub} numberOfLines={2}>{a.lab.reason || 'طلب بروشتة مرفقة'}</T>
+      ) : (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <Icon name="calendar" size={14} color={C.goldDeep} />
@@ -136,10 +140,11 @@ export function ApptCard({ a, onPress, perspective, children }: { a: Appointment
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <Icon name="time" size={14} color={C.goldDeep} />
-          <T size={12.5}>{a.time}</T>
+          <T size={12.5}>{a.lab ? fmt12(a.time) : a.time}</T>
         </View>
         <T w="black" size={14} style={{ flex: 1 }} align="left">{money(a.fee)}</T>
       </View>
+      )}
       {children}
     </Card>
   );
