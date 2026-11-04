@@ -115,9 +115,12 @@ export function HomeScreen({ navigation }: any) {
                   {(db.settings.catIconV?.[k] || 0) > 0
                     ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
                     : isLab(k) ? (
-                      <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold }}>
-                        <Text style={{ fontSize: 24 }}>{TYPES[k].emoji}</Text>
-                      </View>
+                      <LinearGradient colors={['#0E5A33', '#06361F']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ width: '100%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: C.gold, borderRadius: 20 }}>
+                        <Text style={{ fontSize: 64, marginBottom: 18 }}>{TYPES[k].emoji}</Text>
+                        <View style={{ position: 'absolute', bottom: 14, left: 8, right: 8, backgroundColor: C.gold, borderRadius: 8, paddingVertical: 4 }}>
+                          <T w="black" size={13} color={C.dark} align="center" numberOfLines={1}>المعامل</T>
+                        </View>
+                      </LinearGradient>
                     ) : (
                       <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold, overflow: 'hidden' }}>
                         <Icon name={TYPES[k].icon} size={23} color={C.gold} />
