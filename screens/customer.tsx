@@ -47,7 +47,7 @@ export function HomeScreen({ navigation }: any) {
   // the provider cards copy the exact width and picture shape of the six service tiles above them
   const [gridW, setGridW] = useState(0);
   const tw = gridW > 0 ? Math.floor(gridW * 0.313) : 110;
-  const th = Math.round(tw / 1.15);
+  const th = Math.round(tw / 1.3);
   const [q, setQ] = useState('');
   const insets = useSafeAreaInsets();
   const provs = db.providers.filter((p) => p.status === 'active');
@@ -204,9 +204,8 @@ export function HomeScreen({ navigation }: any) {
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
                 <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, padding: 0, paddingBottom: 6, overflow: 'hidden', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: tw, height: th, overflow: 'hidden' }}><ProviderLogo p={item} size={tw} flat /></View>
+                  <View style={{ width: tw, height: th, overflow: 'hidden', justifyContent: 'center' }}><ProviderLogo p={item} size={tw} flat /></View>
                   <T w="bold" size={11.5} align="center" numberOfLines={1} style={{ paddingHorizontal: 4 }}>{item.name}</T>
-                  <T size={10} color={C.sub} align="center" numberOfLines={1}>{TYPES[item.type].single}</T>
                   <AreaTag p={item} />
                 </Card>
               )}
@@ -224,7 +223,7 @@ export function HomeScreen({ navigation }: any) {
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
                 <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, padding: 0, paddingBottom: 6, overflow: 'hidden', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: tw, height: th, overflow: 'hidden' }}><ProviderLogo p={item} size={tw} flat /></View>
+                  <View style={{ width: tw, height: th, overflow: 'hidden', justifyContent: 'center' }}><ProviderLogo p={item} size={tw} flat /></View>
                   <T w="bold" size={11.5} align="center" numberOfLines={1} style={{ paddingHorizontal: 4 }}>{item.name}</T>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Icon name="star" size={13} color={C.gold} />
