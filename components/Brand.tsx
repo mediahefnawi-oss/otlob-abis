@@ -9,12 +9,12 @@ import { setProviderLogo } from '../lib/store';
 import { T, Icon, EmojiBubble, Btn, toast } from './ui';
 
 /** The provider's logo or, when there is none, its emoji: both fill the whole square, like product pictures. `zoomable` lets the customer tap to open it full size. */
-export function ProviderLogo({ p, size = 44, zoomable = false }: { p: Pick<Provider, 'id' | 'emoji' | 'type' | 'logoV'>; size?: number; zoomable?: boolean }) {
+export function ProviderLogo({ p, size = 44, zoomable = false, flat = false }: { p: Pick<Provider, 'id' | 'emoji' | 'type' | 'logoV'>; size?: number; zoomable?: boolean; flat?: boolean }) {
   const [bad, setBad] = useState(false);
   const [open, setOpen] = useState(false);
   const { width, height } = useWindowDimensions();
   const uri = providerLogoUrl(p);
-  const radius = size * 0.28;
+  const radius = flat ? 0 : size * 0.28;
   if (!uri || bad) {
     return (
       <View style={{ width: size, height: size, borderRadius: radius, backgroundColor: TYPES[p.type].soft, alignItems: 'center', justifyContent: 'center' }}>

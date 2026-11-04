@@ -44,6 +44,10 @@ export function HomeScreen({ navigation }: any) {
   const rc = useRC();
   const { db, cart } = useStore();
   const me = useMe()!;
+  // the provider cards copy the exact width and picture shape of the six service tiles above them
+  const [gridW, setGridW] = useState(0);
+  const tw = gridW > 0 ? Math.floor(gridW * 0.313) : 110;
+  const th = Math.round(tw / 1.15);
   const [q, setQ] = useState('');
   const insets = useSafeAreaInsets();
   const provs = db.providers.filter((p) => p.status === 'active');
@@ -107,7 +111,7 @@ export function HomeScreen({ navigation }: any) {
             </Appear>
           )}
 
-          <View style={{ gap: 10 }}>
+          <View style={{ gap: 10 }} onLayout={(e) => setGridW(e.nativeEvent.layout.width)}>
             {rows3(cats.filter((k) => !isMakerTpl(k))).map((row, ri) => (
               <View key={ri} style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
             {row.map((k, ci) => { const i = ri * 3 + ci; const sz = serviceDefs().find((x) => x.key === k)?.size || 'small'; return (
@@ -199,10 +203,10 @@ export function HomeScreen({ navigation }: any) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: 150, alignItems: 'center', gap: 6 }}>
-                  <ProviderLogo p={item} size={64} />
-                  <T w="bold" size={13} align="center" numberOfLines={1}>{item.name}</T>
-                  <T size={11.5} color={C.sub} align="center" numberOfLines={1}>{TYPES[item.type].single}</T>
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, padding: 0, paddingBottom: 6, overflow: 'hidden', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: tw, height: th, overflow: 'hidden' }}><ProviderLogo p={item} size={tw} flat /></View>
+                  <T w="bold" size={11.5} align="center" numberOfLines={1} style={{ paddingHorizontal: 4 }}>{item.name}</T>
+                  <T size={10} color={C.sub} align="center" numberOfLines={1}>{TYPES[item.type].single}</T>
                   <AreaTag p={item} />
                 </Card>
               )}
@@ -219,9 +223,9 @@ export function HomeScreen({ navigation }: any) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: 150, alignItems: 'center', gap: 6 }}>
-                  <ProviderLogo p={item} size={64} />
-                  <T w="bold" size={13} align="center" numberOfLines={1}>{item.name}</T>
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, padding: 0, paddingBottom: 6, overflow: 'hidden', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: tw, height: th, overflow: 'hidden' }}><ProviderLogo p={item} size={tw} flat /></View>
+                  <T w="bold" size={11.5} align="center" numberOfLines={1} style={{ paddingHorizontal: 4 }}>{item.name}</T>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Icon name="star" size={13} color={C.gold} />
                     <T w="bold" size={12}>{item.rating.toFixed(1)}</T>
