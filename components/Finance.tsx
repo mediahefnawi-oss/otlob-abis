@@ -657,14 +657,15 @@ export function CatIconsManager() {
     <Card style={{ gap: 12 }}>
       <T w="black" size={15}>أيقونات الأقسام (الهوية البصرية)</T>
       <T size={12} color={C.sub}>ارفع لوجو أو صورة مربعة لكل قسم، وتظهر بدل الأيقونة في الصفحة الرئيسية للعملاء.</T>
-      {typeKeys().map((t) => {
+      {[...typeKeys(), errandDef().key as ProviderType].map((t) => {
         const v = vs[t] || 0;
+        const isE = t === errandDef().key;
         return (
           <View key={t} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: C.dark, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-              {v > 0 ? <Image source={{ uri: catIconUrl(t, v) }} style={{ width: 54, height: 54 }} resizeMode="cover" /> : <Icon name={TYPES[t].icon} size={24} color={C.gold} />}
+              {v > 0 ? <Image source={{ uri: catIconUrl(t, v) }} style={{ width: 54, height: 54 }} resizeMode="cover" /> : isE ? <T size={24}>{errandDef().emoji}</T> : <Icon name={TYPES[t].icon} size={24} color={C.gold} />}
             </View>
-            <T w="bold" size={13.5} style={{ flex: 1 }}>{TYPES[t].label}</T>
+            <T w="bold" size={13.5} style={{ flex: 1 }}>{isE ? errandDef().label : TYPES[t].label}</T>
             {canPickImage && <Btn small variant="soft" icon="image" title={v > 0 ? 'تغيير' : 'رفع صورة'} loading={busy === t} onPress={() => choose(t)} />}
             {v > 0 && <Btn small variant="danger" icon="trash" title="" onPress={() => remove(t)} />}
           </View>
@@ -703,7 +704,7 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
     setBusy(true);
     const r = isNew
       ? await createService({ label: label.trim(), single: single.trim() || label.trim(), emoji, template, size, canProducts, showHome })
-      : await updateService(def!.key, { label: label.trim(), ...(errand ? {} : { single: single.trim() || label.trim() }), emoji, ...(errand ? {} : { tagline: tagline.trim() }), ...(errand || def!.template === 'request' ? {} : { canProducts }) });
+      : await updateService(def!.key, { label: label.trim(), ...(errand ? {} : { single: single.trim() || label.trim() }), emoji, tagline: tagline.trim(), ...(errand || def!.template === 'request' ? {} : { canProducts }) });
     setBusy(false);
     if (r.ok) { toast(isNew ? 'تمت إضافة الخدمة' : 'تم الحفظ'); onClose(); } else toast(r.error || 'تعذر الحفظ', 'err');
   };
@@ -711,7 +712,7 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
     <Sheet visible={visible} onClose={onClose} title={isNew ? 'خدمة جديدة' : 'تعديل الخدمة'}>
       <Field label="اسم الخدمة (يظهر في الرئيسية)" icon="pricetag" value={label} onChangeText={setLabel} placeholder="مثال: توصيل مياه" />
       {!errand && <Field label="الاسم المفرد (مثال: مطعم، صيدلية)" icon="storefront" value={single} onChangeText={setSingle} placeholder="مثال: مورّد مياه" />}
-      {!isNew && !errand && <Field label="الوصف (يظهر في صفحة الخدمة وكارت الرئيسية)" icon="create" value={tagline} onChangeText={setTagline} placeholder="منتجات يدوية من أهل أبيس.." multiline />}
+      {!isNew && <Field label="الوصف (يظهر في صفحة الخدمة وكارت الرئيسية)" icon="create" value={tagline} onChangeText={setTagline} placeholder="منتجات يدوية من أهل أبيس.." multiline />}
       <View style={{ gap: 6 }}>
         <Label>الأيقونة</Label>
         <Wrap>{EMOJIS.map((e) => <Chip key={e} label={e} active={emoji === e} onPress={() => setEmoji(e)} />)}</Wrap>

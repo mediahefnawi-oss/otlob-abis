@@ -114,12 +114,12 @@ export function HomeScreen({ navigation }: any) {
               <Appear key={k} i={i} style={{ width: sz === 'large' ? '21%' : sz === 'medium' ? '26%' : '31.3%' }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
-                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 8, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || isLab(k) ? { paddingBottom: 9 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
+                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 4, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || isLab(k) ? { paddingBottom: 6 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {(db.settings.catIconV?.[k] || 0) > 0
-                    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
+                    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1.15 }} resizeMode="cover" />
                     : isLab(k) ? (
-                      <LinearGradient colors={['#0E5A33', '#06361F']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ width: '100%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center' }}>
+                      <LinearGradient colors={['#0E5A33', '#06361F']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ width: '100%', aspectRatio: 1.15, alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ fontSize: 64, marginBottom: 18 }}>{TYPES[k].emoji}</Text>
                         <View style={{ position: 'absolute', bottom: 14, left: 8, right: 8, backgroundColor: C.gold, borderRadius: 8, paddingVertical: 4 }}>
                           <T w="black" size={13} color={C.dark} align="center" numberOfLines={1}>المعامل</T>
@@ -142,9 +142,11 @@ export function HomeScreen({ navigation }: any) {
           {cats.filter((k) => isMakerTpl(k)).map((k, i) => (
             <Appear key={k} i={i + 3} style={{ marginTop: 12 }}>
               <Pressable onPress={() => navigation.navigate('Category', { type: k })} style={({ pressed }) => [pressed && { transform: [{ scale: 0.98 }] }]}>
-                <LinearGradient colors={[C.dark3, C.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 22, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 2, borderColor: C.gold, ...shadow }}>
-                  <View style={{ width: 62, height: 62, borderRadius: 31, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 32 }}>{TYPES[k].emoji}</Text>
+                <LinearGradient colors={[C.dark3, C.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 22, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 2, borderColor: C.gold, ...shadow }}>
+                  <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {(db.settings.catIconV?.[k] || 0) > 0
+                      ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: 56, height: 56 }} resizeMode="cover" />
+                      : <Text style={{ fontSize: 29 }}>{TYPES[k].emoji}</Text>}
                   </View>
                   <View style={{ flex: 1, gap: 2 }}>
                     <T w="black" size={18} color="#fff">{TYPES[k].label}</T>
@@ -171,13 +173,15 @@ export function HomeScreen({ navigation }: any) {
 
           {errandDef().active && errandDef().showHome && <Appear i={2} style={{ marginTop: 18 }}>
             <Pressable onPress={() => navigation.navigate('CustomOrder')}>
-              <LinearGradient colors={['#F8CB4B', '#F2B51D']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 24, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, ...shadow }}>
-                <View style={{ width: 70, height: 70, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.45)', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontSize: 38 }}>{errandDef().emoji}</Text>
+              <LinearGradient colors={['#F8CB4B', '#F2B51D']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 24, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12, ...shadow }}>
+                <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.45)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {(db.settings.catIconV?.[errandDef().key] || 0) > 0
+                    ? <Image source={{ uri: catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) }} style={{ width: 60, height: 60 }} resizeMode="cover" />
+                    : <Text style={{ fontSize: 32 }}>{errandDef().emoji}</Text>}
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
-                  <T w="black" size={20} color={C.dark}>{errandDef().label}</T>
-                  <T size={12.5} color={C.dark3}>اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس</T>
+                  <T w="black" size={18} color={C.dark}>{errandDef().label}</T>
+                  <T size={12.5} color={C.dark3}>{errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'}</T>
                 </View>
                 <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center' }}>
                   <Icon name="arrow-back" size={18} color={C.gold} />
