@@ -47,7 +47,6 @@ export function HomeScreen({ navigation }: any) {
   // the provider cards copy the exact width and picture shape of the six service tiles above them
   const [gridW, setGridW] = useState(0);
   const tw = gridW > 0 ? Math.floor(gridW * 0.313) : 110;
-  const th = Math.round(tw / 1.3);
   const [q, setQ] = useState('');
   const insets = useSafeAreaInsets();
   const provs = db.providers.filter((p) => p.status === 'active');
@@ -203,9 +202,9 @@ export function HomeScreen({ navigation }: any) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, padding: 0, paddingBottom: 6, overflow: 'hidden', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: tw, height: th, overflow: 'hidden', justifyContent: 'center' }}><ProviderLogo p={item} size={tw} flat /></View>
-                  <T w="bold" size={11.5} align="center" numberOfLines={1} style={{ paddingHorizontal: 4 }}>{item.name}</T>
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4 }}>
+                  <ProviderLogo p={item} size={tw - 18} />
+                  <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
                   <AreaTag p={item} />
                 </Card>
               )}
@@ -222,9 +221,9 @@ export function HomeScreen({ navigation }: any) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, padding: 0, paddingBottom: 6, overflow: 'hidden', alignItems: 'center', gap: 4 }}>
-                  <View style={{ width: tw, height: th, overflow: 'hidden', justifyContent: 'center' }}><ProviderLogo p={item} size={tw} flat /></View>
-                  <T w="bold" size={11.5} align="center" numberOfLines={1} style={{ paddingHorizontal: 4 }}>{item.name}</T>
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4 }}>
+                  <ProviderLogo p={item} size={tw - 18} />
+                  <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Icon name="star" size={13} color={C.gold} />
                     <T w="bold" size={12}>{item.rating.toFixed(1)}</T>
