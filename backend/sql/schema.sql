@@ -412,3 +412,4 @@ CREATE TABLE IF NOT EXISTS lab_files (
 );
 
 ALTER TABLE service_types ADD COLUMN IF NOT EXISTS tagline VARCHAR(160);
+UPDATE service_types SET size='small' WHERE key='lab' AND size='large';

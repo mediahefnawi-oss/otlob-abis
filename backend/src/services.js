@@ -13,7 +13,7 @@ const BUILTIN = [
   { key: 'supermarket', label: 'السوبر ماركت', single: 'سوبر ماركت', emoji: '🛒', template: 'request', sort_order: 20, size: 'small', active: true, show_home: true, can_products: false, builtin: true },
   { key: 'pharmacy', label: 'الصيدليات', single: 'صيدلية', emoji: '💊', template: 'request', sort_order: 30, size: 'small', active: true, show_home: true, can_products: false, builtin: true },
   { key: 'clinic', label: 'حجز العيادات', single: 'عيادة', emoji: '🩺', template: 'booking', sort_order: 40, size: 'small', active: true, show_home: true, can_products: true, builtin: true },
-  { key: 'lab', label: 'المعامل والتحاليل', single: 'معمل', emoji: '🧪', template: 'lab', sort_order: 45, size: 'large', active: false, show_home: true, can_products: false, builtin: true },
+  { key: 'lab', label: 'المعامل والتحاليل', single: 'معمل', emoji: '🧪', template: 'lab', sort_order: 45, size: 'small', active: false, show_home: true, can_products: false, builtin: true },
   { key: 'store', label: 'متاجر', single: 'متجر', emoji: '🏬', template: 'cart', sort_order: 50, size: 'small', active: true, show_home: true, can_products: true, builtin: true },
   { key: 'maker', label: 'صُنّاع أبيس', single: 'صانع', emoji: '🧵', template: 'maker', sort_order: 60, size: 'small', active: true, show_home: true, can_products: true, builtin: true },
   // "اطلب إيه؟ نجيبهولك": not a provider type, it has no providers; the courier prices the errand. It is listed here so it is renamed / stopped / ordered like the others.

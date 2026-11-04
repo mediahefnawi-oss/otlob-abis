@@ -30,7 +30,7 @@ const pass1 = (req, res, next) => next();
 
   // before any change: the six + errand come from the built-in list
   let r = await call('GET /api/services', null);
-  ok(r.json.services.length === 8 && r.json.services.some(s => s.key === 'lab' && s.template === 'lab' && s.active === false && s.size === 'large') && r.json.services.some(s => s.key === 'errand' && s.template === 'errand'), 'built-in list is served before any change: ' + (r.json.services || []).length);
+  ok(r.json.services.length === 8 && r.json.services.some(s => s.key === 'lab' && s.template === 'lab' && s.active === false && s.size === 'small') && r.json.services.some(s => s.key === 'errand' && s.template === 'errand'), 'built-in list is served before any change: ' + (r.json.services || []).length);
   // the order paths still work for the original services
   r = await call('POST /api/orders/checkout', C, { ...base, lines: [{ productId: pr, qty: 1 }] });
   ok(r.status === 201, 'restaurant basket works: ' + JSON.stringify(r.json));

@@ -106,16 +106,16 @@ export function HomeScreen({ navigation }: any) {
           )}
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => (
-              <Appear key={k} i={i} style={{ width: '31.3%', flexGrow: 1 }}>
+            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => { const sz = serviceDefs().find((x) => x.key === k)?.size || 'small'; return (
+              <Appear key={k} i={i} style={{ width: sz === 'large' ? '18%' : sz === 'medium' ? '23%' : '31.3%', flexGrow: 1 }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
-                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 8, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 ? { paddingBottom: 9 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
+                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 8, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || isLab(k) ? { paddingBottom: 9 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {(db.settings.catIconV?.[k] || 0) > 0
                     ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1 }} resizeMode="cover" />
                     : isLab(k) ? (
-                      <LinearGradient colors={['#0E5A33', '#06361F']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ width: '100%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: C.gold, borderRadius: 20 }}>
+                      <LinearGradient colors={['#0E5A33', '#06361F']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ width: '100%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ fontSize: 64, marginBottom: 18 }}>{TYPES[k].emoji}</Text>
                         <View style={{ position: 'absolute', bottom: 14, left: 8, right: 8, backgroundColor: C.gold, borderRadius: 8, paddingVertical: 4 }}>
                           <T w="black" size={13} color={C.dark} align="center" numberOfLines={1}>المعامل</T>
@@ -126,10 +126,10 @@ export function HomeScreen({ navigation }: any) {
                         <Icon name={TYPES[k].icon} size={23} color={C.gold} />
                       </View>
                     )}
-                  <T w="bold" size={11.5} align="center" numberOfLines={2}>{TYPES[k].label}</T>
+                  <T w="bold" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 11.5} align="center" numberOfLines={2}>{TYPES[k].label}</T>
                 </Pressable>
               </Appear>
-            ))}
+            ); })}
           </View>
 
           {/* makers: one full-width card under the six icons */}
@@ -267,7 +267,9 @@ export function CategoryScreen({ navigation, route }: any) {
     clinic: 'رعايتك الصحية أولويتنا',
     store: 'متاجر أبيس كلها في مكان واحد',
     maker: 'منتجات يدوية من صُنّاع أبيس.. اطلب والصانع يحدد السعر وموعد التسليم',
+    lab: 'تحاليلك وفحوصاتك.. احجز واستلم نتيجتك من التطبيق',
   }[type];
+  const bannerText = serviceDefs().find((x) => x.key === type)?.tagline || banner || 'كل خدمات أبيس في مكان واحد';
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -285,9 +287,9 @@ export function CategoryScreen({ navigation, route }: any) {
               <View style={{ width: 60, height: 60, borderRadius: 30, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                 {(db.settings.catIconV?.[type] || 0) > 0
                   ? <Image source={{ uri: catIconUrl(type, db.settings.catIconV![type]) }} style={{ width: 60, height: 60 }} resizeMode="cover" />
-                  : <Icon name={t.icon} size={28} color={C.gold} />}
+                  : isLab(type) ? <Text style={{ fontSize: 28 }}>{t.emoji}</Text> : <Icon name={t.icon} size={28} color={C.gold} />}
               </View>
-              <T w="black" size={18} color="#fff" style={{ flex: 1 }}>{banner}</T>
+              <T w="black" size={18} color="#fff" style={{ flex: 1 }}>{bannerText}</T>
             </LinearGradient>
             {isLab(type) ? null : isBooking(type) ? (
               <FlatList
