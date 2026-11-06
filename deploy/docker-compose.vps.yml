@@ -1,0 +1,74 @@
+# Whole Otlob Abis server on ONE rented machine: PostgreSQL + API + automatic HTTPS (Caddy).
+# Used by setup.sh. Run from /opt/otlob:  docker compose --env-file .env -f deploy/docker-compose.vps.yml up -d --build
+name: otlob
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: otlob
+      POSTGRES_USER: otlob
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1536MB
+      -c work_mem=8MB
+      -c max_connections=100
+      -c log_min_duration_statement=2000
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otlob -d otlob"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *logging
+    # no "ports": the database is NOT reachable from the internet, only from the API
+
+  api:
+    build: ../backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://otlob:${DB_PASSWORD}@db:5432/otlob
+      DATABASE_SSL: "false"
+      NODE_ENV: production
+      PORT: "4000"
+      DB_POOL_MAX: "20"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/api/health | grep -q '\"ok\":true'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+    # no "ports": only Caddy talks to it
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_HOST: ${API_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *logging
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,31 @@
+#cloud-config
+# Paste ALL of this file into the "Cloud config" box when creating the server at Hetzner.
+# Before pasting, edit ONLY two lines below: OWNER_PHONE (your phone number) and OWNER_PASSWORD (a long password, letters/digits only).
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - curl
+  - jq
+  - openssl
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+write_files:
+  - path: /root/otlob-settings.env
+    permissions: "0600"
+    content: |
+      OWNER_USERNAME=owner
+      OWNER_PHONE=01000000000
+      OWNER_PASSWORD=CHANGE-ME-TO-A-LONG-PASSWORD
+      CORS_ORIGINS=https://otlob-abis-app.vercel.app
+      DOMAIN=
+      VAPID_SUBJECT=mailto:admin@example.com
+      REPO_URL=https://github.com/mediahefnawi-oss/otlob-abis.git
+      BRANCH=main
+runcmd:
+  - systemctl enable --now docker
+  - systemctl enable --now fail2ban
+  - git clone --depth 1 https://github.com/mediahefnawi-oss/otlob-abis.git /opt/otlob
+  - bash -c '/opt/otlob/deploy/setup.sh > /var/log/otlob-setup.log 2>&1'

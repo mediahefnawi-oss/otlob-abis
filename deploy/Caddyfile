@@ -1,0 +1,17 @@
+# Caddy gets and renews the HTTPS certificate by itself (Let's Encrypt).
+# {$API_HOST} is a real domain (api.otlobabis.com) or <ip>.sslip.io until the domain exists.
+{$API_HOST} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+	request_body {
+		max_size 4MB
+	}
+	reverse_proxy api:4000 {
+		health_uri /api/health
+		health_interval 20s
+	}
+}
