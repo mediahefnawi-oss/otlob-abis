@@ -95,8 +95,9 @@ function flashTitle(text: string) {
 
 export function alertNewOrder(title: string, body: string) {
   if (!isWeb) {
-    // phone app: strong vibration while the app is open
-    try { require('react-native').Vibration.vibrate([0, 400, 150, 400, 150, 400]); } catch {}
+    // phone app: strong vibration + a notification with sound (the phone's loudest "orders" channel) while the app is open
+    try { require('react-native').Vibration.vibrate([0, 500, 150, 500, 150, 500]); } catch {}
+    nativeNotify('order-new', title, body);
     return;
   }
   playNewOrderSound();
@@ -106,6 +107,40 @@ export function alertNewOrder(title: string, body: string) {
     const N = (window as any).Notification;
     if (N && N.permission === 'granted') new N(title, { body, tag: 'otlob-order' });
   } catch {}
+}
+
+/* ---------- phone app: notification with sound through expo-notifications (installed in the APK build only) ---------- */
+function nativeNotify(id: string, title: string, body: string) {
+  if (isWeb) return;
+  try {
+    const n = require('expo-notifications');
+    // same identifier = the previous one is replaced, so repeating never piles notifications up
+    n.scheduleNotificationAsync({ identifier: id, content: { title, body, sound: 'default', priority: 'max' }, trigger: { channelId: 'orders' } }).catch(() => {});
+  } catch {}
+}
+function nativeClear(id: string) {
+  if (isWeb) return;
+  try {
+    const n = require('expo-notifications');
+    n.dismissNotificationAsync(id).catch(() => {});
+    n.cancelScheduledNotificationAsync(id).catch(() => {});
+  } catch {}
+}
+let nativeAlarmTimer: any = null;
+function nativeAlarm(on: boolean) {
+  if (on && !nativeAlarmTimer) {
+    const ring = () => {
+      try { require('react-native').Vibration.vibrate([0, 600, 200, 600, 200, 600]); } catch {}
+      nativeNotify('order-alarm', '🔔 لديك طلب جديد لم تفتحه', 'افتح الطلب لإيقاف التنبيه');
+    };
+    ring();
+    nativeAlarmTimer = setInterval(ring, 6000);
+  } else if (!on && nativeAlarmTimer) {
+    clearInterval(nativeAlarmTimer);
+    nativeAlarmTimer = null;
+    try { require('react-native').Vibration.cancel(); } catch {}
+    nativeClear('order-alarm');
+  }
 }
 
 /* ---------- continuous alarm (shops): rings until every new order has been opened ---------- */
@@ -153,6 +188,7 @@ function syncAlarm() {
 /** on = ring until setAlarm(false). If the browser has not allowed sound yet it starts as soon as it does. */
 export function setAlarm(on: boolean) {
   wantAlarm = on;
+  if (!isWeb) { nativeAlarm(on); return; }
   if (on) getCtx();
   syncAlarm();
 }

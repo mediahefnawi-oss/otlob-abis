@@ -244,7 +244,7 @@ async function pushToUsers(userIds, payload) {
         token: String(s.endpoint).slice(4),
         notification: { title: String(payload.title || ''), body: String(payload.body || '') },
         data: { tag: String(payload.tag || ''), url: String(payload.url || '/') },
-        android: { priority: 'high', ttl: 3600 * 1000, notification: { channelId: 'orders', sound: 'default', tag: String(payload.tag || '') || undefined } },
+        android: { priority: 'high', ttl: 3600 * 1000, notification: { channelId: 'orders', sound: 'default', priority: 'max', visibility: 'public', defaultVibrateTimings: false, vibrateTimingsMillis: [0, 500, 200, 500, 200, 500], tag: String(payload.tag || '') || undefined } },
       }).catch(async e => {
         if (e && /registration-token-not-registered|invalid-registration-token|invalid-argument/.test(String(e.code || e.message))) await pool.query('DELETE FROM push_subscriptions WHERE id=$1', [s.id]);
         else console.error('fcm push failed:', e && (e.code || e.message));
