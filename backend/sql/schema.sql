@@ -467,3 +467,5 @@ CREATE INDEX IF NOT EXISTS idx_support_msgs_thread ON support_messages(thread_id
 CREATE INDEX IF NOT EXISTS idx_support_threads_last ON support_threads(status, last_message_at DESC);
 -- a supervisor works the support inbox only while the owner switches this on (default OFF)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_chat BOOLEAN NOT NULL DEFAULT FALSE;
+-- the GitHub release the update notice was last taken from (the server announces new app versions by itself)
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS update_release_tag TEXT NOT NULL DEFAULT '';

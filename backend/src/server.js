@@ -171,7 +171,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261119;
+const SCHEMA_VERSION = 20261120;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -1057,6 +1057,7 @@ if (require.main === module) {
   let server;
   ensureSchema().then(() => {
     server = app.listen(port, () => console.log(`Otlob Abis API listening on ${port}`));
+    if (!process.env.VERCEL) require('./releaseWatch').startReleaseWatch({ pool, onChange: () => settingsMemo.clear() });
   }).catch(err => { console.error('API startup failed:', err.message); process.exit(1); });
   async function shutdown(signal) {
     console.log(`${signal} received; shutting down API`);

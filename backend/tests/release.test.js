@@ -1,0 +1,27 @@
+const { Pool } = require('./shim');
+const { checkRelease, cmp } = require('../src/releaseWatch.js');
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  FAIL:', m); } };
+(async () => {
+  const pool = new Pool();
+  await pool.query("UPDATE app_settings SET update_version='', update_message='', update_required=FALSE, update_release_tag='' WHERE id=1");
+  ok(cmp('1.1.0', '1.0.9') === 1 && cmp('1.0', '1.0.0') === 0 && cmp('1.2', '1.10') === -1, 'version compare');
+  const mk = (tag, ver, status = 200) => async (url) => ({ ok: status === 200, status, json: async () => ({ tag_name: tag }), text: async () => JSON.stringify({ expo: { version: ver } }) });
+  const row = async () => (await pool.query('SELECT update_version v, update_required r, update_release_tag t FROM app_settings WHERE id=1')).rows[0];
+  let changed = 0;
+  ok(await checkRelease({ pool, repo: 'a/b', fetchFn: mk('apk-19', '1.1.0'), onChange: () => changed++ }) === 'published', 'first release is published');
+  let r = await row(); ok(r.v === '1.1.0' && r.t === 'apk-19' && r.r === false && changed === 1, 'notice stored, optional');
+  ok(await checkRelease({ pool, repo: 'a/b', fetchFn: mk('apk-19', '1.1.0') }) === 'same', 'same release is ignored');
+  ok(await checkRelease({ pool, repo: 'a/b', fetchFn: mk('apk-20', '1.1.0') }) === 'noted', 'rebuild of the same version is noted, not announced again');
+  await pool.query("UPDATE app_settings SET update_required=TRUE WHERE id=1");
+  ok(await checkRelease({ pool, repo: 'a/b', fetchFn: mk('apk-21', '1.2.0') }) === 'published', 'newer version is published');
+  r = await row(); ok(r.v === '1.2.0' && r.t === 'apk-21' && r.r === false, 'new version stored');
+  await pool.query("UPDATE app_settings SET update_version='' WHERE id=1");
+  ok(await checkRelease({ pool, repo: 'a/b', fetchFn: mk('apk-22', '1.2.0') }) === 'published', 'after the owner withdrew it a new build announces again');
+  ok(await checkRelease({ pool, repo: 'a/b', fetchFn: mk('apk-23', '1.3.0', 500) }) === 'skipped', 'GitHub error is ignored');
+  ok(await checkRelease({ pool, repo: 'a/b', fetchFn: mk('apk-23', 'abc') }) === 'skipped', 'bad version ignored');
+  ok(await checkRelease({ pool, repo: 'a/b', fetchFn: mk('bad tag!', '1.4.0') }) === 'skipped', 'bad tag ignored');
+  r = await row(); ok(r.v === '1.2.0' && r.t === 'apk-22', 'nothing changed by the failures');
+  console.log(fail ? 'FAILED ' + fail : 'ALL OK', 'pass=' + pass);
+  await pool.end(); process.exit(fail ? 1 : 0);
+})().catch(e => { console.error('CRASH', e); process.exit(2); });
