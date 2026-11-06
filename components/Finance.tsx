@@ -380,7 +380,7 @@ function CountersTab() {
 /* ============================== audit ============================== */
 const ACTION: Record<string, string> = {
   'rule.create': 'إضافة قاعدة عمولة', 'rule.update': 'تعديل قاعدة عمولة', 'rule.delete': 'حذف قاعدة عمولة', 'commission.reverse': 'تسوية إلغاء / مرتجع', 'commission.settle': 'تسوية مستحقات',
-  'counters.reset.manual': 'تصفير يدوي', 'counters.reset.schedule': 'تصفير تلقائي', 'counters.schedule.create': 'إضافة جدولة', 'counters.schedule.update': 'تعديل جدولة', 'counters.schedule.delete': 'حذف جدولة',
+  'day.close': 'تقفيل يوم محل', 'day.close.undo': 'تراجع عن تقفيل', 'counters.reset.manual': 'تصفير يدوي', 'counters.reset.schedule': 'تصفير تلقائي', 'counters.schedule.create': 'إضافة جدولة', 'counters.schedule.update': 'تعديل جدولة', 'counters.schedule.delete': 'حذف جدولة',
   'order.assign': 'تعيين مندوب لطلب', 'order.transfer': 'تحويل طلب لمتجر آخر', 'welcome-logo.set': 'تغيير لوجو الشاشة الأولى', 'welcome-logo.remove': 'حذف لوجو الشاشة الأولى', 'login-image.set': 'تغيير صورة الدخول', 'login-image.remove': 'حذف صورة الدخول',
 };
 function AuditTab() {
@@ -407,6 +407,123 @@ function AuditTab() {
   );
 }
 
+/* ============================== day closing: collect the commission, restart the shop's day ============================== */
+type ClosingProv = { id: string; name: string; type: string; since: number | null; sales: number; orders: number; due: number };
+type ClosingRow = { id: string; providerId: string; at: number; orders: number; sales: number; due: number; received: number; carried: number; note: string; undone: boolean };
+function ClosingTab() {
+  const [data, setData] = useState<{ providers: ClosingProv[]; closings: ClosingRow[] } | null>(null);
+  const [sel, setSel] = useState<ClosingProv | null>(null);
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => { apiJson<any>('/api/admin/closings').then(setData).catch(() => {}); }, []);
+  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
+  const open = (p: ClosingProv) => { setSel(p); setAmount(String(p.due)); };
+  const num = Number(toEn(amount.trim()));
+  const submit = async () => {
+    if (!sel) return;
+    if (sel.due > 0 && (!Number.isFinite(num) || num <= 0)) return toast('اكتب المبلغ المستلم', 'err');
+    if (num > sel.due) return toast(`المبلغ أكبر من المستحق (${money(sel.due)})`, 'err');
+    setBusy(true);
+    const ok = await run(apiJson('/api/admin/closings', 'POST', { providerId: sel.id, received: sel.due > 0 ? num : 0 }), `تم تقفيل ${sel.name}`);
+    setBusy(false);
+    if (ok) { setSel(null); load(); refreshCounters(); }
+  };
+  const undo = (c: ClosingRow, name: string) => confirmDialog({
+    title: 'التراجع عن التقفيل؟', danger: true, confirmText: 'تراجع',
+    message: `سيرجع عداد ${name} وطلباته المقفولة كما كانت. المبلغ المستلم (${money(c.received)}) يفضل مسجلاً ولا يُلغى.`,
+    onConfirm: () => { run(apiJson(`/api/admin/closings/${c.id}/undo`, 'POST'), 'تم التراجع عن التقفيل').then(() => { load(); refreshCounters(); }); },
+  });
+  const name = (id: string) => data?.providers.find((p) => p.id === id)?.name || `#${id}`;
+  const latest = new Set<string>();
+  (data?.closings || []).forEach((c) => { if (!c.undone && !latest.has(c.providerId)) latest.add(c.id); });
+  const list = (data?.providers || []).filter((p) => p.orders > 0 || p.sales > 0 || p.due > 0);
+  return (
+    <View style={{ gap: 12 }}>
+      <SectionTitle title="تقفيل اليوم" />
+      <T size={12.5} color={C.sub}>التقفيل يعني أنك استلمت عمولة المنصة من المحل: يُسجَّل السداد، ويبدأ عداد المحل من الصفر، وتنتقل طلباته المنتهية للسجل. لا يُحذف أي طلب.</T>
+      {!data && <T size={13} color={C.sub}>جارٍ التحميل…</T>}
+      {data && list.length === 0 && <Empty icon="checkmark-done" title="لا يوجد ما يُقفل" text="كل المحلات مقفولة وعدّاداتها صفر" />}
+      {list.map((p) => (
+        <Card key={p.id} style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <T w="black" size={14.5}>{p.name}</T>
+              <T size={12} color={C.sub}>{TYPES[p.type as ProviderType]?.label || p.type}{p.since ? ` • آخر تقفيل ${fmtDateTime(p.since)}` : ' • لم يُقفل من قبل'}</T>
+            </View>
+            <Btn title="قفّل" small variant="green" icon="lock-closed" onPress={() => open(p)} />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Stat icon="cash" label="المبيعات" value={money(p.sales)} color={C.goldDeep} soft={C.goldSoft} />
+            <Stat icon="receipt" label="طلبات منتهية" value={p.orders} color={C.blue} soft={C.blueSoft} />
+            <Stat icon="wallet" label="العمولة المستحقة" value={money(p.due)} color={p.due > 0 ? C.red : C.green} soft={p.due > 0 ? C.redSoft : C.greenSoft} />
+          </View>
+        </Card>
+      ))}
+      {!!data?.closings.length && <SectionTitle title="سجل التقفيلات" />}
+      {(data?.closings || []).map((c) => (
+        <Card key={c.id} style={{ gap: 4, opacity: c.undone ? 0.55 : 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <T w="bold" size={13.5}>{name(c.providerId)}{c.undone ? ' (تم التراجع)' : ''}</T>
+              <T size={12} color={C.sub}>{fmtDateTime(c.at)} • {c.orders} طلب • مبيعات {money(c.sales)}</T>
+              <T size={12} color={C.dark3}>المستحق {money(c.due)} • المستلم {money(c.received)}{c.carried > 0 ? ` • رُحّل ${money(c.carried)}` : ''}</T>
+            </View>
+            {latest.has(c.id) && <Btn title="تراجع" small variant="outline" onPress={() => undo(c, name(c.providerId))} />}
+          </View>
+        </Card>
+      ))}
+      <Sheet visible={!!sel} onClose={() => setSel(null)} title={sel ? `تقفيل ${sel.name}` : 'تقفيل'}>
+        {sel && (
+          <View style={{ gap: 12 }}>
+            <T size={13.5} color={C.dark3}>{sel.orders} طلب منتهي • مبيعات {money(sel.sales)}</T>
+            {sel.due > 0 ? (
+              <>
+                <T w="black" size={15}>استلمت عمولة المنصة من {sel.name}؟</T>
+                <Field label={`المبلغ المستلم (المستحق ${money(sel.due)})`} icon="cash" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+                {Number.isFinite(num) && num > 0 && num < sel.due && <T size={12.5} color={C.red}>سيُرحَّل {money(Math.round((sel.due - num) * 100) / 100)} كمتأخرات تظهر في حساب المحل وتُسدَّد في تقفيل لاحق.</T>}
+              </>
+            ) : <T size={13.5} color={C.dark3}>لا توجد عمولة مستحقة. سيُقفل اليوم فقط.</T>}
+            <T size={12} color={C.sub}>الطلبات الشغّالة (جديدة / قيد التنفيذ) تفضل ظاهرة، ويمكنك التراجع بعد التقفيل.</T>
+            <Btn title="تأكيد: استلمت العمولة وقفّل" icon="lock-closed" variant="green" full loading={busy} onPress={submit} />
+          </View>
+        )}
+      </Sheet>
+    </View>
+  );
+}
+
+/** A shop sees its own day-by-day sales (Cairo days) and its closings, under "حساباتي". */
+export function ProviderDaysCard({ providerId }: { providerId: string }) {
+  const [d, setD] = useState<{ today: string; days: { day: string; orders: number; sales: number }[]; closings: ClosingRow[] } | null>(null);
+  useEffect(() => {
+    const f = () => apiJson<any>(`/api/my/days?providerId=${providerId}`).then(setD).catch(() => {});
+    f(); const t = setInterval(f, 20000); return () => clearInterval(t);
+  }, [providerId]);
+  if (!d) return null;
+  const today = d.days.find((x) => x.day === d.today);
+  const dayName = (iso: string) => { const dt = new Date(iso + 'T12:00:00'); return `${DAYS[dt.getDay()] || ''} ${iso.slice(8)}/${iso.slice(5, 7)}`; };
+  return (
+    <Card style={{ gap: 10 }}>
+      <T w="black" size={15}>مبيعات الأيام</T>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Stat icon="cash" label="مبيعات اليوم" value={money(today?.sales || 0)} color={C.goldDeep} soft={C.goldSoft} />
+        <Stat icon="receipt" label="طلبات اليوم" value={today?.orders || 0} color={C.blue} soft={C.blueSoft} />
+      </View>
+      {d.days.filter((x) => x.day !== d.today).map((x) => (
+        <View key={x.day} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.line }}>
+          <T w="bold" size={13} style={{ flex: 1 }}>{dayName(x.day)}</T>
+          <T size={12.5} color={C.blue} style={{ width: 70 }}>{x.orders} طلب</T>
+          <T w="black" size={13}>{money(x.sales)}</T>
+        </View>
+      ))}
+      {d.days.filter((x) => x.day !== d.today).length === 0 && <T size={12.5} color={C.sub}>سجل الأيام السابقة سيظهر هنا.</T>}
+      {d.closings.filter((c) => !c.undone).slice(0, 5).map((c) => (
+        <T key={c.id} size={12} color={C.dark3}>تقفيل {fmtDateTime(c.at)}: استلمت المنصة {money(c.received)}{c.carried > 0 ? ` • متبقي ${money(c.carried)}` : ''}</T>
+      ))}
+    </Card>
+  );
+}
+
 /* ============================== the owner's screen ============================== */
 export function AdminFinanceScreen() {
   const rc = useRC();
@@ -415,13 +532,14 @@ export function AdminFinanceScreen() {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="العمولات والعدادات" subtitle="كل الإعدادات تُحفظ مركزياً وتسري فوراً">
         <View style={{ marginTop: 12 }}>
-          <Segmented value={seg} onChange={setSeg} options={[{ key: 'rules', label: 'القواعد' }, { key: 'reports', label: 'التقارير' }, { key: 'counters', label: 'العدادات' }, { key: 'audit', label: 'السجل' }]} />
+          <Segmented value={seg} onChange={setSeg} options={[{ key: 'rules', label: 'القواعد' }, { key: 'reports', label: 'التقارير' }, { key: 'counters', label: 'العدادات' }, { key: 'closing', label: 'التقفيل' }, { key: 'audit', label: 'السجل' }]} />
         </View>
       </Header>
       <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
         {seg === 'rules' && <RulesTab />}
         {seg === 'reports' && <ReportsTab />}
         {seg === 'counters' && <CountersTab />}
+        {seg === 'closing' && <ClosingTab />}
         {seg === 'audit' && <AuditTab />}
       </ScrollView>
     </View>

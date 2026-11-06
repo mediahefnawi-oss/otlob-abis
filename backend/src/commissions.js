@@ -400,6 +400,111 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     res.json({ due: Number(s.due), settled: Number(s.settled), month: Number(s.month), rules, entries: last.rows.map(entryJson) });
   }));
 
+  /* ---------- day closing: collect the platform commission, zero the shop's counters, archive its finished orders ---------- */
+  // One closing = one transaction: the commission settlement, the counter reset and the closing record all happen or none does.
+  // Nothing is deleted. A partial payment settles the entries and carries the shortfall forward as a new "due" adjustment.
+  const CLOSING_SQL = `SELECT p.id, p.name, p.type,
+      lc.last_at,
+      COALESCE((SELECT SUM((o.data->>'subtotal')::numeric) FROM orders o WHERE o.provider_id=p.id AND o.status='delivered' AND o.delivered_at > COALESCE(lc.last_at,'epoch'::timestamptz) AND o.delivered_at <= $2::timestamptz), 0)
+      + COALESCE((SELECT SUM(a.fee) FROM appointments a WHERE a.provider_id=p.id AND a.status='completed' AND a.completed_at > COALESCE(lc.last_at,'epoch'::timestamptz) AND a.completed_at <= $2::timestamptz), 0) AS sales,
+      (SELECT COUNT(*) FROM orders o WHERE o.provider_id=p.id AND o.status IN ('delivered','rejected','cancelled','unavailable') AND COALESCE(o.delivered_at, o.updated_at) > COALESCE(lc.last_at,'epoch'::timestamptz) AND COALESCE(o.delivered_at, o.updated_at) <= $2::timestamptz)
+      + (SELECT COUNT(*) FROM appointments a WHERE a.provider_id=p.id AND a.status='completed' AND a.completed_at > COALESCE(lc.last_at,'epoch'::timestamptz) AND a.completed_at <= $2::timestamptz) AS orders,
+      COALESCE((SELECT SUM(e.amount) FROM commission_entries e WHERE e.provider_id=p.id AND e.kind='provider' AND e.status='due'), 0) AS due
+    FROM providers p
+    LEFT JOIN LATERAL (SELECT MAX(closed_at) AS last_at FROM day_closings WHERE provider_id=p.id AND undone_at IS NULL) lc ON TRUE
+    WHERE p.deleted_at IS NULL AND ($1::bigint IS NULL OR p.id=$1::bigint)
+    ORDER BY p.id`;
+  const closingJson = r => ({ id: String(r.id), providerId: String(r.provider_id), at: new Date(r.closed_at).getTime(), from: r.period_from ? new Date(r.period_from).getTime() : undefined,
+    orders: Number(r.orders_count), sales: Number(r.sales), due: Number(r.commission_due), received: Number(r.received), carried: Number(r.carried), note: r.note || '', undone: !!r.undone_at });
+  app.get('/api/admin/closings', ...admin, asyncRoute(async (_req, res) => {
+    const now = new Date((await pool.query('SELECT NOW() AS n')).rows[0].n);
+    const [cur, hist] = await Promise.all([
+      pool.query(CLOSING_SQL, [null, now]),
+      pool.query('SELECT * FROM day_closings ORDER BY closed_at DESC, id DESC LIMIT 60'),
+    ]);
+    res.json({
+      providers: cur.rows.map(r => ({ id: String(r.id), name: r.name, type: r.type, since: r.last_at ? new Date(r.last_at).getTime() : null, sales: round2(r.sales), orders: Number(r.orders), due: round2(r.due) })),
+      closings: hist.rows.map(closingJson), now: now.getTime(),
+    });
+  }));
+  app.post('/api/admin/closings', ...admin, guard(async (req, res) => {
+    const b = req.body || {};
+    const pid = positiveId(b.providerId);
+    if (!pid) throw fail(400, 'اختر مقدم الخدمة');
+    const note = String(b.note || '').trim().slice(0, 200);
+    const out = await withTx(async db => {
+      if (!(await db.query('SELECT id FROM providers WHERE id=$1 AND deleted_at IS NULL FOR UPDATE', [pid])).rowCount) throw fail(404, 'مقدم الخدمة غير موجود');
+      const now = new Date((await db.query('SELECT NOW() AS n')).rows[0].n);
+      const cur = (await db.query(CLOSING_SQL, [pid, now])).rows[0];
+      const entries = await db.query("SELECT id, amount FROM commission_entries WHERE status='due' AND kind='provider' AND provider_id=$1 ORDER BY id FOR UPDATE", [pid]);
+      const total = round2(entries.rows.reduce((s, x) => s + Number(x.amount), 0));
+      const sales = round2(cur.sales); const orders = Number(cur.orders);
+      if (!orders && !sales && !entries.rowCount) throw fail(409, 'لا يوجد ما يُقفل لهذا المحل');
+      if (total < 0) throw fail(409, 'رصيد العمولات سالب. راجع المستحقات قبل التقفيل');
+      let received = b.received === undefined || b.received === null || b.received === '' ? total : round2(b.received);
+      if (!Number.isFinite(received) || received < 0) throw fail(400, 'المبلغ المستلم غير صحيح');
+      if (received > total) throw fail(400, 'المبلغ المستلم أكبر من المستحق (' + total + ')');
+      if (total > 0 && received <= 0) throw fail(400, 'اكتب المبلغ المستلم من المحل');
+      const carried = round2(total - received);
+      let settlementId = null, carryId = null;
+      if (entries.rowCount && total > 0) {
+        const s = await db.query("INSERT INTO commission_settlements(party, provider_id, amount, entries_count, note, created_by) VALUES('provider',$1,$2,$3,$4,$5) RETURNING id",
+          [pid, received, entries.rowCount, ('تقفيل يوم ' + note).trim().slice(0, 200), me(req)]);
+        settlementId = s.rows[0].id;
+        await db.query("UPDATE commission_entries SET status='settled', settlement_id=$1 WHERE id = ANY($2::bigint[])", [settlementId, entries.rows.map(x => x.id)]);
+        if (carried > 0) {
+          const c = await db.query("INSERT INTO commission_entries(entry_type, kind, provider_id, base_amount, amount, note, status, created_by) VALUES('adjustment','provider',$1,0,$2,$3,'due',$4) RETURNING id",
+            [pid, carried, 'ترحيل متأخرات تقفيل (المستلم ' + received + ' من ' + total + ')', me(req)]);
+          carryId = c.rows[0].id;
+        }
+      }
+      const c = await db.query('INSERT INTO day_closings(provider_id, closed_at, period_from, closed_by, orders_count, sales, commission_due, received, carried, settlement_id, carry_entry_id, note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *',
+        [pid, now, cur.last_at || null, me(req), orders, sales, total, received, carried, settlementId, carryId, note]);
+      await db.query("INSERT INTO counter_resets(scope, provider_id, counters, reset_at, source, note, created_by) VALUES('provider',$1,$2,$3,'manual',$4,$5)",
+        [pid, ['sales', 'orders', 'profit'], now, 'closing:' + c.rows[0].id, me(req)]);
+      await audit(db, me(req), 'day.close', 'provider', pid, null, { closing: String(c.rows[0].id), orders, sales, due: total, received, carried }, note);
+      return c.rows[0];
+    });
+    res.status(201).json({ closing: closingJson(out) });
+  }));
+  // Undo restores the counters and the shop's order lists. The money that was received stays recorded (a real payment is never silently cancelled).
+  app.post('/api/admin/closings/:id/undo', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'تقفيل غير صالح');
+    const out = await withTx(async db => {
+      const c = (await db.query('SELECT * FROM day_closings WHERE id=$1 FOR UPDATE', [id])).rows[0];
+      if (!c) throw fail(404, 'التقفيل غير موجود');
+      if (c.undone_at) throw fail(409, 'تم التراجع عن هذا التقفيل من قبل');
+      const newer = await db.query('SELECT 1 FROM day_closings WHERE provider_id=$1 AND undone_at IS NULL AND closed_at > $2 LIMIT 1', [c.provider_id, c.closed_at]);
+      if (newer.rowCount) throw fail(409, 'يوجد تقفيل أحدث لنفس المحل. تراجع عنه أولاً');
+      const r = await db.query('UPDATE day_closings SET undone_at=NOW(), undone_by=$2 WHERE id=$1 RETURNING *', [id, me(req)]);
+      await db.query("DELETE FROM counter_resets WHERE note=$1 AND provider_id=$2 AND scope='provider'", ['closing:' + id, c.provider_id]);
+      await audit(db, me(req), 'day.close.undo', 'provider', c.provider_id, closingJson(c), closingJson(r.rows[0]), '');
+      return r.rows[0];
+    });
+    res.json({ closing: closingJson(out) });
+  }));
+  // Day-by-day history (Cairo days) for a shop: its owner sees its own, the owner of the platform sees any.
+  app.get('/api/my/days', auth, roles('provider', 'admin'), guard(async (req, res) => {
+    let pid = positiveId(req.query.providerId);
+    if (req.auth.role === 'provider') {
+      const mine = await pool.query('SELECT id FROM providers WHERE owner_user_id=$1 AND deleted_at IS NULL ORDER BY id', [me(req)]);
+      if (!mine.rowCount) throw fail(404, 'لا يوجد نشاط مسجل');
+      if (!pid) pid = Number(mine.rows[0].id);
+      else if (!mine.rows.some(x => Number(x.id) === pid)) throw fail(403, 'غير مسموح');
+    } else if (!pid) throw fail(400, 'اختر مقدم الخدمة');
+    const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
+    const [d, cl] = await Promise.all([
+      pool.query(`SELECT to_char((x.at AT TIME ZONE 'Africa/Cairo')::date, 'YYYY-MM-DD') AS day, COUNT(*) AS orders, COALESCE(SUM(x.amount),0) AS sales FROM (
+          SELECT o.delivered_at AS at, COALESCE((o.data->>'subtotal')::numeric,0) AS amount FROM orders o WHERE o.provider_id=$1 AND o.status='delivered' AND o.delivered_at IS NOT NULL
+          UNION ALL SELECT a.completed_at, COALESCE(a.fee,0) FROM appointments a WHERE a.provider_id=$1 AND a.status='completed' AND a.completed_at IS NOT NULL
+        ) x WHERE x.at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY 1 DESC`, [pid, days + 1]),
+      pool.query('SELECT * FROM day_closings WHERE provider_id=$1 ORDER BY closed_at DESC, id DESC LIMIT 60', [pid]),
+    ]);
+    const today = (await pool.query("SELECT to_char((NOW() AT TIME ZONE 'Africa/Cairo')::date, 'YYYY-MM-DD') AS d")).rows[0].d;
+    res.json({ providerId: String(pid), today, days: d.rows.map(r => ({ day: r.day, orders: Number(r.orders), sales: round2(r.sales) })), closings: cl.rows.map(closingJson) });
+  }));
+
   /* ---------- counters + resets + schedules ---------- */
   const counterList = v => {
     const list = Array.isArray(v) ? [...new Set(v.map(String))] : [];

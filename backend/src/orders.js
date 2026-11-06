@@ -235,7 +235,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     // a supervisor sees only the orders of the areas the owner gave him
     if (user.role === 'supervisor') return `o.region_id IN (SELECT unnest(string_to_array(NULLIF(sup_regions,''),','))::bigint FROM users WHERE id=$${i})`;
     if (user.role === 'customer') return `o.customer_user_id=$${i}`;
-    if (user.role === 'provider') return `o.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i})`;
+    // a closed day moves the shop's finished orders out of its lists (nothing is deleted; the owner still sees everything)
+    if (user.role === 'provider') return `o.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i}) AND NOT (o.status IN ('delivered','rejected','cancelled','unavailable') AND COALESCE(o.delivered_at, o.updated_at) <= COALESCE((SELECT MAX(dc.closed_at) FROM day_closings dc WHERE dc.provider_id=o.provider_id AND dc.undone_at IS NULL), 'epoch'::timestamptz))`;
     return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('accepted','ready')))`;
   }
   function apptScope(user, values) {

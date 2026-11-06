@@ -413,3 +413,27 @@ CREATE TABLE IF NOT EXISTS lab_files (
 
 ALTER TABLE service_types ADD COLUMN IF NOT EXISTS tagline VARCHAR(160);
 UPDATE service_types SET size='small' WHERE key='lab' AND size='large';
+
+-- Day closing: the owner collects the platform commission, the shop's counters restart, finished orders move out of its lists.
+-- Nothing is deleted. A partial payment carries the shortfall forward as a new due adjustment (carry_entry_id).
+CREATE TABLE IF NOT EXISTS day_closings (
+  id BIGSERIAL PRIMARY KEY,
+  provider_id BIGINT NOT NULL REFERENCES providers(id),
+  closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  period_from TIMESTAMPTZ,
+  closed_by BIGINT,
+  orders_count INT NOT NULL DEFAULT 0,
+  sales NUMERIC(12,2) NOT NULL DEFAULT 0,
+  commission_due NUMERIC(12,2) NOT NULL DEFAULT 0,
+  received NUMERIC(12,2) NOT NULL DEFAULT 0,
+  carried NUMERIC(12,2) NOT NULL DEFAULT 0,
+  settlement_id BIGINT REFERENCES commission_settlements(id),
+  carry_entry_id BIGINT REFERENCES commission_entries(id),
+  note TEXT NOT NULL DEFAULT '',
+  undone_at TIMESTAMPTZ,
+  undone_by BIGINT,
+  CONSTRAINT day_closings_amounts CHECK (received >= 0 AND carried >= 0 AND received <= commission_due)
+);
+CREATE INDEX IF NOT EXISTS idx_day_closings_provider ON day_closings(provider_id, closed_at DESC);
+-- an optional second phone number a customer can leave (no code confirmation)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone2 VARCHAR(20);
