@@ -7,6 +7,8 @@ import { storage } from './storage';
  * The web build uses push.ts instead (Metro picks this file only for native builds).
  */
 const KEY = 'otlob_abis_fcm_token_v1';
+// set only when the person switches notifications off himself; until then they stay on and are re-enabled automatically
+const OPTOUT = 'otlob_abis_push_optout_v1';
 export type PushState = 'unsupported' | 'denied' | 'off' | 'on';
 export const pushSupported = () => true;
 
@@ -45,6 +47,7 @@ export async function enablePush(): Promise<{ ok: boolean; error?: string }> {
     let p = await n.getPermissionsAsync();
     if (p.status !== 'granted') p = await n.requestPermissionsAsync();
     if (p.status !== 'granted') return { ok: false, error: 'لم يتم السماح بالإشعارات. فعّلها من إعدادات الموبايل ← التطبيقات ← أطلب أبيس ← الإشعارات.' };
+    await storage.removeItem(OPTOUT).catch(() => {});
     await register();
     return { ok: true };
   } catch (e: any) {
@@ -57,11 +60,40 @@ export async function syncPushSubscription() {
   try {
     const n = N();
     const p = await n.getPermissionsAsync();
-    if (p.status === 'granted') await register();
+    if (p.status === 'granted' && !(await storage.getItem(OPTOUT))) await register();
   } catch {}
 }
 
+let askedThisRun = false;
+/**
+ * Called when the app opens and the person is signed in: asks for the notification permission once per app start
+ * (unless he switched notifications off himself) and keeps retrying the registration silently, so nobody has to tap a bar.
+ */
+export async function autoEnablePush(): Promise<void> {
+  try {
+    if (await storage.getItem(OPTOUT)) return;
+    const n = await setup();
+    let p = await n.getPermissionsAsync();
+    if (p.status !== 'granted') {
+      if (p.canAskAgain === false || askedThisRun) return;
+      askedThisRun = true;
+      p = await n.requestPermissionsAsync();
+      if (p.status !== 'granted') return;
+    }
+    await register();
+  } catch {}
+}
+
+/** Opens the phone's own settings page of this app (for a blocked notification permission). */
+export async function openPushSettings() {
+  try { await require('react-native').Linking.openSettings(); } catch {}
+}
+
 export async function disablePush() {
+  try { await storage.setItem(OPTOUT, '1'); } catch {}
+  await unsubscribeDevice();
+}
+async function unsubscribeDevice() {
   try {
     const token = await storage.getItem(KEY);
     if (token) await apiPushUnsubscribe(`fcm:${token}`).catch(() => {});
@@ -71,5 +103,5 @@ export async function disablePush() {
 
 /** On sign-out: this phone must stop receiving the previous account's notifications. */
 export async function forgetPushSubscription() {
-  await disablePush();
+  await unsubscribeDevice();
 }

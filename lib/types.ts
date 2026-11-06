@@ -14,6 +14,7 @@ export interface User {
   id: string;
   name: string;
   phone: string;
+  phone2?: string; // optional second number (no code confirmation)
   pass: string;
   role: Role;
   address: string;
@@ -30,6 +31,8 @@ export interface User {
   flagNote?: string;
   // supervisor: the areas (region ids) whose orders he runs
   supRegions?: string[];
+  // supervisor: the owner allowed him to work the support chat
+  supportChat?: boolean;
 }
 
 export interface Ad {
@@ -117,6 +120,7 @@ export interface Order {
   customerId: string;
   customerName: string;
   phone: string;
+  phone2?: string;
   address: string;
   notes: string;
   providerId: string;
@@ -236,6 +240,7 @@ export interface Settings {
   appIconV?: number; // 0 / missing = the built-in icon
   catIconV?: Record<string, number>; // the owner's picture for each service icon on the home screen (type -> version)
   apkUrl?: string; // download link of the Android app
+  update?: { version: string; message: string; required: boolean }; // a newer app version the owner announced
   welcomeLogoV?: number; // 0 / missing = the built-in logo on the first screen
   credits?: Credits | null; // the developer lines at the bottom of the first screen (null = the defaults)
   hours?: Hours; // opening hours (Cairo time); outside them customers see the closed screen

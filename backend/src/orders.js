@@ -20,7 +20,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const d = r.data || {};
     return {
       id: String(r.id), number: Number(r.order_number), groupId: String(d.groupId || ''), invoiceId: String(d.invoiceId || ''),
-      customerId: String(r.customer_user_id), customerName: d.customerName || '', phone: d.phone || '', address: d.address || '', notes: d.notes || '',
+      customerId: String(r.customer_user_id), customerName: d.customerName || '', phone: d.phone || '', phone2: d.phone2 || '', address: d.address || '', notes: d.notes || '',
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
@@ -78,9 +78,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   /** The owner's label on the customer (trusted / watch / fraud), copied onto the order so shops and couriers see it. */
   async function flagData(db, userId) {
     try {
-      const r = await db.query('SELECT account_flag, flag_note FROM users WHERE id=$1', [userId]);
-      const x = r.rows[0];
-      return x && x.account_flag ? { customerFlag: x.account_flag, customerFlagNote: x.flag_note || '' } : {};
+      const r = await db.query('SELECT account_flag, flag_note, phone2 FROM users WHERE id=$1', [userId]);
+      const x = r.rows[0] || {};
+      // the customer's optional second number travels with the order so the shop and courier can ring it if the first does not answer
+      return { ...(x.account_flag ? { customerFlag: x.account_flag, customerFlagNote: x.flag_note || '' } : {}), ...(x.phone2 ? { phone2: x.phone2 } : {}) };
     } catch { return {}; } // column not migrated yet: never block an order because of a label
   }
   // shops, couriers and the owner see the label; the customer never does

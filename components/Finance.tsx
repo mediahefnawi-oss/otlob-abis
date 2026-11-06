@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, Image, Pressable } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
-import { useStore, setWelcomeLogo, setLoginImage, setAppIcon, setCatIcon, updateSettings, createService, updateService, reorderServices, deleteService } from '../lib/store';
+import { useStore, publishUpdateNotice, setWelcomeLogo, setLoginImage, setAppIcon, setCatIcon, updateSettings, createService, updateService, reorderServices, deleteService } from '../lib/store';
 import { TYPES, DEFAULT_CREDITS, money, fmtDateTime, isoDay, DAYS, typeKeys, serviceDefs, errandDef, TEMPLATE_LABEL } from '../lib/format';
 import { ProviderType, ServiceDef, ServiceTemplate } from '../lib/types';
 import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
@@ -492,15 +492,17 @@ function ClosingTab() {
   );
 }
 
-/** A shop sees its own day-by-day sales (Cairo days) and its closings, under "حساباتي". */
+/** A shop sees today's numbers, and opens its day-by-day history (Cairo days) and closings in a sheet. */
 export function ProviderDaysCard({ providerId }: { providerId: string }) {
   const [d, setD] = useState<{ today: string; days: { day: string; orders: number; sales: number }[]; closings: ClosingRow[] } | null>(null);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
-    const f = () => apiJson<any>(`/api/my/days?providerId=${providerId}`).then(setD).catch(() => {});
+    const f = () => apiJson<any>(`/api/my/days?providerId=${providerId}&days=90`).then(setD).catch(() => {});
     f(); const t = setInterval(f, 20000); return () => clearInterval(t);
   }, [providerId]);
   if (!d) return null;
   const today = d.days.find((x) => x.day === d.today);
+  const past = d.days.filter((x) => x.day !== d.today);
   const dayName = (iso: string) => { const dt = new Date(iso + 'T12:00:00'); return `${DAYS[dt.getDay()] || ''} ${iso.slice(8)}/${iso.slice(5, 7)}`; };
   return (
     <Card style={{ gap: 10 }}>
@@ -509,17 +511,23 @@ export function ProviderDaysCard({ providerId }: { providerId: string }) {
         <Stat icon="cash" label="مبيعات اليوم" value={money(today?.sales || 0)} color={C.goldDeep} soft={C.goldSoft} />
         <Stat icon="receipt" label="طلبات اليوم" value={today?.orders || 0} color={C.blue} soft={C.blueSoft} />
       </View>
-      {d.days.filter((x) => x.day !== d.today).map((x) => (
-        <View key={x.day} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.line }}>
-          <T w="bold" size={13} style={{ flex: 1 }}>{dayName(x.day)}</T>
-          <T size={12.5} color={C.blue} style={{ width: 70 }}>{x.orders} طلب</T>
-          <T w="black" size={13}>{money(x.sales)}</T>
-        </View>
-      ))}
-      {d.days.filter((x) => x.day !== d.today).length === 0 && <T size={12.5} color={C.sub}>سجل الأيام السابقة سيظهر هنا.</T>}
-      {d.closings.filter((c) => !c.undone).slice(0, 5).map((c) => (
-        <T key={c.id} size={12} color={C.dark3}>تقفيل {fmtDateTime(c.at)}: استلمت المنصة {money(c.received)}{c.carried > 0 ? ` • متبقي ${money(c.carried)}` : ''}</T>
-      ))}
+      <Btn title={`سجل الأيام${past.length ? ` (${past.length})` : ''}`} icon="calendar" variant="soft" full onPress={() => setOpen(true)} />
+      <Sheet visible={open} onClose={() => setOpen(false)} title="سجل الأيام">
+        <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: 4 }}>
+          {past.length === 0 && <T size={12.5} color={C.sub}>سجل الأيام السابقة سيظهر هنا.</T>}
+          {past.map((x) => (
+            <View key={x.day} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.line }}>
+              <T w="bold" size={13} style={{ flex: 1 }}>{dayName(x.day)}</T>
+              <T size={12.5} color={C.blue} style={{ width: 72 }}>{x.orders} طلب</T>
+              <T w="black" size={13}>{money(x.sales)}</T>
+            </View>
+          ))}
+          {d.closings.filter((c) => !c.undone).length > 0 && <T w="black" size={14} style={{ marginTop: 10 }}>آخر التقفيلات</T>}
+          {d.closings.filter((c) => !c.undone).slice(0, 10).map((c) => (
+            <T key={c.id} size={12} color={C.dark3}>{fmtDateTime(c.at)}: استلمت المنصة {money(c.received)}{c.carried > 0 ? ` • متبقي ${money(c.carried)}` : ''}</T>
+          ))}
+        </ScrollView>
+      </Sheet>
     </Card>
   );
 }
@@ -753,6 +761,43 @@ export function AppIconManager() {
       )}
       <Field label="رابط تحميل التطبيق (يظهر للعملاء)" icon="download" value={url} onChangeText={setUrl} placeholder="https://..." autoCapitalize="none" />
       <Btn title="حفظ الرابط" icon="checkmark" onPress={saveUrl} />
+    </Card>
+  );
+}
+
+/** Owner: announce a new app version; every user sees an update banner until the installed version reaches it. */
+export function UpdateNoticeManager() {
+  const { db } = useStore();
+  const cur = db.settings.update;
+  const [version, setVersion] = useState(cur?.version || '');
+  const [message, setMessage] = useState(cur?.message || '');
+  const [required, setRequired] = useState(!!cur?.required);
+  const [busy, setBusy] = useState(false);
+  const publish = () => {
+    const v = toEn(version.trim());
+    if (!/^\d+(\.\d+){0,3}$/.test(v)) return toast('اكتب رقم النسخة مثل 1.1.0', 'err');
+    confirmDialog({
+      title: 'نشر إشعار التحديث؟', confirmText: 'نشر',
+      message: `كل من يستخدم نسخة أقدم من ${v} سيرى إشعار التحديث${required ? ' ولن يستطيع إخفاءه' : ''}.`,
+      onConfirm: async () => { setBusy(true); const r = await publishUpdateNotice({ version: v, message: message.trim(), required }); setBusy(false); toast(r.ok ? 'تم نشر إشعار التحديث' : r.error, r.ok ? 'ok' : 'err'); },
+    });
+  };
+  const clear = async () => { setBusy(true); const r = await publishUpdateNotice({ clear: true }); setBusy(false); if (r.ok) { setVersion(''); setMessage(''); setRequired(false); } toast(r.ok ? 'تم إلغاء الإشعار' : r.error, r.ok ? 'ok' : 'err'); };
+  return (
+    <Card style={{ gap: 10 }}>
+      <T w="black" size={15}>إشعار تحديث التطبيق</T>
+      <T size={12} color={C.sub}>بعد ما تبني نسخة جديدة وتنزّلها، اكتب رقمها هنا (نفس رقم الإصدار في app.json). كل مستخدم نسخته أقدم يظهر له إشعار التحديث.</T>
+      <T size={12} color={C.dark3}>الإشعار الحالي: {cur?.version ? `${cur.version}${cur.required ? ' (إجباري)' : ''}` : 'لا يوجد'}</T>
+      <Field label="رقم النسخة الجديدة" icon="pricetag" value={version} onChangeText={setVersion} placeholder="1.1.0" autoCapitalize="none" keyboardType="numbers-and-punctuation" />
+      <Field label="الرسالة (اختياري)" icon="chatbox" value={message} onChangeText={setMessage} placeholder="تحسينات وإصلاحات" />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <T size={13} style={{ flex: 1 }}>تحديث إجباري (لا يمكن إخفاؤه)</T>
+        <Toggle value={required} onValueChange={setRequired} />
+      </View>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn title="نشر الإشعار" icon="megaphone" style={{ flex: 2 }} loading={busy} onPress={publish} />
+        {!!cur?.version && <Btn title="إلغاء" variant="outline" style={{ flex: 1 }} onPress={clear} />}
+      </View>
     </Card>
   );
 }

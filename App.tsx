@@ -15,6 +15,7 @@ import { Overlays, Logo, toast } from './components/ui';
 import { SoundGate } from './components/SoundGate';
 import { SyncBanner } from './components/SyncBanner';
 import { OrderAlarmBar } from './components/OrderAlarmBar';
+import { UpdateBanner } from './components/UpdateBanner';
 import { navigationRef } from './lib/nav';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
@@ -25,9 +26,10 @@ import { OrderDetailScreen, ApptDetailScreen, InvoiceScreen, ChatScreen, Support
 import { ProviderOrdersScreen, ProviderCatalogScreen, ProviderInvoicesScreen, ProviderProfileScreen } from './screens/provider';
 import { CourierWorkScreen, CourierOrdersScreen, CourierProfileScreen } from './screens/courier';
 import {
-  AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen, AdminSupervisorsScreen, SupervisorOrdersScreen,
+  AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen, AdminSupervisorsScreen, AdminSupportScreen, SupervisorOrdersScreen,
 } from './screens/admin';
 import { AdminFinanceScreen } from './components/Finance';
+import { SupportInbox, useSupportUnread } from './components/SupportChat';
 import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 
@@ -47,6 +49,7 @@ const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background
 function Main({ navigation }: any) {
   const me = useMe()!;
   const { db } = useStore();
+  const supUnread = useSupportUnread(me.role !== 'admin' && (me.role !== 'supervisor' || !!me.supportChat));
 
   let tabs: TabDef[] = [];
   if (me.role === 'customer') {
@@ -54,7 +57,7 @@ function Main({ navigation }: any) {
     tabs = [
       { key: 'home', label: 'الرئيسية', icon: 'home', render: () => <HomeScreen navigation={navigation} /> },
       { key: 'orders', label: 'طلباتي', icon: 'receipt', badge: active, render: () => <CustomerOrdersScreen navigation={navigation} /> },
-      { key: 'support', label: 'الدعم', icon: 'headset', render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
+      { key: 'support', label: 'الدعم', icon: 'headset', badge: supUnread, render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <ProfileScreen navigation={navigation} /> },
     ];
   } else if (me.role === 'provider') {
@@ -66,7 +69,7 @@ function Main({ navigation }: any) {
       { key: 'orders', label: clinic ? 'الحجوزات' : 'الطلبات', icon: clinic ? 'calendar' : 'receipt', badge: pending, render: () => <ProviderOrdersScreen navigation={navigation} /> },
       ...(noCatalog ? [] : [{ key: 'catalog', label: clinic ? 'الأطباء' : 'المنتجات', icon: clinic ? 'people' : 'pricetags', render: () => <ProviderCatalogScreen /> }]),
       { key: 'invoices', label: 'الفواتير', icon: 'document-text', render: () => <ProviderInvoicesScreen navigation={navigation} /> },
-      { key: 'support', label: 'الدعم', icon: 'headset', render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
+      { key: 'support', label: 'الدعم', icon: 'headset', badge: supUnread, render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <ProviderProfileScreen navigation={navigation} /> },
     ];
   } else if (me.role === 'courier') {
@@ -74,14 +77,14 @@ function Main({ navigation }: any) {
     tabs = [
       { key: 'work', label: 'العمل', icon: 'bicycle', render: (go) => <CourierWorkScreen navigation={navigation} go={go} /> },
       { key: 'orders', label: 'الطلبات', icon: 'receipt', badge: offers, render: () => <CourierOrdersScreen navigation={navigation} /> },
-      { key: 'support', label: 'الدعم', icon: 'headset', render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
+      { key: 'support', label: 'الدعم', icon: 'headset', badge: supUnread, render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <CourierProfileScreen navigation={navigation} /> },
     ];
   } else if (me.role === 'supervisor') {
     const fresh = db.orders.filter((o) => inStaffQueue(o)).length;
     tabs = [
       { key: 'orders', label: 'الطلبات', icon: 'receipt', badge: fresh, render: () => <SupervisorOrdersScreen navigation={navigation} /> },
-      { key: 'support', label: 'الدعم', icon: 'headset', render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
+      { key: 'support', label: 'الدعم', icon: 'headset', badge: supUnread, render: () => (me.supportChat ? <SupportInbox /> : <SupportScreen navigation={{ canGoBack: () => false }} />) },
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <ProfileScreen navigation={navigation} /> },
     ];
   } else {
@@ -142,6 +145,7 @@ function Root() {
         <Stack.Screen name="AdminCustomers" component={AdminCustomersScreen} />
         <Stack.Screen name="AdminCustomer" component={AdminCustomerScreen} />
         <Stack.Screen name="AdminSupervisors" component={AdminSupervisorsScreen} />
+        <Stack.Screen name="AdminSupport" component={AdminSupportScreen} />
       </>
     );
   }
@@ -188,6 +192,7 @@ export default function App() {
         <View style={{ flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
           <SoundGate />
           <SyncBanner />
+          <UpdateBanner />
           <OrderAlarmBar />
           <View style={{ flex: 1 }}><ErrorBoundary><Root /></ErrorBoundary></View>
           <Overlays />

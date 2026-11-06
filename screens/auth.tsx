@@ -139,6 +139,7 @@ export function RegisterScreen({ navigation, route }: any) {
   const [role, setRole] = useState<'customer' | 'provider' | 'courier'>(route.params?.role || 'customer');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phone2, setPhone2] = useState('');
   const [pass, setPass] = useState('');
   const [address, setAddress] = useState('');
   const [regionId, setRegionId] = useState('');
@@ -160,7 +161,7 @@ export function RegisterScreen({ navigation, route }: any) {
     setBusy(true);
     setErr('');
     const r = await register({
-      name, phone, pass, role, address, vehicle, regionId: regionId || undefined,
+      name, phone, phone2: role === 'customer' ? phone2 : undefined, pass, role, address, vehicle, regionId: regionId || undefined,
       provider: role === 'provider' ? { type: ptype, name: pname, desc: pdesc, deliveryFee: 0 } : undefined,
     });
     setBusy(false);
@@ -196,6 +197,7 @@ export function RegisterScreen({ navigation, route }: any) {
           )}
           <Field label={role === 'provider' ? 'اسم المسؤول' : 'الاسم بالكامل'} icon="person" value={name} onChangeText={setName} placeholder="الاسم" />
           <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="01xxxxxxxxx" />
+          {role === 'customer' && <Field label="رقم هاتف آخر (اختياري)" icon="call" value={phone2} onChangeText={setPhone2} keyboardType="phone-pad" placeholder="رقم احتياطي لو الأول مردش" />}
           <Field label="كلمة المرور" icon="lock-closed" value={pass} onChangeText={setPass} secureTextEntry placeholder="8 أحرف على الأقل" />
           {(role === 'customer' || role === 'provider') && <RegionPicker value={regionId} onChange={setRegionId} label={role === 'provider' ? 'منطقة مكانك (تظهر للعملاء والمندوب)' : 'اسم المنطقة'} />}
           <Field label={role === 'provider' ? 'عنوان النشاط بالتفصيل' : 'العنوان التفصيلي'} icon="location" value={address} onChangeText={setAddress} placeholder="رقم العمارة، الشارع، علامة مميزة" />

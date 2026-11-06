@@ -437,3 +437,33 @@ CREATE TABLE IF NOT EXISTS day_closings (
 CREATE INDEX IF NOT EXISTS idx_day_closings_provider ON day_closings(provider_id, closed_at DESC);
 -- an optional second phone number a customer can leave (no code confirmation)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone2 VARCHAR(20);
+
+-- The owner announces a new app version: every user sees an update banner until the installed version reaches it.
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS update_version TEXT NOT NULL DEFAULT '';
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS update_message TEXT NOT NULL DEFAULT '';
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS update_required BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- In-app support chat: one conversation per user with the platform; the owner (and supervisors the owner allows) answer.
+CREATE TABLE IF NOT EXISTS support_threads (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  last_message TEXT NOT NULL DEFAULT '',
+  last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  unread_staff INT NOT NULL DEFAULT 0,
+  unread_user INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS support_messages (
+  id BIGSERIAL PRIMARY KEY,
+  thread_id BIGINT NOT NULL REFERENCES support_threads(id) ON DELETE CASCADE,
+  sender_user_id BIGINT NOT NULL REFERENCES users(id),
+  sender_name TEXT NOT NULL,
+  sender_role TEXT NOT NULL,
+  body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 2000),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_support_msgs_thread ON support_messages(thread_id, id);
+CREATE INDEX IF NOT EXISTS idx_support_threads_last ON support_threads(status, last_message_at DESC);
+-- a supervisor works the support inbox only while the owner switches this on (default OFF)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_chat BOOLEAN NOT NULL DEFAULT FALSE;

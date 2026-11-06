@@ -9,6 +9,7 @@ import {
   T, Icon, Card, Btn, Header, Empty, Row, OrderPill, ApptPill, Pill, IconBubble, EmojiBubble, Sheet, Field, Logo,
   toast, confirmDialog, openWhats, callPhone, IconBtn, SectionTitle, AcctPill, FlagPill,
 } from '../components/ui';
+import { APP_VERSION } from '../lib/version';
 import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened } from '../lib/store';
 import { CommissionTrail } from '../components/Finance';
 import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel, isMakerTpl } from '../lib/format';
@@ -18,6 +19,7 @@ import { QuoteButtons, MakerOrderButtons, RequestPhoto, ErrandQuoteButton } from
 import { PushCard } from '../components/PushCard';
 import { OrderStaffTools } from '../components/StaffTools';
 import { LabDetail } from '../components/Lab';
+import { SupportChatCard } from '../components/SupportChat';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
@@ -57,7 +59,9 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
 
   const isStaff = me.role === 'admin' || me.role === 'supervisor';
   const staffOpen = me.role === 'admin' || (me.role === 'supervisor' && needsStaff(o)); // a supervisor acts only when the shop left the order stuck
-  const canChat = !!o.courierId && !dead && (isStaff || me.id === o.customerId || mine);
+  const isShopOwner = me.role === 'provider' && !!o.providerOwnerId && o.providerOwnerId === me.id;
+  // chat is open from the moment the order is sent: customer, shop, courier and staff share one thread
+  const canChat = !dead && (isStaff || me.id === o.customerId || mine || isShopOwner);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -132,12 +136,14 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Row icon="person" label="اسم العميل" value={o.customerName} />
           <Row icon="call" label="الهاتف" value={o.phone} />
+          {!!o.phone2 && me.role !== 'customer' && <Row icon="call" label="رقم آخر للعميل" value={o.phone2} />}
           {!!o.regionName && <Row icon="map" label="منطقة العميل" value={o.regionName} />}
           <Row icon="location" label="العنوان التفصيلي" value={o.address} />
           {!!o.notes && <Row icon="create" label="ملاحظات" value={o.notes} />}
           {me.role !== 'customer' || true ? (
             <View style={{ flexDirection: 'row', gap: 8 }}>
               {(me.role !== 'customer') && <Btn small variant="soft" icon="call" title="اتصال بالعميل" style={{ flex: 1 }} onPress={() => callPhone(o.phone)} />}
+              {(me.role !== 'customer' && !!o.phone2) && <Btn small variant="soft" icon="call" title="الرقم الآخر" style={{ flex: 1 }} onPress={() => callPhone(o.phone2 as string)} />}
               {(me.role === 'customer' && provider) && <Btn small variant="soft" icon="call" title="اتصال بالمتجر" style={{ flex: 1 }} onPress={() => callPhone(provider.phone)} />}
             </View>
           ) : null}
@@ -221,13 +227,8 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
               {o.status === 'arrived' && <Btn title="تم تسليم الطلب للعميل" icon="checkmark-done" variant="green" onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(o.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => act('deliver') })} />}
             </>
           )}
-          {canChat && <Btn title={me.role === 'customer' ? 'محادثة المندوب' : me.role === 'courier' ? 'محادثة العميل' : 'عرض المحادثة'} icon="chatbubbles" variant="dark" onPress={() => navigation.navigate('Chat', { orderId: o.id })} />}
-          {me.role === 'customer' && !o.courierId && !dead && o.status !== 'delivered' && (
-            <View style={{ flexDirection: 'row', gap: 8, backgroundColor: C.goldSoft, padding: 12, borderRadius: 14, alignItems: 'center' }}>
-              <Icon name="chatbubble-ellipses" size={18} color={C.goldDeep} />
-              <T size={12} color={C.goldDeep} style={{ flex: 1 }}>سيتم تفعيل الشات مع المندوب فور قبوله لطلبك.</T>
-            </View>
-          )}
+          {canChat && !isStaff && <OrderChatCard orderId={o.id} me={me} messages={db.messages} onOpen={() => navigation.navigate('Chat', { orderId: o.id })} />}
+          {canChat && isStaff && <Btn title="عرض المحادثة" icon="chatbubbles" variant="dark" onPress={() => navigation.navigate('Chat', { orderId: o.id })} />}
           {me.role === 'customer' && o.customerId === me.id && o.status === 'quoted' && (
             <Card style={{ gap: 10, borderWidth: 1.5, borderColor: C.gold, backgroundColor: C.goldSoft }}>
               <T w="black" size={15}>{isCustom ? 'المندوب حدد سعر طلبك' : 'المتجر حدد سعر طلبك'}: {money(o.total)}</T>
@@ -457,6 +458,38 @@ export function InvoiceScreen({ navigation, route }: any) {
 }
 
 /* ---------------- Chat ---------------- */
+/** A small live chat inside the order screen: the last messages, a box to write in, and a button for the full conversation. */
+function OrderChatCard({ orderId, me, messages, onOpen }: { orderId: string; me: any; messages: any[]; onOpen: () => void }) {
+  const [text, setText] = useState('');
+  const msgs = messages.filter((m) => m.orderId === orderId).sort((a, b) => a.createdAt - b.createdAt);
+  const last = msgs.slice(-3);
+  const send = () => { const t = text.trim(); if (!t) return; sendMessage(orderId, t, me); setText(''); };
+  return (
+    <Card style={{ gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Icon name="chatbubbles" size={18} color={C.dark3} />
+        <T w="black" size={14.5} style={{ flex: 1 }}>{me.role === 'customer' ? 'محادثة مع المتجر والمندوب' : me.role === 'provider' ? 'محادثة مع العميل' : 'محادثة العميل'}</T>
+        <Pressable onPress={onOpen}><T w="bold" size={12} color={C.green}>فتح المحادثة كاملة</T></Pressable>
+      </View>
+      {last.length === 0 && <T size={12} color={C.sub}>اكتب رسالتك وستصل فوراً.</T>}
+      {last.map((m) => (
+        <View key={m.id} style={{ alignSelf: m.senderId === me.id ? 'flex-start' : 'flex-end', maxWidth: '85%', backgroundColor: m.senderRole === 'system' ? 'rgba(0,33,26,0.06)' : m.senderId === me.id ? C.goldSoft : '#F3F4EE', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 }}>
+          {m.senderId !== me.id && m.senderRole !== 'system' && <T w="bold" size={10.5} color={C.goldDeep}>{m.senderName}</T>}
+          <T size={13}>{m.text}</T>
+        </View>
+      ))}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <TextInput
+          maxFontSizeMultiplier={1.1} value={text} onChangeText={setText} placeholder="اكتب رسالة..." placeholderTextColor="#9AA8A2"
+          onSubmitEditing={send} returnKeyType="send"
+          style={{ flex: 1, backgroundColor: '#F3F4EE', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, fontFamily: FONT.regular, fontSize: 13, textAlign: 'right' }}
+        />
+        <Pressable onPress={send} style={{ backgroundColor: C.green, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}><Icon name="send" size={16} color="#fff" /></Pressable>
+      </View>
+    </Card>
+  );
+}
+
 export function ChatScreen({ navigation, route }: any) {
   const { db } = useStore();
   const me = useMe()!;
@@ -465,9 +498,9 @@ export function ChatScreen({ navigation, route }: any) {
   const [text, setText] = useState('');
   if (!o) return <Empty title="غير موجود" />;
   const msgs = db.messages.filter((m) => m.orderId === o.id).sort((a, b) => b.createdAt - a.createdAt);
-  const other = me.role === 'courier' ? `${o.customerName} (العميل)` : me.role === 'customer' ? `${o.courierName || 'المندوب'} (المندوب)` : `${o.customerName} ↔ ${o.courierName || '—'}`;
+  const other = me.role === 'courier' || me.role === 'provider' ? `${o.customerName} (العميل)` : me.role === 'customer' ? `${o.providerName || 'المتجر'}${o.courierName ? ` • ${o.courierName}` : ''}` : `${o.customerName} ↔ ${o.courierName || o.providerName || '—'}`;
   const canWrite = me.role !== 'admin' && me.role !== 'supervisor' && !['delivered', 'cancelled', 'rejected'].includes(o.status);
-  const quick = me.role === 'courier' ? ['أنا في الطريق إليك', 'وصلت أمام العنوان', 'ممكن توضح العنوان أكتر؟'] : ['أنا في انتظارك', 'العنوان بجوار المسجد', 'من فضلك اتصل بي عند الوصول'];
+  const quick = me.role === 'provider' ? ['تم استلام طلبك', 'الطلب جاري تجهيزه', 'المنتج غير متوفر، نستبدله بغيره؟'] : me.role === 'courier' ? ['أنا في الطريق إليك', 'وصلت أمام العنوان', 'ممكن توضح العنوان أكتر؟'] : ['أنا في انتظارك', 'العنوان بجوار المسجد', 'من فضلك اتصل بي عند الوصول'];
 
   const send = (t = text) => {
     if (!t.trim()) return;
@@ -477,7 +510,7 @@ export function ChatScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#ECEFE8' }}>
-      <Header title={other} subtitle={`شات طلب #${o.number}`} onBack={() => navigation.goBack()} right={me.role !== 'admin' && me.role !== 'supervisor' ? <IconBtn icon="call" onPress={() => callPhone(me.role === 'courier' ? o.phone : db.users.find((u) => u.id === o.courierId)?.phone || '')} /> : undefined} />
+      <Header title={other} subtitle={`شات طلب #${o.number}`} onBack={() => navigation.goBack()} right={me.role !== 'admin' && me.role !== 'supervisor' ? <IconBtn icon="call" onPress={() => callPhone(me.role === 'courier' || me.role === 'provider' ? o.phone : (db.users.find((u) => u.id === o.courierId)?.phone || db.providers.find((p) => p.id === o.providerId)?.phone || ''))} /> : undefined} />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <FlatList
           inverted
@@ -548,7 +581,8 @@ export function SupportScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="الدعم الفني" subtitle="نحن هنا لمساعدتك على مدار الساعة" onBack={navigation?.canGoBack?.() && navigation.getState?.().routes?.length > 1 ? () => navigation.goBack() : undefined} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        {me && ['customer', 'provider', 'courier'].includes(me.role) && <SupportChatCard />}
         <Card style={{ alignItems: 'center', gap: 10, paddingVertical: 22 }}>
           <View style={{ width: 76, height: 76, borderRadius: 38, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="logo-whatsapp" size={44} color="#fff" />
@@ -591,6 +625,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
   const [name, setName] = useState(me.name);
   const [address, setAddress] = useState(me.address);
   const [regionId, setRegionId] = useState(me.regionId || '');
+  const [phone2, setPhone2] = useState(me.phone2 || '');
   const [o, setO] = useState('');
   const [n, setN] = useState('');
   const roleLabel = { customer: 'عميل', provider: 'مقدم خدمة', courier: 'مندوب توصيل', admin: 'مدير التطبيق', supervisor: 'مشرف' }[me.role];
@@ -624,7 +659,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
         {extra}
         <PushCard />
         <Card style={{ paddingVertical: 4 }}>
-          <Item icon="create" label="تعديل البيانات الشخصية" sub={me.address || 'أضف عنوانك'} onPress={() => { setName(me.name); setAddress(me.address); setRegionId(me.regionId || ''); setEdit(true); }} />
+          <Item icon="create" label="تعديل البيانات الشخصية" sub={me.address || 'أضف عنوانك'} onPress={() => { setName(me.name); setAddress(me.address); setRegionId(me.regionId || ''); setPhone2(me.phone2 || ''); setEdit(true); }} />
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Item icon="key" label="تغيير كلمة المرور" onPress={() => setPw(true)} />
           <View style={{ height: 1, backgroundColor: C.line }} />
@@ -634,7 +669,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
         </Card>
         <View style={{ alignItems: 'center', gap: 4, marginTop: 6 }}>
           <Logo width={120} />
-          <T size={11} color={C.sub} align="center">أطلب أبيس • الإصدار 1.0.0</T>
+          <T size={11} color={C.sub} align="center">أطلب أبيس • الإصدار {APP_VERSION}</T>
         </View>
       </ScrollView>
 
@@ -642,9 +677,10 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
         <Field label="الاسم" icon="person" value={name} onChangeText={setName} />
         {me.role === 'customer' && <RegionPicker value={regionId} onChange={setRegionId} label="اسم المنطقة" />}
         <Field label="العنوان التفصيلي" icon="location" value={address} onChangeText={setAddress} multiline />
+        {me.role === 'customer' && <Field label="رقم هاتف آخر (اختياري)" icon="call" value={phone2} onChangeText={setPhone2} keyboardType="phone-pad" placeholder="رقم احتياطي لو الأول مردش" />}
         <Btn title="حفظ" icon="checkmark" onPress={async () => {
           if (name.trim().length < 3) return toast('اكتب الاسم بالكامل', 'err');
-          const r = await updateProfile({ name: name.trim(), address: address.trim(), ...(me.role === 'customer' && regionId ? { regionId } : {}) });
+          const r = await updateProfile({ name: name.trim(), address: address.trim(), ...(me.role === 'customer' && regionId ? { regionId } : {}), ...(me.role === 'customer' ? { phone2: phone2.trim() || null } : {}) });
           if (!r.ok) return toast(r.error, 'err');
           setEdit(false);
           toast('تم حفظ البيانات');

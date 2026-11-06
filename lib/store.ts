@@ -6,7 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { phaseAt, allowedIn, renderMessage, type HoursPhase, type NextOpen } from './hours';
 import { AppState } from 'react-native';
 import {
-  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
+  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiUpdateNotice, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
@@ -107,6 +107,7 @@ const fromServer = (s: ServerUser, old?: User): User => ({
   id: s.id,
   name: s.name,
   phone: s.phone,
+  phone2: s.phone2 || '',
   pass: '', // password hashes never leave the server
   role: s.role as Role,
   address: s.address || '',
@@ -115,15 +116,16 @@ const fromServer = (s: ServerUser, old?: User): User => ({
   accountFlag: s.accountFlag || '',
   flagNote: s.flagNote || '',
   supRegions: s.supRegions,
+  supportChat: !!s.supportChat,
   createdAt: s.createdAt ? Date.parse(s.createdAt) || Date.now() : old?.createdAt ?? Date.now(),
 });
 
 function mirrorUser(s: ServerUser) {
   const old = state.db.users.find((u) => u.id === s.id);
   const next = fromServer(s, old);
-  const same = old && old.name === next.name && old.phone === next.phone && old.role === next.role
+  const same = old && old.name === next.name && old.phone === next.phone && (old.phone2 || '') === (next.phone2 || '') && old.role === next.role
     && old.address === next.address && old.status === next.status && (old.regionId ?? null) === (next.regionId ?? null)
-    && old.available === next.available && old.vehicle === next.vehicle && (old.accountFlag || '') === (next.accountFlag || '') && (old.flagNote || '') === (next.flagNote || '');
+    && old.available === next.available && old.vehicle === next.vehicle && (old.accountFlag || '') === (next.accountFlag || '') && (old.flagNote || '') === (next.flagNote || '') && !!old.supportChat === !!next.supportChat;
   if (same) return;
   mutate((db) => {
     db.users = old ? db.users.map((u) => (u.id === s.id ? next : u)) : [...db.users, next];
@@ -135,7 +137,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0]);
 
 let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
@@ -151,6 +153,7 @@ function applySettings(c: CentralSettings) {
     appIconV: c.appIconV || 0,
     catIconV: c.catIconV || {},
     apkUrl: c.apkUrl || '',
+    update: c.update || { version: '', message: '', required: false },
     welcomeLogoV: c.welcomeLogoV || 0,
     credits: c.credits || null,
     hours: c.hours,
@@ -529,6 +532,7 @@ export function logout() {
 export interface RegisterInput {
   name: string;
   phone: string;
+  phone2?: string;
   pass: string;
   role: Exclude<Role, 'admin'>;
   address: string;
@@ -541,6 +545,9 @@ export async function register(inp: RegisterInput): Promise<Result<{ user: User 
   const phone = normPhone(inp.phone);
   if (inp.name.trim().length < 3) return { ok: false, error: 'اكتب الاسم بالكامل' };
   if (!/^01[0-9]{9}$/.test(phone)) return { ok: false, error: 'رقم الهاتف غير صحيح (مثال: 01012345678)' };
+  const phone2 = normPhone(inp.phone2 || '');
+  if (phone2 && !/^01[0-9]{9}$/.test(phone2)) return { ok: false, error: 'رقم الهاتف الآخر غير صحيح' };
+  if (phone2 && phone2 === phone) return { ok: false, error: 'الرقم الآخر يجب أن يختلف عن رقمك الأساسي' };
   if (inp.pass.length < 8) return { ok: false, error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' };
   if (inp.role === 'customer' && !inp.regionId) return { ok: false, error: 'اختر منطقتك' };
   if (inp.role === 'provider' && (!inp.provider || inp.provider.name.trim().length < 2))
@@ -548,7 +555,7 @@ export async function register(inp: RegisterInput): Promise<Result<{ user: User 
   try {
     loginEpoch++;
     const { user: su } = await apiRegister({
-      name: inp.name.trim(), phone, password: inp.pass, address: inp.address.trim(), role: inp.role, regionId: inp.regionId, vehicle: inp.vehicle,
+      name: inp.name.trim(), phone, phone2: phone2 || undefined, password: inp.pass, address: inp.address.trim(), role: inp.role, regionId: inp.regionId, vehicle: inp.vehicle,
       provider: inp.role === 'provider' && inp.provider ? { ...inp.provider } : undefined,
     });
     mirrorUser(su);
@@ -573,7 +580,7 @@ export function updateUser(id: string, patch: Partial<User>) {
   });
 }
 
-export async function updateProfile(patch: { name?: string; address?: string; regionId?: string | null }): Promise<Result> {
+export async function updateProfile(patch: { name?: string; address?: string; regionId?: string | null; phone2?: string | null }): Promise<Result> {
   try {
     const { user } = await apiUpdateProfile(patch);
     mirrorUser(user);
@@ -645,7 +652,7 @@ export function cartDetails(db: DB, cart: CartLine[]) {
   return { groups: list, delivery, subtotal, total: subtotal + delivery };
 }
 
-export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string }): Promise<Result<{ invoiceId: string }>> {
+export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
@@ -667,7 +674,7 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
       db.users = db.users.map((u) => (u.id === me.id ? { ...u, address: r.address } : u));
     });
     saveCart([]);
-    return { ok: true, invoiceId: String(r.invoice.id) };
+    return { ok: true, invoiceId: String(r.invoice.id), orderIds: (r.orders as Order[]).map((x) => String(x.id)) };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   } finally {
@@ -1115,6 +1122,16 @@ export async function setCustomerFlag(userId: string, flag: string, note: string
 export async function updateSettings(patch: Partial<Settings>): Promise<Result> {
   try {
     const { settings } = await apiUpdateSettings(patch);
+    applySettings(settings);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+/** the owner announces a new app version (or withdraws the notice with clear) */
+export async function publishUpdateNotice(body: { version?: string; message?: string; required?: boolean; clear?: boolean }): Promise<Result> {
+  try {
+    const { settings } = await apiUpdateNotice(body);
     applySettings(settings);
     return { ok: true };
   } catch (e) {

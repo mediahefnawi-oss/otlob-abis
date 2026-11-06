@@ -83,3 +83,7 @@ export async function forgetPushSubscription() {
     if (sub) await apiPushUnsubscribe(sub.endpoint).catch(() => {});
   } catch {}
 }
+
+/* the phone app registers itself on start (push.native.ts); on the web the browser needs a tap */
+export async function autoEnablePush(): Promise<void> {}
+export async function openPushSettings(): Promise<void> {}

@@ -16,8 +16,10 @@ import {
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
 import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
-import { LoginImageManager, WelcomeScreenManager, AppIconManager, ServicesManager } from '../components/Finance';
+import { LoginImageManager, WelcomeScreenManager, AppIconManager, UpdateNoticeManager, ServicesManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
+import { SupportInbox, useSupportUnread } from '../components/SupportChat';
+import { apiSupervisorSupport } from '../lib/api';
 import { AdsManager } from '../components/Ads';
 import { HoursSettings } from '../components/HoursSettings';
 import { ReplicationCard } from '../components/Replication';
@@ -66,6 +68,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
   const rc = useRC();
   const { db } = useStore();
   const me = useMe()!;
+  const supUnread = useSupportUnread(true);
   const orders = db.orders;
   const delivered = orders.filter((o) => o.status === 'delivered');
   const active = orders.filter((o) => ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
@@ -102,6 +105,16 @@ export function AdminDashboardScreen({ navigation, go }: any) {
             <T w="bold" size={15}>إدارة العملاء</T>
             <T size={12} color={C.sub}>إيقاف الحسابات ووضع علامات (معتمد / مراقبة / احتيالي)</T>
           </View>
+          <Icon name="chevron-back" size={18} color={C.sub} />
+        </Card>
+
+        <Card onPress={() => navigation.navigate('AdminSupport')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <IconBubble icon="chatbubbles" color={C.goldDeep} bg={C.goldSoft} size={46} />
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={15}>شات الدعم</T>
+            <T size={12} color={C.sub}>رسائل العملاء ومقدمي الخدمة والمناديب والرد عليها</T>
+          </View>
+          {supUnread > 0 && <View style={{ minWidth: 24, height: 24, borderRadius: 12, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}><T w="black" size={11} color="#fff">{supUnread}</T></View>}
           <Icon name="chevron-back" size={18} color={C.sub} />
         </Card>
 
@@ -501,6 +514,7 @@ export function AdminSettingsScreen({ navigation }: any) {
       <Section icon="color-palette" title="الهوية" sub="الشاشة الأولى • البيانات • أيقونة التطبيق">
         <WelcomeScreenManager />
         <AppIconManager />
+        <UpdateNoticeManager />
       </Section>
       <Section icon="server" title="قاعدة البيانات" sub="إحصائيات المستخدمين والأنشطة والطلبات">
       <Card style={{ gap: 10 }}>
@@ -685,6 +699,10 @@ function RegionChecks({ value, onChange }: { value: string[]; onChange: (v: stri
   );
 }
 
+export function AdminSupportScreen({ navigation }: any) {
+  return <SupportInbox onBack={() => navigation.goBack()} />;
+}
+
 export function AdminSupervisorsScreen({ navigation }: any) {
   const rc = useRC();
   const { db } = useStore();
@@ -698,6 +716,13 @@ export function AdminSupervisorsScreen({ navigation }: any) {
   const [newPw, setNewPw] = useState('');
   const [busy, setBusy] = useState(false);
   const editing = editId ? list.find((u) => u.id === editId) : undefined;
+  const [supOn, setSupOn] = useState<Record<string, boolean>>({});
+  const chatOn = editing ? (editing.id in supOn ? supOn[editing.id] : !!editing.supportChat) : false;
+  const setChat = async (v: boolean) => {
+    if (!editing) return;
+    setSupOn((p) => ({ ...p, [editing.id]: v }));
+    try { await apiSupervisorSupport(editing.id, v); toast(v ? 'تم السماح بشات الدعم' : 'تم إلغاء شات الدعم عن المشرف'); } catch (e: any) { setSupOn((p) => ({ ...p, [editing.id]: !v })); toast(e?.message || 'تعذر الحفظ', 'err'); }
+  };
   const openNew = () => { setEditId(null); setName(''); setPhone(''); setPw(''); setRegions([]); setSheet(true); };
   const openEdit = (u: typeof list[number]) => { setEditId(u.id); setName(u.name); setRegions(u.supRegions || []); setNewPw(''); setSheet(true); };
   const regionNames = (ids?: string[]) => (ids || []).map((id) => db.regions.find((r) => r.id === id)?.name).filter(Boolean).join('، ');
@@ -752,6 +777,15 @@ export function AdminSupervisorsScreen({ navigation }: any) {
           <Field label="الاسم" icon="person" value={name} onChangeText={setName} />
           {!editing && <Field label="رقم الموبايل (للدخول)" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />}
           {!editing && <Field label="كلمة المرور (8 أحرف على الأقل)" icon="key" value={pw} onChangeText={setPw} secureTextEntry autoCapitalize="none" />}
+          {editing && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.goldSoft, borderRadius: 14, padding: 12 }}>
+              <View style={{ flex: 1 }}>
+                <T w="bold" size={13.5}>شات الدعم</T>
+                <T size={11.5} color={C.dark3}>{chatOn ? 'يرى رسائل الدعم ويرد عليها' : 'مغلق: لا يظهر له شات الدعم'}</T>
+              </View>
+              <Toggle value={chatOn} onValueChange={setChat} />
+            </View>
+          )}
           <RegionChecks value={regions} onChange={setRegions} />
           <Btn title="حفظ" icon="checkmark" loading={busy} disabled={name.trim().length < 3 || (!editing && (!/^01[0-9]{9}$/.test(phone.trim()) || pw.length < 8))} onPress={save} />
           {editing && (

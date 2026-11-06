@@ -82,7 +82,7 @@ export async function apiLogin(input: { phone?: string; password: string; userna
   return result;
 }
 
-export async function apiRegister(input: { name: string; phone: string; password: string; address?: string; role?: string; regionId?: string; vehicle?: string; provider?: Record<string, unknown> }) {
+export async function apiRegister(input: { name: string; phone: string; phone2?: string; password: string; address?: string; role?: string; regionId?: string; vehicle?: string; provider?: Record<string, unknown> }) {
   const result = await apiRequest<{ token: string; user: { id: string; name: string; phone: string; role: string; address: string; status: string } }>(
     '/api/auth/register', { method: 'POST', body: JSON.stringify(input) }, false,
   );
@@ -103,6 +103,7 @@ export type CentralSettings = {
   appIconV?: number;
   catIconV?: Record<string, number>;
   apkUrl?: string;
+  update?: { version: string; message: string; required: boolean };
   welcomeLogoV?: number;
   credits?: { a: string; b: string; c: string; d: string } | null;
   hours?: Hours;
@@ -115,6 +116,9 @@ export async function apiGetSettings() {
   return apiRequest<{ settings: CentralSettings }>('/api/settings', {}, false);
 }
 
+export async function apiUpdateNotice(body: { version?: string; message?: string; required?: boolean; clear?: boolean }) {
+  return apiRequest<{ settings: CentralSettings }>('/api/admin/update-notice', { method: 'PATCH', body: JSON.stringify(body) });
+}
 export async function apiUpdateSettings(patch: Partial<CentralSettings>) {
   return apiRequest<{ settings: CentralSettings }>('/api/admin/settings', {
     method: 'PATCH', body: JSON.stringify(patch),
@@ -186,12 +190,12 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { id: string; name: string; phone: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[] };
+export type ServerUser = { id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');
 }
-export async function apiUpdateProfile(patch: { name?: string; address?: string; regionId?: string | null; available?: boolean }) {
+export async function apiUpdateProfile(patch: { name?: string; address?: string; regionId?: string | null; available?: boolean; phone2?: string | null }) {
   return apiRequest<{ user: ServerUser }>('/api/me', { method: 'PATCH', body: JSON.stringify(patch) });
 }
 export async function apiChangePassword(oldPassword: string, newPassword: string) {
@@ -339,3 +343,15 @@ export async function apiPushSubscribeDevice(token: string) {
 export async function apiPushUnsubscribe(endpoint: string) {
   return apiRequest<{ ok: boolean }>('/api/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) });
 }
+
+/* ---------------- support chat ---------------- */
+export type SupportMsg = { id: string; threadId: string; senderId: string; senderName: string; senderRole: string; text: string; at: number };
+export type SupportThread = { id: string; userId: string; status: 'open' | 'closed'; lastMessage: string; lastAt: number; unread: number; userName: string; userPhone: string; userRole: string };
+export const apiSupportMine = (after = 0) => apiRequest<{ thread: { id: string; status: string } | null; messages: SupportMsg[] }>(`/api/support/mine?after=${after}`);
+export const apiSupportSend = (text: string) => apiRequest<{ message: SupportMsg }>('/api/support/mine/messages', { method: 'POST', body: JSON.stringify({ text }) });
+export const apiSupportUnread = () => apiRequest<{ unread: number }>('/api/support/unread');
+export const apiSupportThreads = (status: 'open' | 'closed') => apiRequest<{ threads: SupportThread[] }>(`/api/support/threads?status=${status}`);
+export const apiSupportThread = (id: string, after = 0) => apiRequest<{ thread: SupportThread; messages: SupportMsg[] }>(`/api/support/threads/${id}?after=${after}`);
+export const apiSupportReply = (id: string, text: string) => apiRequest<{ message: SupportMsg }>(`/api/support/threads/${id}/messages`, { method: 'POST', body: JSON.stringify({ text }) });
+export const apiSupportStatus = (id: string, status: 'open' | 'closed') => apiRequest<{ ok: boolean }>(`/api/support/threads/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
+export const apiSupervisorSupport = (id: string, enabled: boolean) => apiRequest<{ enabled: boolean }>(`/api/admin/supervisors/${id}/support`, { method: 'PATCH', body: JSON.stringify({ enabled }) });

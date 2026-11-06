@@ -484,7 +484,9 @@ export function CartScreen({ navigation }: any) {
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     toast('تم إرسال طلبك بنجاح ✅');
-    navigation.replace('Invoice', { id: r.invoiceId });
+    // one order: open it right away (status + chat with the shop); several shops: the invoice lists them all
+    if (r.orderIds.length === 1) navigation.replace('OrderDetail', { id: r.orderIds[0] });
+    else navigation.replace('Invoice', { id: r.invoiceId });
   };
 
   return (

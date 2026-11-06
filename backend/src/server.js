@@ -105,11 +105,19 @@ async function maintenanceState(role) {
   return { enabled: false, message: hours.renderMessage(h, next), phase };
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
+const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, phone2: row.phone2 || '', role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supportChat: row.role === 'supervisor' ? !!row.support_chat : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
 const positiveId = value => {
   const n = Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 };
+// an optional second number (no code confirmation); empty is fine, otherwise it must look like a mobile number and differ from the main one
+function backupPhone(v, mainPhone) {
+  const p = String(v || '').replace(/\s+/g, '');
+  if (!p) return { ok: true, phone: '' };
+  if (!/^01[0-9]{9}$/.test(p)) return { ok: false, error: 'رقم الهاتف الآخر غير صحيح' };
+  if (p === String(mainPhone || '').replace(/\s+/g, '')) return { ok: false, error: 'الرقم الآخر يجب أن يختلف عن رقمك الأساسي' };
+  return { ok: true, phone: p };
+}
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 function tokenFor(user) { return jwt.sign({ sub: String(user.id), role: user.role }, process.env.JWT_SECRET, { expiresIn: '12h', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' }); }
 async function authCore(req, res, next, allowInactive) {
@@ -163,7 +171,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261117;
+const SCHEMA_VERSION = 20261119;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -269,13 +277,15 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
 }));
 
 app.post('/api/auth/register', asyncRoute(async (req, res) => {
-  const { name, phone, password, address = '', role = 'customer', provider, regionId, vehicle } = req.body || {};
+  const { name, phone, phone2, password, address = '', role = 'customer', provider, regionId, vehicle } = req.body || {};
   await services.ensure(pool);
   const mt = await maintenanceState(role);
   if (!mt.enabled) return res.status(503).json({ error: mt.message });
   const normalizedPhone = String(phone || '').replace(/\s+/g, '');
   if (!name || String(name).trim().length < 3) return res.status(400).json({ error: 'اكتب الاسم بالكامل' });
   if (!/^01[0-9]{9}$/.test(normalizedPhone)) return res.status(400).json({ error: 'رقم الهاتف غير صحيح' });
+  const second = backupPhone(phone2, normalizedPhone);
+  if (!second.ok) return res.status(400).json({ error: second.error });
   if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' });
   if (!['customer','provider','courier'].includes(role)) return res.status(400).json({ error: 'نوع الحساب غير صالح' });
   if (role === 'provider' && (!provider || !String(provider.name || '').trim())) return res.status(400).json({ error: 'بيانات مقدم الخدمة مطلوبة' });
@@ -296,7 +306,7 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
     // a number that was deleted before always waits for the owner's approval (even a customer); a brand-new customer number is active at once
     const wasDeleted = await client.query('SAVEPOINT wd').then(() => client.query('SELECT 1 FROM users WHERE orig_phone=$1 AND deleted_at IS NOT NULL LIMIT 1', [normalizedPhone])).then(r => r.rowCount > 0, async () => { await client.query('ROLLBACK TO SAVEPOINT wd'); return false; });
     const status = role === 'customer' && !wasDeleted ? 'active' : 'pending';
-    const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status,region_id,vehicle) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status, region, role === 'courier' ? String(vehicle || 'موتوسيكل').slice(0, 30) : '']);
+    const result = await client.query('INSERT INTO users(name,phone,password_hash,role,address,status,region_id,vehicle,phone2) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *', [String(name).trim(), normalizedPhone, hash, role, String(address).trim(), status, region, role === 'courier' ? String(vehicle || 'موتوسيكل').slice(0, 30) : '', second.phone || null]);
     const user = result.rows[0];
     if (role === 'provider') {
       await client.query('INSERT INTO providers(owner_user_id,type,name,description,address,phone,delivery_fee,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,\'pending\',$8)', [user.id, services.isKnown(provider.type) ? provider.type : 'other', String(provider.name).trim(), String(provider.desc || ''), String(address).trim(), normalizedPhone, Math.max(0, Number(provider.deliveryFee) || 0), JSON.stringify({ specialty: provider.specialty || '' })]);
@@ -378,12 +388,19 @@ app.patch('/api/me', auth, asyncRoute(async (req, res) => {
       region = rid;
     }
   }
+  let phone2Set = false; let phone2 = null;
+  if ('phone2' in b) {
+    const cur = await pool.query('SELECT phone FROM users WHERE id=$1', [Number(req.auth.sub)]);
+    const second = backupPhone(b.phone2, cur.rows[0] && cur.rows[0].phone);
+    if (!second.ok) return res.status(400).json({ error: second.error });
+    phone2Set = true; phone2 = second.phone || null;
+  }
   const availSet = typeof b.available === 'boolean' && req.auth.role === 'courier';
   if (availSet && !b.available) {
     const open = await pool.query("SELECT 1 FROM orders WHERE courier_user_id=$1 AND status IN ('accepted','ready','picked_up','on_the_way','arrived') LIMIT 1", [Number(req.auth.sub)]);
     if (open.rowCount) return res.status(409).json({ error: 'أكمل طلباتك الحالية قبل إيقاف الاستقبال' });
   }
-  const r = await pool.query('UPDATE users SET name=COALESCE($1,name), address=COALESCE($2,address), region_id=CASE WHEN $3 THEN $4::bigint ELSE region_id END, available=CASE WHEN $6 THEN $7::boolean ELSE available END, available_since=CASE WHEN $6 AND $7::boolean AND NOT available THEN NOW() WHEN $6 AND NOT $7::boolean THEN NULL ELSE available_since END WHERE id=$5 RETURNING *', [name, address, regionSet, region, Number(req.auth.sub), availSet, availSet ? b.available : false]);
+  const r = await pool.query('UPDATE users SET name=COALESCE($1,name), address=COALESCE($2,address), region_id=CASE WHEN $3 THEN $4::bigint ELSE region_id END, available=CASE WHEN $6 THEN $7::boolean ELSE available END, available_since=CASE WHEN $6 AND $7::boolean AND NOT available THEN NOW() WHEN $6 AND NOT $7::boolean THEN NULL ELSE available_since END, phone2=CASE WHEN $8 THEN $9::varchar ELSE phone2 END WHERE id=$5 RETURNING *', [name, address, regionSet, region, Number(req.auth.sub), availSet, availSet ? b.available : false, phone2Set, phone2]);
   res.json({ user: cleanUser(r.rows[0]) });
 }));
 app.patch('/api/me/password', auth, asyncRoute(async (req, res) => {
@@ -705,7 +722,7 @@ async function loadSettingsBase() {
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 // the clock part is never cached: the app uses it to know when to open / close without asking again
 async function loadSettings() {
@@ -732,6 +749,20 @@ app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, re
     try { await pool.query(`UPDATE app_settings SET ${hcols.map((c, i) => `${c}=$${i + 1}`).join(',')}, updated_at=NOW() WHERE id=1`, hcols.map(c => hp.value[c])); }
     catch (e) { if (e.code === '42703') return res.status(503).json({ error: 'قاعدة البيانات لم تُحدَّث بعد' }); throw e; }
   }
+  settingsMemo.clear();
+  res.json({ settings: await loadSettings() });
+}));
+
+// The owner announces (or withdraws) a new app version; everyone below that version sees the update banner.
+app.patch('/api/admin/update-notice', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  const version = b.clear ? '' : String(b.version || '').trim();
+  if (version && !/^\d+(\.\d+){0,3}$/.test(version)) return res.status(400).json({ error: 'رقم النسخة بصيغة مثل 1.1.0' });
+  const message = b.clear ? '' : String(b.message || '').trim().slice(0, 300);
+  const required = b.clear ? false : b.required === true;
+  try {
+    await pool.query('UPDATE app_settings SET update_version=$1, update_message=$2, update_required=$3, updated_at=NOW() WHERE id=1', [version, message, required]);
+  } catch (e) { if (e.code === '42703') return res.status(503).json({ error: 'قاعدة البيانات لم تُحدَّث بعد' }); throw e; }
   settingsMemo.clear();
   res.json({ settings: await loadSettings() });
 }));
@@ -971,6 +1002,7 @@ app.delete('/api/products/:id/image', auth, roles('provider','admin'), asyncRout
 // Orders, invoices, bookings and chat live in orders.js
 require('./commissions')(app, { pool, auth, roles, asyncRoute, positiveId });
 services.register(app, { pool, auth, roles, asyncRoute });
+require('./support')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {
