@@ -114,6 +114,15 @@ export function AdminDashboardScreen({ navigation, go }: any) {
           <Icon name="chevron-back" size={18} color={C.sub} />
         </Card>
 
+        <Card onPress={() => navigation.navigate('AdminRatings')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <IconBubble icon="star" color={C.goldDeep} bg={C.goldSoft} size={46} />
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={15}>التقييمات</T>
+            <T size={12} color={C.sub}>تقييمات العملاء للمتاجر والمناديب، وإخفاء التعليقات المسيئة</T>
+          </View>
+          <Icon name="chevron-back" size={18} color={C.sub} />
+        </Card>
+
         <Card onPress={() => navigation.navigate('AdminOffers')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <IconBubble icon="pricetags" color={C.red} bg={C.redSoft} size={46} />
           <View style={{ flex: 1 }}>

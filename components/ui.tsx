@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { C, R, FONT, shadow } from '../lib/theme';
+import { sc, fs } from '../lib/scale';
 import { ORDER_STATUS, APPT_STATUS, ACCOUNT_STATUS, FLAGS } from '../lib/format';
 
 /* ---------- text ---------- */
@@ -22,7 +23,7 @@ export function T({
     <Text
       numberOfLines={numberOfLines}
       maxFontSizeMultiplier={1.1} // the phone's "large text" setting must not break the layout
-      style={[{ fontFamily: FONT[w], fontSize: size, color, textAlign: align || 'right', writingDirection: 'rtl' }, style]}
+      style={[{ fontFamily: FONT[w], fontSize: fs(size), color, textAlign: align || 'right', writingDirection: 'rtl' }, style]}
       {...rest}
     >
       {children}
@@ -31,7 +32,7 @@ export function T({
 }
 
 export const Icon = ({ name, size = 20, color = C.text, style }: { name: string; size?: number; color?: string; style?: StyleProp<TextStyle> }) => (
-  <Ionicons name={name as any} size={size} color={color} style={style} />
+  <Ionicons name={name as any} size={sc(size)} color={color} style={style} />
 );
 
 export const Logo = ({ width = 180 }: { width?: number }) => (
@@ -124,7 +125,7 @@ export function Btn({
       style={({ pressed }) => [
         {
           backgroundColor: v.bg, borderColor: v.bd, borderWidth: 1.5, borderRadius: R.md,
-          paddingVertical: small ? 8 : 14, paddingHorizontal: small ? 14 : 20, flexDirection: 'row',
+          paddingVertical: sc(small ? 8 : 14), paddingHorizontal: sc(small ? 14 : 20), flexDirection: 'row',
           alignItems: 'center', justifyContent: 'center', gap: 8, opacity: disabled ? 0.45 : pressed ? 0.85 : 1,
           transform: [{ scale: pressed ? 0.98 : 1 }],
         },
@@ -212,13 +213,13 @@ export const FlagPill = ({ flag }: { flag?: string }) => (flag && FLAGS[flag] ? 
 export const AcctPill = ({ s }: { s: string }) => <Pill label={ACCOUNT_STATUS[s].label} color={ACCOUNT_STATUS[s].color} soft={ACCOUNT_STATUS[s].soft} />;
 
 export const EmojiBubble = ({ emoji, size = 52, bg = C.goldSoft }: { emoji: string; size?: number; bg?: string }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 3, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
-    <Text style={{ fontSize: size * 0.5 }}>{emoji}</Text>
+  <View style={{ width: sc(size), height: sc(size), borderRadius: sc(size) / 3, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+    <Text style={{ fontSize: sc(size) * 0.5 }}>{emoji}</Text>
   </View>
 );
 
 export const IconBubble = ({ icon, color, bg, size = 44 }: { icon: string; color: string; bg: string; size?: number }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 3, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+  <View style={{ width: sc(size), height: sc(size), borderRadius: sc(size) / 3, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
     <Icon name={icon} size={size * 0.5} color={color} />
   </View>
 );
@@ -284,7 +285,7 @@ export function Field({ label, icon, ...p }: TextInputProps & { label?: string; 
           onBlur={() => setFocus(false)}
           {...p}
           style={[
-            { flex: 1, fontFamily: FONT.regular, fontSize: 14.5, color: C.text, paddingVertical: 12, textAlign: 'right', writingDirection: 'rtl' },
+            { flex: 1, fontFamily: FONT.regular, fontSize: fs(14.5), color: C.text, paddingVertical: 12, textAlign: 'right', writingDirection: 'rtl' },
             Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null,
             p.multiline && { minHeight: 90, textAlignVertical: 'top' },
             p.style,
@@ -305,7 +306,7 @@ export const SearchBar = ({ value, onChange, placeholder }: { value: string; onC
       placeholder={placeholder}
       placeholderTextColor="#8FA099"
       returnKeyType="search"
-      style={[{ flex: 1, fontFamily: FONT.regular, fontSize: 14, color: C.text, paddingVertical: 10, textAlign: 'right' }, Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null]}
+      style={[{ flex: 1, fontFamily: FONT.regular, fontSize: fs(14), color: C.text, paddingVertical: 10, textAlign: 'right' }, Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null]}
     />
     {!!value && (
       <Pressable onPress={() => onChange('')}><Icon name="close-circle" size={18} color={C.sub} /></Pressable>

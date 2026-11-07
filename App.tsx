@@ -21,6 +21,7 @@ import { InstallBanner } from './components/InstallBanner';
 import { navigationRef } from './lib/nav';
 import { SideNav } from './components/SideNav';
 import { useWide, useNav } from './lib/wide';
+import { setUiScale } from './lib/scale';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
@@ -35,6 +36,7 @@ import {
 import { AdminFinanceScreen } from './components/Finance';
 import { SupportInbox, useSupportUnread } from './components/SupportChat';
 import { AdminOffersScreen } from './components/Offers';
+import { AdminRatingsScreen } from './components/Ratings';
 import { CouriersMapScreen, useCourierTracking } from './components/Location';
 import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
@@ -155,6 +157,7 @@ function Root() {
         <Stack.Screen name="AdminSupport" component={AdminSupportScreen} />
         <Stack.Screen name="CouriersMap" component={CouriersMapScreen} />
         <Stack.Screen name="AdminOffers" component={AdminOffersScreen} />
+        <Stack.Screen name="AdminRatings" component={AdminRatingsScreen} />
       </>
     );
   }
@@ -175,6 +178,7 @@ export default function App() {
   });
   const { ready } = useStore();
   const wide = useWide();
+  setUiScale(wide); // text/icons/buttons a little smaller (see lib/scale.ts)
   const navState = useNav();
   const side = wide && !!navState; // computer view with a signed-in user: side menu + wider content
 
@@ -210,7 +214,7 @@ export default function App() {
           <UpdateBanner />
           <InstallBanner />
           <OrderAlarmBar />
-          <View style={{ flex: 1 }}><ErrorBoundary><Root /></ErrorBoundary></View>
+          <View style={{ flex: 1 }}><ErrorBoundary><Root key={wide ? 'wide' : 'narrow'} /></ErrorBoundary></View>
           <Overlays />
         </View>
         </View>

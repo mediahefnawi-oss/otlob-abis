@@ -511,3 +511,20 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_factor NUMERIC(4,2) NOT NU
 -- map_required: a delivery pin is needed to confirm an order (only when maps are on).
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS map_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS map_required BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Customer ratings: one per delivered order (the shop, and the courier if there was one). The owner can hide a comment.
+CREATE TABLE IF NOT EXISTS ratings (
+  id BIGSERIAL PRIMARY KEY,
+  order_id BIGINT NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+  customer_user_id BIGINT NOT NULL REFERENCES users(id),
+  provider_id BIGINT REFERENCES providers(id),
+  courier_user_id BIGINT REFERENCES users(id),
+  provider_stars SMALLINT CHECK (provider_stars BETWEEN 1 AND 5),
+  courier_stars SMALLINT CHECK (courier_stars BETWEEN 1 AND 5),
+  comment TEXT CHECK (comment IS NULL OR char_length(comment) <= 500),
+  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ratings_provider ON ratings(provider_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ratings_courier ON ratings(courier_user_id);

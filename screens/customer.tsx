@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DeliveryPin } from '../components/Location';
 import { OfferBadge } from '../components/Offers';
+import { ShopRatingsSheet } from '../components/Ratings';
 import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -338,6 +339,7 @@ export function ProviderScreen({ navigation, route }: any) {
   const meUser = useMe();
   const p = db.providers.find((x) => x.id === route.params.id);
   const [cat, setCat] = useState('الكل');
+  const [rateOpen, setRateOpen] = useState(false);
   const insets = useSafeAreaInsets();
   // a medical lab has no menu: the customer goes straight to the request form
   useEffect(() => { if (p && isLab(p.type)) navigation.replace('LabRequest', { id: p.id }); }, [p?.id]);
@@ -363,7 +365,7 @@ export function ProviderScreen({ navigation, route }: any) {
           <View style={{ flex: 1, gap: 4 }}>
             <T size={12.5} color="#C9D8D2" numberOfLines={2}>{p.desc}</T>
             <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
-              <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}</T></View>
+              <Pressable onPress={() => setRateOpen(true)} hitSlop={8} style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}{p.ratingCount ? ` (${p.ratingCount})` : ''}</T></Pressable>
               {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
               {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {feeFor(p)} ج.م</T></View>}
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{[p.regionName ? (mineArea ? 'في منطقتك' : `منطقة ${p.regionName}`) : '', p.address].filter(Boolean).join(' — ') || 'أبيس'}</T></View>
@@ -371,6 +373,7 @@ export function ProviderScreen({ navigation, route }: any) {
           </View>
         </View>
       </Header>
+      <ShopRatingsSheet providerId={p.id} name={p.name} visible={rateOpen} onClose={() => setRateOpen(false)} />
       {closed && (
         <View style={{ backgroundColor: C.redSoft, margin: 16, marginBottom: 0, padding: 12, borderRadius: 14, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <Icon name="moon" size={18} color={C.red} />

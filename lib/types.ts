@@ -63,6 +63,7 @@ export interface Provider {
   phone: string;
   emoji: string;
   rating: number;
+  ratingCount?: number; // how many customers rated this place
   eta: string;
   deliveryFee: number;
   status: AccountStatus;

@@ -172,7 +172,8 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
 const offersLib = require('./offers');
-const SCHEMA_VERSION = 20261125;
+const ratingsLib = require('./ratings');
+const SCHEMA_VERSION = 20261126;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -796,7 +797,8 @@ async function listProviders(viewer, type) {
   if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
   sql += ' ORDER BY p.created_at DESC LIMIT 500';
   const hide = !viewer || viewer.role === 'customer'; // a maker's address is for couriers and staff only; customers see the area
-  const rows = (await pool.query(sql, values)).rows.map(providerJson);
+  const stats = await ratingsLib.providerStats(pool);
+  const rows = (await pool.query(sql, values)).rows.map(providerJson).map(p => ratingsLib.withStats(p, stats));
   // a stopped service disappears for customers and couriers (the owner and the provider still see it)
   const visible = viewer && (viewer.role === 'admin' || viewer.role === 'provider') ? rows : rows.filter(p => services.isActive(p.type));
   return visible.map(p => (hide && services.tplOf(p.type) === 'maker' ? { ...p, address: '' } : p));
@@ -1027,6 +1029,7 @@ require('./mapmode').registerMapModeRoutes(app, { pool, auth, roles, asyncRoute,
 require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
+ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./support')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 

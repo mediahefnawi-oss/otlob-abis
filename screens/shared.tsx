@@ -21,6 +21,7 @@ import { OrderStaffTools } from '../components/StaffTools';
 import { LabDetail } from '../components/Lab';
 import { SupportChatCard } from '../components/SupportChat';
 import { OrderMapCard, MyLocationCard } from '../components/Location';
+import { RateOrderCard } from '../components/Ratings';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
@@ -127,6 +128,8 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             {me.role !== 'courier' && !!(courier?.phone || o.courierPhone) && <IconBtn icon="call" bg={C.greenSoft} color={C.green} onPress={() => callPhone((courier?.phone || o.courierPhone)!)} />}
           </Card>
         )}
+
+        <RateOrderCard o={o} />
 
         {me.role === 'admin' && o.status === 'delivered' && <CommissionTrail orderId={o.id} />}
 

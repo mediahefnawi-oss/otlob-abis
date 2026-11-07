@@ -381,3 +381,13 @@ export const apiOfferActive = (id: string, active: boolean) => apiRequest<{ offe
 export const apiOfferDelete = (id: string) => apiRequest<{ offers: AdminOffer[] }>(`/api/admin/offers/${id}`, { method: 'DELETE' });
 export const apiSetDeliveryMode = (b: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }) => apiRequest<{ ok: boolean }>('/api/admin/delivery-mode', { method: 'PATCH', body: JSON.stringify(b) });
 export const apiSetMapMode = (b: { enabled: boolean; required: boolean }) => apiRequest<{ ok: boolean }>('/api/admin/map-mode', { method: 'PATCH', body: JSON.stringify(b) });
+
+/* ---------------- ratings ---------------- */
+export type MyRating = { id: string; orderId: string; providerStars: number | null; courierStars: number | null; comment: string; createdAt: number; canEdit: boolean };
+export type ShopRatings = { count: number; avg: number; dist: Record<string, number>; comments: { stars: number; comment: string; who: string; at: number }[] };
+export type StaffRating = MyRating & { orderNumber: number; providerName: string; customerName: string; courierName: string; hidden: boolean };
+export const apiMyRating = (orderId: string) => apiRequest<{ rating: MyRating | null }>(`/api/orders/${encodeURIComponent(orderId)}/rating`);
+export const apiRateOrder = (orderId: string, b: { providerStars: number; courierStars?: number; comment?: string }) => apiRequest<{ rating: MyRating }>(`/api/orders/${encodeURIComponent(orderId)}/rating`, { method: 'POST', body: JSON.stringify(b) });
+export const apiShopRatings = (providerId: string) => apiRequest<ShopRatings>(`/api/providers/${encodeURIComponent(providerId)}/ratings`);
+export const apiStaffRatings = () => apiRequest<{ ratings: StaffRating[]; couriers: Record<string, { avg: number; count: number }> }>('/api/staff/ratings');
+export const apiHideRating = (id: string, hidden: boolean) => apiRequest<{ id: string; hidden: boolean }>(`/api/admin/ratings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ hidden }) });
