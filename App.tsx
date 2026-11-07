@@ -16,6 +16,7 @@ import { SoundGate } from './components/SoundGate';
 import { SyncBanner } from './components/SyncBanner';
 import { OrderAlarmBar } from './components/OrderAlarmBar';
 import { UpdateBanner } from './components/UpdateBanner';
+import { InstallBanner } from './components/InstallBanner';
 import { navigationRef } from './lib/nav';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
@@ -193,6 +194,7 @@ export default function App() {
           <SoundGate />
           <SyncBanner />
           <UpdateBanner />
+          <InstallBanner />
           <OrderAlarmBar />
           <View style={{ flex: 1 }}><ErrorBoundary><Root /></ErrorBoundary></View>
           <Overlays />
