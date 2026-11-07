@@ -31,6 +31,8 @@ import {
 } from './screens/admin';
 import { AdminFinanceScreen } from './components/Finance';
 import { SupportInbox, useSupportUnread } from './components/SupportChat';
+import { AdminOffersScreen } from './components/Offers';
+import { CouriersMapScreen, useCourierTracking } from './components/Location';
 import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 
@@ -50,6 +52,7 @@ const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background
 function Main({ navigation }: any) {
   const me = useMe()!;
   const { db } = useStore();
+  useCourierTracking(me.role === 'courier', !!me.available || db.orders.some((o) => o.courierId === me.id && ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)));
   const supUnread = useSupportUnread(me.role !== 'admin' && (me.role !== 'supervisor' || !!me.supportChat));
 
   let tabs: TabDef[] = [];
@@ -147,13 +150,15 @@ function Root() {
         <Stack.Screen name="AdminCustomer" component={AdminCustomerScreen} />
         <Stack.Screen name="AdminSupervisors" component={AdminSupervisorsScreen} />
         <Stack.Screen name="AdminSupport" component={AdminSupportScreen} />
+        <Stack.Screen name="CouriersMap" component={CouriersMapScreen} />
+        <Stack.Screen name="AdminOffers" component={AdminOffersScreen} />
       </>
     );
   }
 
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme} direction="rtl">
-      <Stack.Navigator key={`${me?.id || 'guest'}-${!gate.blocked}-${me?.status}`} screenOptions={{ headerShown: false, animation: 'slide_from_left', contentStyle: { backgroundColor: C.bg } }}>
+      <Stack.Navigator key={`${me?.id || 'guest'}-${!gate.blocked}-${me?.status}-${db.settings.theme || 'default'}`} screenOptions={{ headerShown: false, animation: 'slide_from_left', contentStyle: { backgroundColor: C.bg } }}>
         {screens}
       </Stack.Navigator>
     </NavigationContainer>

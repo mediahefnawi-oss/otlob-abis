@@ -153,7 +153,7 @@ export function Header({
 }: { title: string; subtitle?: string; onBack?: () => void; right?: ReactNode; children?: ReactNode }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+    <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: C.dark }]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         {onBack && <IconBtn icon="arrow-forward" onPress={onBack} />}
         <View style={{ flex: 1 }}>

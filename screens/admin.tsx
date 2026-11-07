@@ -19,6 +19,8 @@ import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/
 import { LoginImageManager, WelcomeScreenManager, AppIconManager, UpdateNoticeManager, ServicesManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { SupportInbox, useSupportUnread } from '../components/SupportChat';
+import { ThemePicker } from '../components/ThemePicker';
+import { DeliveryModeCard } from '../components/DeliveryMode';
 import { apiSupervisorSupport } from '../lib/api';
 import { AdsManager } from '../components/Ads';
 import { HoursSettings } from '../components/HoursSettings';
@@ -98,12 +100,32 @@ export function AdminDashboardScreen({ navigation, go }: any) {
       <Header title="لوحة الإدارة" subtitle={`مرحباً ${me.name}`} />
       <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }}>
         <AppSwitch />
+        <ThemePicker />
+        <DeliveryModeCard />
 
         <Card onPress={() => navigation.navigate('AdminCustomers')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <IconBubble icon="people" color={C.goldDeep} bg={C.goldSoft} size={46} />
           <View style={{ flex: 1 }}>
             <T w="bold" size={15}>إدارة العملاء</T>
             <T size={12} color={C.sub}>إيقاف الحسابات ووضع علامات (معتمد / مراقبة / احتيالي)</T>
+          </View>
+          <Icon name="chevron-back" size={18} color={C.sub} />
+        </Card>
+
+        <Card onPress={() => navigation.navigate('AdminOffers')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <IconBubble icon="pricetags" color={C.red} bg={C.redSoft} size={46} />
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={15}>العروض والخصومات</T>
+            <T size={12} color={C.sub}>أنشئ عرضاً بنسبة خصم ولون ومدة، ويظهر عند العملاء</T>
+          </View>
+          <Icon name="chevron-back" size={18} color={C.sub} />
+        </Card>
+
+        <Card onPress={() => navigation.navigate('CouriersMap')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <IconBubble icon="map" color={C.orange} bg={C.orangeSoft} size={46} />
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={15}>المناديب على الخريطة</T>
+            <T size={12} color={C.sub}>مواقع المناديب المتاحين ومن معهم طلبات لحظة بلحظة</T>
           </View>
           <Icon name="chevron-back" size={18} color={C.sub} />
         </Card>

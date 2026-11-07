@@ -26,6 +26,8 @@ export interface User {
   availableSince?: number;
   // delivery area: the customer's area, or the courier's current area
   regionId?: string | null;
+  homeLat?: number; // the customer's saved spot
+  homeLng?: number;
   // owner's label on a customer account (only the owner's app receives these)
   accountFlag?: string;
   flagNote?: string;
@@ -71,6 +73,8 @@ export interface Provider {
   regionName?: string; // the customer's area
   providerRegionName?: string; // the shop's area (courier: from area X to area Y)
   featured?: boolean; // the owner put it in the customers' "الأعلى تقييماً" row
+  lat?: number; // the shop's spot on the map
+  lng?: number;
   createdAt: number;
 }
 
@@ -86,6 +90,8 @@ export interface Product {
   available: boolean;
   slots?: string[];
   imageV?: number; // 0 / missing = no picture
+  oldPrice?: number; // normal price while an offer lowers `price` (customers only)
+  offer?: { id: string; title: string; percent: number; color: string; endsAt: number | null };
 }
 
 export type OrderStatus =
@@ -244,6 +250,8 @@ export interface Settings {
   welcomeLogoV?: number; // 0 / missing = the built-in logo on the first screen
   credits?: Credits | null; // the developer lines at the bottom of the first screen (null = the defaults)
   hours?: Hours; // opening hours (Cairo time); outside them customers see the closed screen
+  delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }; // delivery price by area or by kilometre
+  theme?: string; // colour theme picked by the owner
   tzOffsetMin?: number; // Cairo's offset from UTC when the settings were fetched (120 or 180)
 }
 export interface Credits { a: string; b: string; c: string; d: string }

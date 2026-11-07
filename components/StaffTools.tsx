@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Pressable, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Icon, Btn, Sheet, Empty, toast } from './ui';
+import { T, Icon, Btn, Sheet, Empty, toast, confirmDialog } from './ui';
 import { useStore, useMe, assignCourier, transferOrder, listStaffCouriers, StaffCourier } from '../lib/store';
 import { TYPES, needsStaff, acceptsRequests } from '../lib/format';
 import { Order } from '../lib/types';
@@ -20,20 +20,33 @@ export function OrderStaffTools({ o }: { o: Order }) {
   const byShop = o.status === 'cancelled' && o.cancelledBy === 'provider';
   const movable = o.providerType !== 'custom' && (!!o.request || o.items.length > 0);
   const canTransfer = open && movable && (['pending', 'rejected'].includes(o.status) || byShop);
-  if (!canAssign && !canTransfer) return null;
+  // a problem with the courier who carries the order (vehicle, accident, phone...): the owner or the area's supervisor hands it to another courier, even after pickup
+  const canBreakdown = !!o.courierId && ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status);
+  const [breakdown, setBreakdown] = useState(false);
+  const showBreakdown = canBreakdown && ['picked_up', 'on_the_way', 'arrived'].includes(o.status);
+  if (!canAssign && !canTransfer && !showBreakdown) return null;
 
-  const openCouriers = async () => {
+  const openCouriers = async (asBreakdown = false) => {
+    setBreakdown(asBreakdown);
     setSheet('courier');
     setCouriers(null);
     setCouriers(await listStaffCouriers());
   };
-  const pickCourier = async (c: StaffCourier) => {
+  const doAssign = async (c: StaffCourier) => {
     setBusy(c.id);
-    const r = await assignCourier(o.id, c.id);
+    const r = await assignCourier(o.id, c.id, breakdown);
     setBusy('');
     if (!r.ok) return toast(r.error, 'err');
     setSheet('');
-    toast(`تم تعيين ${c.name} لهذا الطلب`);
+    toast(breakdown ? `تم تحويل الطلب إلى ${c.name}` : `تم تعيين ${c.name} لهذا الطلب`);
+  };
+  const pickCourier = (c: StaffCourier) => {
+    if (!breakdown) return doAssign(c);
+    confirmDialog({
+      title: 'تحويل الطلب لمندوب آخر؟',
+      message: `${c.name} هيستلم الطلب من المندوب الحالي ويكمل التوصيل. المندوب الحالي والعميل والمتجر هيتم إخطارهم.`,
+      confirmText: 'تحويل', danger: true, onConfirm: () => { doAssign(c); },
+    });
   };
   const shops = db.providers
     .filter((p) => p.status === 'active' && p.id !== o.providerId && (o.request ? acceptsRequests(p.type) : p.type === o.providerType))
@@ -58,9 +71,10 @@ export function OrderStaffTools({ o }: { o: Order }) {
   );
   return (
     <View style={{ gap: 10 }}>
-      {canAssign && <Btn variant="dark" icon="bicycle" title={o.courierId ? 'تغيير المندوب' : 'تعيين مندوب لهذا الطلب'} onPress={openCouriers} />}
+      {canAssign && <Btn variant="dark" icon="bicycle" title={o.courierId ? 'تغيير المندوب' : 'تعيين مندوب لهذا الطلب'} onPress={() => openCouriers(false)} />}
+      {showBreakdown && <Btn variant="danger" icon="warning" title="عطل عند المندوب: حوّل الطلب لمندوب آخر" onPress={() => openCouriers(true)} />}
       {canTransfer && <Btn variant="outline" icon="swap-horizontal" title={o.status === 'rejected' ? 'رفضه المتجر: تحويل الطلب لمتجر آخر' : byShop ? 'ألغاه المتجر: تحويل الطلب لمتجر آخر' : 'تحويل الطلب لمتجر آخر'} onPress={() => setSheet('transfer')} />}
-      <Sheet visible={sheet === 'courier'} onClose={() => setSheet('')} title="اختر المندوب">
+      <Sheet visible={sheet === 'courier'} onClose={() => setSheet('')} title={breakdown ? 'اختر المندوب البديل' : 'اختر المندوب'}>
         <ScrollView style={{ maxHeight: 380 }}>
           {couriers === null ? <T size={13} color={C.sub}>جاري التحميل...</T> : couriers.length === 0 ? <Empty icon="bicycle" title="لا يوجد مناديب مفعّلون" /> : couriers.map((c) => (
             <Row key={c.id} title={c.name} on={c.available} loading={busy === c.id}

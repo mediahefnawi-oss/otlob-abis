@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { MyLocationCard } from '../components/Location';
+import { OfferBadge } from '../components/Offers';
 import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +15,7 @@ import { AreaTag } from '../components/Cards';
 import { ProviderLogo } from '../components/Brand';
 import { ProductPhoto } from '../components/Quote';
 import {
-  useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, deliveryOpen, feeFor } from '../lib/store';
+  useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, deliveryOpen, feeFor, kmInfoFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
@@ -438,7 +440,11 @@ export function ProviderScreen({ navigation, route }: any) {
                 <View style={{ flex: 1, gap: 2 }}>
                   <T w="bold" size={14.5}>{item.name}</T>
                   {!!item.desc && <T size={11.5} color={C.sub} numberOfLines={1}>{item.desc}</T>}
-                  <T w="black" size={14} color={C.goldDeep}>{money(item.price)}</T>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <T w="black" size={14} color={item.oldPrice ? C.red : C.goldDeep}>{money(item.price)}</T>
+                    {!!item.oldPrice && <T size={12} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{money(item.oldPrice)}</T>}
+                  </View>
+                  <OfferBadge p={item} />
                 </View>
                 {item.available && !blocked ? (
                   <Stepper qty={qty(item.id)} onAdd={() => cartAdd(item.id, 1)} onSub={() => cartAdd(item.id, -1)} />
@@ -519,7 +525,7 @@ export function CartScreen({ navigation }: any) {
                   ))}
                   <View style={{ height: 1, backgroundColor: C.line }} />
                   <View style={{ flexDirection: 'row' }}><T color={C.sub} size={13} style={{ flex: 1 }}>المجموع</T><T w="bold" size={13}>{money(g.subtotal)}</T></View>
-                  <View style={{ flexDirection: 'row' }}><T color={C.sub} size={13} style={{ flex: 1 }}>التوصيل</T><T w="bold" size={13}>{money(g.provider.deliveryFee)}</T></View>
+                  <View style={{ flexDirection: 'row' }}><T color={C.sub} size={13} style={{ flex: 1 }}>التوصيل{kmInfoFor(g.provider) ? ` (${kmInfoFor(g.provider)!.km} كم)` : ''}</T><T w="bold" size={13}>{money(g.provider.deliveryFee)}</T></View>
                 </Card>
               </Appear>
             ))}
@@ -529,6 +535,7 @@ export function CartScreen({ navigation }: any) {
               <Field label="اسم العميل" icon="person" value={name} onChangeText={setName} />
               <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
               <Field label="العنوان بالتفصيل" icon="location" value={address} onChangeText={setAddress} multiline />
+              <MyLocationCard kind="customer" />
               <Field label="ملاحظات (اختياري)" icon="create" value={notes} onChangeText={setNotes} placeholder="مثال: الدور الثالث، الجرس لا يعمل" />
             </Card>
 

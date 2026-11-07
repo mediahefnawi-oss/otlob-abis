@@ -6,7 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { phaseAt, allowedIn, renderMessage, type HoursPhase, type NextOpen } from './hours';
 import { AppState } from 'react-native';
 import {
-  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiUpdateNotice, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
+  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiUpdateNotice, apiSetTheme, apiSetDeliveryMode, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
@@ -18,6 +18,8 @@ import {
   Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region, Ad, ServiceDef,
 } from './types';
 import { buildSeed } from './seed';
+import { applyTheme } from './theme';
+import { kmFee } from './geo';
 import { apiJson } from './finance';
 import { hash, normPhone, isBooking, applyServices } from './format';
 
@@ -113,6 +115,7 @@ const fromServer = (s: ServerUser, old?: User): User => ({
   address: s.address || '',
   status: s.status as AccountStatus,
   regionId: s.regionId ?? null,
+  homeLat: s.homeLat, homeLng: s.homeLng,
   accountFlag: s.accountFlag || '',
   flagNote: s.flagNote || '',
   supRegions: s.supRegions,
@@ -137,7 +140,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null]);
 
 let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
@@ -158,8 +161,11 @@ function applySettings(c: CentralSettings) {
     credits: c.credits || null,
     hours: c.hours,
     tzOffsetMin: c.tzOffsetMin,
+    theme: c.theme || 'default',
+    delivery: c.delivery,
   };
   if (settingsKey(next) === settingsKey(state.db.settings)) return;
+  applyTheme(next.theme); // the palette changes before the screens re-render
   mutate((db) => {
     db.settings = next;
   });
@@ -211,13 +217,23 @@ function routePriceFor(p: Provider): number | undefined {
 /** Can this shop deliver to the signed-in customer? Only on a route the owner priced (a customer with no area keeps the shop's own price). */
 export function deliveryOpen(p: Provider): boolean {
   if (isBooking(p.type)) return true;
+  if (kmInfoFor(p)) return true; // priced by distance: no area route needed
   const me = state.db.users.find((u) => u.id === state.userId);
   if (!me || me.role !== 'customer' || !me.regionId) return true;
   return routePriceFor(p) !== undefined;
 }
 /** Delivery price for the signed-in customer: the owner's price for the route from the shop's area to the customer's area. */
+/** The owner's "by kilometre" price for this shop and the signed-in customer (null = switch off or a spot is missing, so the area price applies). */
+export function kmInfoFor(p: Provider): { fee: number; km: number } | null {
+  if (isBooking(p.type)) return null;
+  const me = state.db.users.find((u) => u.id === state.userId);
+  if (!me || me.role !== 'customer') return null;
+  return kmFee(state.db.settings.delivery, p, { lat: me.homeLat, lng: me.homeLng });
+}
 export function feeFor(p: Provider): number {
   if (isBooking(p.type)) return 0;
+  const k = kmInfoFor(p);
+  if (k) return k.fee;
   const route = routePriceFor(p);
   return route !== undefined ? route : p.deliveryFee;
 }
@@ -234,12 +250,13 @@ const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0,
   eta: x.eta ?? (isBooking(x.type) ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
-  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, createdAt: Number(x.createdAt) || Date.now(),
+  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
 });
 const toProduct = (x: any): Product => ({
   id: String(x.id), providerId: String(x.providerId), kind: x.kind === 'doctor' ? 'doctor' : 'item', name: x.name,
   price: Number(x.price) || 0, emoji: x.emoji || (x.kind === 'doctor' ? '👨‍⚕️' : '📦'), category: x.category || 'عام',
   desc: x.desc || '', available: !!x.available, slots: Array.isArray(x.slots) ? x.slots : undefined, imageV: Number(x.imageV) || 0,
+  oldPrice: x.oldPrice ? Number(x.oldPrice) : undefined, offer: x.offer && x.offer.percent ? x.offer : undefined,
 });
 
 /** Removes the built-in demo data (sample shops, users, orders). Only central (numeric-id) records survive. */
@@ -744,9 +761,9 @@ export async function listStaffCouriers(): Promise<StaffCourier[]> {
   try { return (await apiJson<{ couriers: StaffCourier[] }>('/api/staff/couriers')).couriers; } catch { return []; }
 }
 /** Owner / supervisor: link an order to a chosen courier (the order must be accepted and not yet picked up). */
-export async function assignCourier(orderId: string, courierId: string): Promise<Result> {
+export async function assignCourier(orderId: string, courierId: string, breakdown = false): Promise<Result> {
   try {
-    const r = await apiJson<{ order: Order }>(`/api/orders/${encodeURIComponent(orderId)}/assign`, 'POST', { courierId });
+    const r = await apiJson<{ order: Order }>(`/api/orders/${encodeURIComponent(orderId)}/assign`, 'POST', breakdown ? { courierId, breakdown: true } : { courierId });
     mutate((db) => { db.orders = upsertById(db.orders, [r.order]); });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
@@ -1118,6 +1135,33 @@ export async function setCustomerFlag(userId: string, flag: string, note: string
   });
   return { ok: true };
 }
+/** Owner-only: delivery price by area (as before) or by kilometre. */
+export async function setDeliveryMode(b: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }): Promise<Result> {
+  try {
+    await apiSetDeliveryMode(b);
+    const { settings } = await apiGetSettings();
+    applySettings(settings);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+/** The customer saved (or removed) his spot: the delivery price by distance follows at once. */
+export function setMyHome(p: { lat: number; lng: number } | null) {
+  mutate((db) => { const u = db.users.find((x) => x.id === state.userId); if (u) { u.homeLat = p ? p.lat : undefined; u.homeLng = p ? p.lng : undefined; } });
+}
+
+/** Owner-only: the colour theme of the whole app. */
+export async function setTheme(id: string): Promise<Result> {
+  try {
+    const { settings } = await apiSetTheme(id);
+    applySettings(settings);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+
 /** Owner-only. Saved on the server first, so every user sees the change on their next sync. */
 export async function updateSettings(patch: Partial<Settings>): Promise<Result> {
   try {

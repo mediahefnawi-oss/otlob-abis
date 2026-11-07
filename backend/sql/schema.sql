@@ -469,3 +469,40 @@ CREATE INDEX IF NOT EXISTS idx_support_threads_last ON support_threads(status, l
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_chat BOOLEAN NOT NULL DEFAULT FALSE;
 -- the GitHub release the update notice was last taken from (the server announces new app versions by itself)
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS update_release_tag TEXT NOT NULL DEFAULT '';
+
+-- Live tracking: the customer's saved spot, the shop's spot, and the courier's last known position.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat DOUBLE PRECISION;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lng DOUBLE PRECISION;
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;
+CREATE TABLE IF NOT EXISTS courier_locations (
+  courier_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  accuracy REAL,
+  heading REAL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- colour theme chosen by the owner (applies to every user)
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS theme TEXT NOT NULL DEFAULT 'default';
+
+-- Offers / discounts set by the OWNER only. provider_id NULL = every shop. The discounted price is applied by the server at checkout.
+CREATE TABLE IF NOT EXISTS offers (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL CHECK (char_length(title) BETWEEN 1 AND 60),
+  percent SMALLINT NOT NULL CHECK (percent BETWEEN 1 AND 90),
+  provider_id BIGINT REFERENCES providers(id) ON DELETE CASCADE,
+  color TEXT NOT NULL DEFAULT 'red',
+  starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ends_at TIMESTAMPTZ,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_offers_active ON offers(active, provider_id);
+
+-- Delivery price by distance (owner switch). 'region' = the area prices (as before); 'km' = price per kilometre between the shop and the customer.
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_mode TEXT NOT NULL DEFAULT 'region';
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_per_km NUMERIC(8,2) NOT NULL DEFAULT 5;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_min NUMERIC(8,2) NOT NULL DEFAULT 10;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_max NUMERIC(8,2) NOT NULL DEFAULT 40;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_factor NUMERIC(4,2) NOT NULL DEFAULT 1.3;

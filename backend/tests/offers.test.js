@@ -1,0 +1,73 @@
+const { Pool } = require('./shim');
+const off = require('../src/offers.js');
+let pass = 0, failN = 0;
+const ok = (c, m) => { if (c) pass++; else { failN++; console.log('  FAIL:', m); } };
+const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), `${m}: got ${JSON.stringify(a)} expected ${JSON.stringify(b)}`);
+const near = (a, b, m) => ok(Math.abs(Number(a) - Number(b)) < 0.005, `${m}: got ${a} expected ${b}`);
+
+const routes = {};
+const app = {};
+for (const m of ['get', 'post', 'patch', 'put', 'delete']) app[m] = (path, ...chain) => { routes[`${m.toUpperCase()} ${path}`] = chain; };
+const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const positiveId = v => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : null; };
+const auth = (req, res, next) => { if (!req.auth) return res.status(401).json({ error: 'auth' }); next(); };
+const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'forbidden' }); next(); };
+
+async function call(key, { as, body, query, params } = {}) {
+  const chain = routes[key];
+  if (!chain) throw new Error('no route ' + key);
+  const req = { auth: as, body: body || {}, query: query || {}, params: params || {} };
+  const out = { status: 200, json: null, headers: {} };
+  const res = { status(c) { out.status = c; return this; }, json(j) { out.json = j; return this; }, set(k, v) { out.headers[k] = v; return this; }, send(b) { out.sent = b; return this; }, end() { return this; } };
+  let i = 0, err = null;
+  const next = e => { if (e) { err = e; return; } const f = chain[i++]; if (f) return f(req, res, next); };
+  next();
+  const t0 = Date.now();
+  while (!err && out.json === null && out.sent === undefined && Date.now() - t0 < 8000) await new Promise(r => setTimeout(r, 2));
+  if (err) throw err;
+  return out;
+}
+(async () => {
+  const pool = new Pool();
+  const q = (t, p) => pool.query(t, p);
+  await q(`TRUNCATE offers, courier_locations, commission_entries, commission_settlements, counter_resets, audit_log, appointments, orders, products, providers, users RESTART IDENTITY CASCADE`);
+  const user = async (name, role) => (await q("INSERT INTO users(name, phone, password_hash, role, status) VALUES($1,$2,'x',$3,'active') RETURNING id", [name, '010' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'), role])).rows[0].id;
+  const admin = await user('م', 'admin'), c1 = await user('ع', 'customer'), s1 = await user('محل', 'provider');
+  const p1 = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'restaurant','مطعم','010','active',true) RETURNING id", [s1])).rows[0].id;
+  const p2 = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'restaurant','مطعم2','010','active',true) RETURNING id", [s1])).rows[0].id;
+  off.registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
+  const A = { sub: String(admin), role: 'admin' }, C1 = { sub: String(c1), role: 'customer' }, SH = { sub: String(s1), role: 'provider' };
+  let r;
+  eq((await off.activeOffers(pool)).length, 0, 'none at start');
+  r = await call('POST /api/admin/offers', { as: SH, body: { title: 'x', percent: 10 } }); eq(r.status, 403, 'shop cannot create offers');
+  r = await call('POST /api/admin/offers', { as: C1, body: { title: 'x', percent: 10 } }); eq(r.status, 403, 'customer cannot');
+  r = await call('POST /api/admin/offers', { as: A, body: { title: '', percent: 10 } }); eq(r.status, 400, 'title needed');
+  r = await call('POST /api/admin/offers', { as: A, body: { title: 'x', percent: 95 } }); eq(r.status, 400, 'percent max 90');
+  r = await call('POST /api/admin/offers', { as: A, body: { title: 'x', percent: 0 } }); eq(r.status, 400, 'percent min 1');
+  r = await call('POST /api/admin/offers', { as: A, body: { title: 'x', percent: 10, providerId: '99999' } }); eq(r.status, 404, 'unknown shop');
+  r = await call('POST /api/admin/offers', { as: A, body: { title: 'عرض الكل', percent: 10, color: 'weird' } }); eq(r.status, 201, 'create global'); eq(r.json.offers[0].color, 'red', 'bad colour falls back');
+  let list = await off.activeOffers(pool);
+  eq(list.length, 1, 'one active');
+  near(off.salePrice(120, off.bestOffer(list, p1)), 108, '10% off 120');
+  r = await call('POST /api/admin/offers', { as: A, body: { title: 'عرض المطعم', percent: 25, providerId: String(p1), color: 'purple', hours: 2 } }); eq(r.status, 201, 'create shop offer');
+  list = await off.activeOffers(pool);
+  near(off.salePrice(100, off.bestOffer(list, p1)), 75, 'biggest wins for that shop (25 not 35)');
+  near(off.salePrice(100, off.bestOffer(list, p2)), 90, 'other shop only gets the global 10%');
+  near(off.salePrice(33.33, off.bestOffer(list, p1)), 25, 'rounded to 2 decimals');
+  eq(off.bestOffer([], p1), null, 'no offers = null'); near(off.salePrice(50, null), 50, 'no offer keeps price');
+  // expiry and switch off
+  await q("UPDATE offers SET ends_at = NOW() - interval '1 minute' WHERE provider_id=$1", [p1]);
+  list = await off.activeOffers(pool); near(off.salePrice(100, off.bestOffer(list, p1)), 90, 'expired offer ignored');
+  await q("UPDATE offers SET starts_at = NOW() + interval '1 hour' WHERE provider_id IS NULL");
+  eq((await off.activeOffers(pool)).length, 0, 'not started yet is ignored');
+  await q("UPDATE offers SET starts_at = NOW() WHERE provider_id IS NULL");
+  const gid = (await q('SELECT id FROM offers WHERE provider_id IS NULL')).rows[0].id;
+  r = await call('PATCH /api/admin/offers/:id', { as: A, params: { id: gid }, body: { active: false } }); eq(r.status, 200, 'switch off');
+  eq((await off.activeOffers(pool)).length, 0, 'switched off ignored');
+  r = await call('PATCH /api/admin/offers/:id', { as: SH, params: { id: gid }, body: { active: true } }); eq(r.status, 403, 'shop cannot switch');
+  r = await call('DELETE /api/admin/offers/:id', { as: A, params: { id: gid } }); eq(r.json.offers.length, 1, 'deleted');
+  r = await call('GET /api/admin/offers', { as: A }); eq(r.json.offers.length, 1, 'owner lists'); eq(r.json.offers[0].providerName, 'مطعم', 'shop name in list');
+  r = await call('GET /api/admin/offers', { as: SH }); eq(r.status, 403, 'shop cannot list');
+  console.log(`offers: ${pass} passed, ${failN} failed`);
+  await pool.end(); process.exit(failN ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(1); });

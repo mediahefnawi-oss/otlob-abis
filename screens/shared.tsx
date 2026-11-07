@@ -20,6 +20,7 @@ import { PushCard } from '../components/PushCard';
 import { OrderStaffTools } from '../components/StaffTools';
 import { LabDetail } from '../components/Lab';
 import { SupportChatCard } from '../components/SupportChat';
+import { OrderMapCard, MyLocationCard } from '../components/Location';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
@@ -110,6 +111,9 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             )}
           </Card>
         </Animated.View>
+
+        {/* live map: from the moment a courier takes the order until it is delivered */}
+        <OrderMapCard orderId={o.id} active={!!o.courierId && !dead && o.status !== 'delivered'} role={me.role} courierName={courier?.name || o.courierName} courierPhone={courier?.phone || o.courierPhone} />
 
         {/* courier */}
         {!!o.courierId && (
@@ -657,6 +661,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
       </Header>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
         {extra}
+        {(me.role === 'customer' || me.role === 'provider') && <MyLocationCard kind={me.role === 'provider' ? 'shop' : 'customer'} />}
         <PushCard />
         <Card style={{ paddingVertical: 4 }}>
           <Item icon="create" label="تعديل البيانات الشخصية" sub={me.address || 'أضف عنوانك'} onPress={() => { setName(me.name); setAddress(me.address); setRegionId(me.regionId || ''); setPhone2(me.phone2 || ''); setEdit(true); }} />

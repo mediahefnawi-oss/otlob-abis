@@ -105,7 +105,7 @@ async function maintenanceState(role) {
   return { enabled: false, message: hours.renderMessage(h, next), phase };
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, phone2: row.phone2 || '', role: row.role, address: row.address, status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supportChat: row.role === 'supervisor' ? !!row.support_chat : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
+const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, phone2: row.phone2 || '', role: row.role, address: row.address, ...(row.home_lat != null && row.home_lng != null ? { homeLat: Number(row.home_lat), homeLng: Number(row.home_lng) } : {}), status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supportChat: row.role === 'supervisor' ? !!row.support_chat : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
 const positiveId = value => {
   const n = Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
@@ -166,12 +166,13 @@ function providerVisibility(viewer, values) {
 }
 const services = require('./services');
 const hours = require('./hours');
-const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
+const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), ...(p.lat != null && p.lng != null ? { lat: Number(p.lat), lng: Number(p.lng) } : {}), status: p.status, open: p.is_open, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
-const SCHEMA_VERSION = 20261120;
+const offersLib = require('./offers');
+const SCHEMA_VERSION = 20261124;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -722,7 +723,7 @@ async function loadSettingsBase() {
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 // the clock part is never cached: the app uses it to know when to open / close without asking again
 async function loadSettings() {
@@ -767,6 +768,17 @@ app.patch('/api/admin/update-notice', auth, roles('admin'), asyncRoute(async (re
   res.json({ settings: await loadSettings() });
 }));
 
+// The owner alone chooses the colour theme of the whole app (a fixed list, so text always stays readable).
+const THEME_IDS = ['default', 'ocean', 'royal', 'maroon', 'charcoal', 'teal', 'sunset', 'rose'];
+app.patch('/api/admin/theme', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const theme = String((req.body || {}).theme || '');
+  if (!THEME_IDS.includes(theme)) return res.status(400).json({ error: 'لون غير صالح' });
+  try { await pool.query('UPDATE app_settings SET theme=$1, updated_at=NOW() WHERE id=1', [theme]); }
+  catch (e) { if (e.code === '42703') return res.status(503).json({ error: 'قاعدة البيانات لم تُحدَّث بعد' }); throw e; }
+  settingsMemo.clear();
+  res.json({ settings: await loadSettings() });
+}));
+
 // Appointment records are server-owned and visible only to the customer, clinic owner, or admin.
 app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(req,res)=>{
   const id=positiveId(req.params.id); const status=req.body&&req.body.status;
@@ -797,7 +809,16 @@ async function listProducts(viewer, providerId) {
   let sql = `SELECT pr.*, (SELECT (EXTRACT(EPOCH FROM i.updated_at)*1000)::bigint FROM product_images i WHERE i.product_id=pr.id) AS image_v FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE ${noProd(values)} AND ${providerVisibility(viewer, values)}`;
   if (providerId) { values.push(providerId); sql += ` AND pr.provider_id=$${values.length}`; }
   sql += ' ORDER BY pr.created_at ASC LIMIT 2000';
-  return (await pool.query(sql, values)).rows.map(x => ({ ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, price: Number(x.price), available: x.available, imageV: x.image_v ? Number(x.image_v) : 0 }));
+  const offers = await offersLib.activeOffers(pool);
+  // the owner and the shop keep seeing the NORMAL price (so saving a product can never write the discounted price by mistake); customers get the discounted one
+  const keepBase = !!viewer && ['admin', 'provider', 'supervisor'].includes(viewer.role);
+  return (await pool.query(sql, values)).rows.map(x => {
+    const of = offersLib.bestOffer(offers, x.provider_id);
+    const base = { ...x.data, id: String(x.id), providerId: String(x.provider_id), name: x.name, available: x.available, imageV: x.image_v ? Number(x.image_v) : 0 };
+    if (!of) return { ...base, price: Number(x.price) };
+    if (keepBase) return { ...base, price: Number(x.price), offer: offersLib.offerJson(of) };
+    return { ...base, price: offersLib.salePrice(x.price, of), oldPrice: Number(x.price), offer: offersLib.offerJson(of) };
+  });
 }
 /** "fromAreaId:toAreaId" -> delivery price (shop's area -> customer's area) */
 async function listRoutePrices() {
@@ -1002,6 +1023,9 @@ app.delete('/api/products/:id/image', auth, roles('provider','admin'), asyncRout
 // Orders, invoices, bookings and chat live in orders.js
 require('./commissions')(app, { pool, auth, roles, asyncRoute, positiveId });
 services.register(app, { pool, auth, roles, asyncRoute });
+require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
+require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
+require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./support')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 

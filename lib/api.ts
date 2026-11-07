@@ -108,6 +108,8 @@ export type CentralSettings = {
   credits?: { a: string; b: string; c: string; d: string } | null;
   hours?: Hours;
   tzOffsetMin?: number;
+  theme?: string;
+  delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number };
   serverNow?: number;
   updatedAt?: string;
 };
@@ -190,7 +192,7 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean };
+export type ServerUser = { id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; homeLat?: number; homeLng?: number; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');
@@ -355,3 +357,25 @@ export const apiSupportThread = (id: string, after = 0) => apiRequest<{ thread: 
 export const apiSupportReply = (id: string, text: string) => apiRequest<{ message: SupportMsg }>(`/api/support/threads/${id}/messages`, { method: 'POST', body: JSON.stringify({ text }) });
 export const apiSupportStatus = (id: string, status: 'open' | 'closed') => apiRequest<{ ok: boolean }>(`/api/support/threads/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
 export const apiSupervisorSupport = (id: string, enabled: boolean) => apiRequest<{ enabled: boolean }>(`/api/admin/supervisors/${id}/support`, { method: 'PATCH', body: JSON.stringify({ enabled }) });
+
+/* ---------------- live location ---------------- */
+export type GeoPoint = { lat: number; lng: number };
+export type CourierPos = GeoPoint & { at: number; fresh: boolean; heading?: number };
+export type OrderTracking = { status: string; courier: CourierPos | null; shop: GeoPoint | null; dest: GeoPoint | null; distanceKm: number | null; etaMin: number | null };
+export type StaffCourierPos = CourierPos & { id: string; name: string; phone: string; vehicle: string; available: boolean; busy: number };
+export const apiMyLocation = () => apiRequest<{ location: GeoPoint | null }>('/api/me/location');
+export const apiSetMyLocation = (p: GeoPoint | null) => apiRequest<{ location: GeoPoint | null }>('/api/me/location', { method: 'PUT', body: JSON.stringify(p ? p : { clear: true }) });
+export const apiSetShopLocation = (p: GeoPoint | null) => apiRequest<{ location: GeoPoint | null }>('/api/provider/location', { method: 'PUT', body: JSON.stringify(p ? p : { clear: true }) });
+export const apiCourierPing = (p: GeoPoint & { accuracy?: number; heading?: number }) => apiRequest<{ ok: boolean }>('/api/courier/location', { method: 'POST', body: JSON.stringify(p) });
+export const apiCourierStop = () => apiRequest<{ ok: boolean }>('/api/courier/location', { method: 'DELETE' });
+export const apiOrderTracking = (id: string) => apiRequest<OrderTracking>(`/api/orders/${encodeURIComponent(id)}/tracking`);
+export const apiStaffCourierLocations = () => apiRequest<{ couriers: StaffCourierPos[] }>('/api/staff/courier-locations');
+export const apiSetTheme = (theme: string) => apiRequest<{ settings: CentralSettings }>('/api/admin/theme', { method: 'PATCH', body: JSON.stringify({ theme }) });
+
+/* ---------------- offers (owner only) ---------------- */
+export type AdminOffer = { id: string; title: string; percent: number; color: string; providerId: string | null; providerName: string | null; endsAt: number | null; startsAt: number; active: boolean };
+export const apiOffers = () => apiRequest<{ offers: AdminOffer[] }>('/api/admin/offers');
+export const apiOfferCreate = (b: { title: string; percent: number; color: string; providerId?: string; hours?: number }) => apiRequest<{ offers: AdminOffer[] }>('/api/admin/offers', { method: 'POST', body: JSON.stringify(b) });
+export const apiOfferActive = (id: string, active: boolean) => apiRequest<{ offers: AdminOffer[] }>(`/api/admin/offers/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
+export const apiOfferDelete = (id: string) => apiRequest<{ offers: AdminOffer[] }>(`/api/admin/offers/${id}`, { method: 'DELETE' });
+export const apiSetDeliveryMode = (b: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }) => apiRequest<{ ok: boolean }>('/api/admin/delivery-mode', { method: 'PATCH', body: JSON.stringify(b) });
