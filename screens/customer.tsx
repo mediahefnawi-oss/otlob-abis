@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MyLocationCard } from '../components/Location';
+import { DeliveryPin } from '../components/Location';
 import { OfferBadge } from '../components/Offers';
 import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -535,7 +535,7 @@ export function CartScreen({ navigation }: any) {
               <Field label="اسم العميل" icon="person" value={name} onChangeText={setName} />
               <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
               <Field label="العنوان بالتفصيل" icon="location" value={address} onChangeText={setAddress} multiline />
-              <MyLocationCard kind="customer" />
+              <DeliveryPin />
               <Field label="ملاحظات (اختياري)" icon="create" value={notes} onChangeText={setNotes} placeholder="مثال: الدور الثالث، الجرس لا يعمل" />
             </Card>
 
@@ -583,6 +583,7 @@ export function CustomOrderScreen({ navigation }: any) {
             </View>
             <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
             <Field label="عنوان التوصيل" icon="location" value={address} onChangeText={setAddress} multiline />
+            <DeliveryPin />
           </Card>
           <Card style={{ backgroundColor: C.goldSoft, gap: 6 }}>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
@@ -808,6 +809,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
         )}
         <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
         <Field label="العنوان التفصيلي" icon="location" value={address} onChangeText={setAddress} multiline />
+        <DeliveryPin />
         <Btn title={maker ? 'إرسال الطلب للصانع' : 'إرسال الطلب للمتجر'} icon="send" loading={busy} onPress={submit} />
       </ScrollView>
     </View>

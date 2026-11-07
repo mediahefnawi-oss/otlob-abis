@@ -6,7 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { phaseAt, allowedIn, renderMessage, type HoursPhase, type NextOpen } from './hours';
 import { AppState } from 'react-native';
 import {
-  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiUpdateNotice, apiSetTheme, apiSetDeliveryMode, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
+  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiUpdateNotice, apiSetTheme, apiSetDeliveryMode, apiSetMapMode, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
@@ -55,11 +55,13 @@ export interface State {
   db: DB;
   userId: string | null;
   cart: CartLine[];
+  cartDest: CartDest; // where the order being made goes: the saved spot, or another address (optionally with its own pin)
   syncError: string | null; // shown as a banner when the app could not refresh from the server
   ready: boolean;
 }
 
-let state: State = { db: buildSeed(), userId: null, cart: [], ready: false, syncError: null };
+export type CartDest = { pin?: { lat: number; lng: number } };
+let state: State = { db: buildSeed(), userId: null, cart: [], cartDest: {}, ready: false, syncError: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const setState = (p: Partial<State>) => {
@@ -74,6 +76,15 @@ export const subscribe = (l: () => void) => {
   };
 };
 export const getState = () => state;
+export function setCartDest(d: CartDest) { setState({ cartDest: d }); }
+/** The owner's switch for maps and live location (on unless the owner switched it off). */
+export const mapOn = () => state.db.settings.map?.enabled !== false;
+export const mapRequired = () => mapOn() && state.db.settings.map?.required !== false;
+export const useMapOn = () => { const s = useStore(); return s.db.settings.map?.enabled !== false; };
+/** Sent with an order: the pin chosen for THIS order ('none' when there is no pin and none is required). Nothing when maps are off. */
+const destBody = () => (!mapOn() ? {} : state.cartDest.pin ? { destMode: 'pin', destLat: state.cartDest.pin.lat, destLng: state.cartDest.pin.lng } : { destMode: 'none' });
+/** A new order needs a delivery pin when the owner requires it. */
+const pinError = (): string | null => (mapRequired() && !state.cartDest.pin ? 'حدد موقع التوصيل على الخريطة أولاً' : null);
 export const useStore = () => useSyncExternalStore(subscribe, getState, getState);
 
 export const useMe = (): User | null => {
@@ -140,7 +151,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null]);
 
 let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
@@ -163,6 +174,7 @@ function applySettings(c: CentralSettings) {
     tzOffsetMin: c.tzOffsetMin,
     theme: c.theme || 'default',
     delivery: c.delivery,
+    map: c.map,
   };
   if (settingsKey(next) === settingsKey(state.db.settings)) return;
   applyTheme(next.theme); // the palette changes before the screens re-render
@@ -228,7 +240,8 @@ export function kmInfoFor(p: Provider): { fee: number; km: number } | null {
   if (isBooking(p.type)) return null;
   const me = state.db.users.find((u) => u.id === state.userId);
   if (!me || me.role !== 'customer') return null;
-  return kmFee(state.db.settings.delivery, p, { lat: me.homeLat, lng: me.homeLng });
+  if (!mapOn()) return null;
+  return state.cartDest.pin ? kmFee(state.db.settings.delivery, p, state.cartDest.pin) : null; // no pin yet: the area price
 }
 export function feeFor(p: Provider): number {
   if (isBooking(p.type)) return 0;
@@ -673,6 +686,7 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
+  { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
   const closed = det.groups.find((g) => !g.provider.open || g.provider.status !== 'active');
@@ -683,7 +697,7 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   try {
     const r = await apiCheckout({
       name: info.name.trim(), phone: normPhone(info.phone), address: info.address.trim(), notes: info.notes.trim(),
-      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })),
+      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })), ...destBody(),
     });
     mutate((db) => {
       db.orders = upsertById(db.orders, r.orders as Order[]);
@@ -691,6 +705,7 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
       db.users = db.users.map((u) => (u.id === me.id ? { ...u, address: r.address } : u));
     });
     saveCart([]);
+    setCartDest({});
     return { ok: true, invoiceId: String(r.invoice.id), orderIds: (r.orders as Order[]).map((x) => String(x.id)) };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
@@ -717,11 +732,12 @@ export async function courierQuote(orderId: string, subtotal: number, fee: numbe
 export async function placeCustomOrder(me: User, info: { text: string; phone: string; address: string }): Promise<Result<{ orderId: string }>> {
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (info.text.trim().length < 3) return { ok: false, error: 'اكتب ما تريد طلبه' };
+  { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
   pendingWrites++;
   try {
-    const r = await apiCustomOrder({ text: info.text.trim(), phone: normPhone(info.phone), address: info.address.trim() });
+    const r = await apiCustomOrder({ text: info.text.trim(), phone: normPhone(info.phone), address: info.address.trim(), ...destBody() });
     mutate((db) => {
       db.orders = upsertById(db.orders, r.orders as Order[]);
       db.invoices = upsertById(db.invoices, [r.invoice as Invoice]);
@@ -1135,6 +1151,17 @@ export async function setCustomerFlag(userId: string, flag: string, note: string
   });
   return { ok: true };
 }
+/** Owner-only: switch maps + live location on or off, and whether a delivery pin is required. */
+export async function setMapMode(b: { enabled: boolean; required: boolean }): Promise<Result> {
+  try {
+    await apiSetMapMode(b);
+    const { settings } = await apiGetSettings();
+    applySettings(settings);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
 /** Owner-only: delivery price by area (as before) or by kilometre. */
 export async function setDeliveryMode(b: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }): Promise<Result> {
   try {
@@ -1351,6 +1378,7 @@ export async function placeRequestOrder(
 ): Promise<Result<{ orderId: string }>> {
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المتجر مغلق حالياً' };
+  { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
   if (!deliveryOpen(info.provider)) return { ok: false, error: 'التوصيل من منطقة هذا المتجر إلى منطقتك غير متاح حالياً' };
   if (info.text.trim().length < 3 && !info.image) return { ok: false, error: 'اكتب طلبك أو ارفع صورة' };
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
@@ -1358,8 +1386,9 @@ export async function placeRequestOrder(
   pendingWrites++;
   try {
     const { order } = await apiPlaceRequest({
-      providerId: info.provider.id, text: info.text.trim(), image: info.image || null, phone: normPhone(info.phone), address: info.address.trim(),
+      providerId: info.provider.id, text: info.text.trim(), image: info.image || null, phone: normPhone(info.phone), address: info.address.trim(), ...destBody(),
     });
+    setCartDest({});
     if (info.image) imageCache.set(String(order.id), info.image);
     mutate((db) => {
       db.orders = upsertById(db.orders, [order as Order]);

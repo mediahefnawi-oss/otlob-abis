@@ -7,6 +7,7 @@
  *  - Who sees a courier: the owner, a supervisor (couriers of his areas), and for ONE order only: that order's customer and shop,
  *    and only while the courier is actually carrying it. Nobody else, and never after the order ends.
  */
+const mapMode = require('./mapmode');
 const ACTIVE = ['accepted', 'quoted', 'ready', 'picked_up', 'on_the_way', 'arrived'];
 const FRESH_MS = 10 * 60 * 1000;          // a position older than this is shown as "last seen"
 const EGYPT = { latMin: 21.5, latMax: 32, lngMin: 24.5, lngMax: 37 };
@@ -34,7 +35,9 @@ module.exports = function registerTrackingRoutes(app, { pool, auth, roles, async
   const posJson = r => ({ lat: Number(r.lat), lng: Number(r.lng), at: new Date(r.updated_at).getTime(), fresh: Date.now() - new Date(r.updated_at).getTime() <= FRESH_MS, heading: r.heading == null ? undefined : Number(r.heading) });
 
   /* ---------- customer: "حدد موقعي" ---------- */
+  const needOn = async () => { if (!(await mapMode.load(pool)).enabled) throw fail(409, 'الخريطة متوقفة حالياً'); };
   app.put('/api/me/location', auth, roles('customer'), guard(async (req, res) => {
+    await needOn();
     const b = req.body || {};
     if (b.clear === true) {
       await pool.query('UPDATE users SET home_lat=NULL, home_lng=NULL WHERE id=$1', [me(req)]);
@@ -52,6 +55,7 @@ module.exports = function registerTrackingRoutes(app, { pool, auth, roles, async
 
   /* ---------- shop owner: the shop's spot ---------- */
   app.put('/api/provider/location', auth, roles('provider'), guard(async (req, res) => {
+    await needOn();
     const b = req.body || {};
     const clear = b.clear === true;
     const p = clear ? { lat: null, lng: null } : point(b);
@@ -62,6 +66,7 @@ module.exports = function registerTrackingRoutes(app, { pool, auth, roles, async
 
   /* ---------- courier: sends its position (only while available or carrying an order) ---------- */
   app.post('/api/courier/location', auth, roles('courier'), guard(async (req, res) => {
+    await needOn();
     const p = point(req.body);
     const b = req.body || {};
     const acc = Number(b.accuracy), head = Number(b.heading);
@@ -85,6 +90,7 @@ module.exports = function registerTrackingRoutes(app, { pool, auth, roles, async
 
   /* ---------- owner / supervisor: all couriers on one map ---------- */
   app.get('/api/staff/courier-locations', auth, roles('admin', 'supervisor'), asyncRoute(async (req, res) => {
+    if (!(await mapMode.load(pool)).enabled) return res.json({ couriers: [] });
     let regionSql = '', params = [ACTIVE];
     if (req.auth.role === 'supervisor') {
       const s = await pool.query('SELECT sup_regions FROM users WHERE id=$1', [me(req)]);
@@ -103,6 +109,7 @@ module.exports = function registerTrackingRoutes(app, { pool, auth, roles, async
 
   /* ---------- one order: courier + shop + destination ---------- */
   app.get('/api/orders/:id/tracking', auth, guard(async (req, res) => {
+    await needOn();
     const id = positiveId(req.params.id);
     if (!id) throw fail(400, 'طلب غير صحيح');
     const r = await pool.query(

@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Card, Btn, Header, Empty, toast, callPhone, IconBubble, IconBtn } from './ui';
+import { T, Card, Btn, Header, Empty, toast, callPhone, IconBubble, IconBtn, Toggle } from './ui';
 import MapView from './MapView';
 import { getPosition, startCourierTracking, stopCourierTracking } from '../lib/location';
 import { apiMyLocation, apiSetMyLocation, apiSetShopLocation, apiOrderTracking, apiStaffCourierLocations, GeoPoint, OrderTracking, StaffCourierPos } from '../lib/api';
 import type { MapMarker } from '../lib/mapHtml';
-import { setMyHome } from '../lib/store';
+import { setMyHome, useStore, setCartDest, useMapOn, setMapMode } from '../lib/store';
+import { Pressable, Linking } from 'react-native';
 
 function usePoll(fn: () => Promise<void>, ms: number, deps: unknown[] = []) {
   const ref = useRef(fn); ref.current = fn;
@@ -21,6 +22,7 @@ function usePoll(fn: () => Promise<void>, ms: number, deps: unknown[] = []) {
 
 /** "حدد موقعي" (customer) / "حدد موقع المحل" (shop owner): optional, saved once, can be removed. */
 export function MyLocationCard({ kind }: { kind: 'customer' | 'shop' }) {
+  const mapOn = useMapOn();
   const [loc, setLoc] = useState<GeoPoint | null>(null);
   const [ready, setReady] = useState(kind === 'shop' ? true : false);
   const [busy, setBusy] = useState(false);
@@ -49,7 +51,7 @@ export function MyLocationCard({ kind }: { kind: 'customer' | 'shop' }) {
   const title = kind === 'customer' ? 'موقعي على الخريطة' : 'موقع المحل على الخريطة';
   const sub = kind === 'customer' ? 'اختياري — يساعد المندوب يوصلك أسرع' : 'يظهر للعميل والمندوب على الخريطة';
   const marker: MapMarker[] = loc ? [{ lat: loc.lat, lng: loc.lng, kind: kind === 'customer' ? 'dest' : 'shop' }] : [];
-  if (!ready) return null;
+  if (!ready || !mapOn) return null;
   return (
     <Card style={{ gap: 12 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -88,8 +90,9 @@ const ago = (t: number) => { const m = Math.max(0, Math.round((Date.now() - t) /
 /** Inside the order screen: appears once a courier has the order, then follows him live until delivery. */
 export function OrderMapCard({ orderId, active, role, courierName, courierPhone }: { orderId: string; active: boolean; role: string; courierName?: string; courierPhone?: string }) {
   const [t, setT] = useState<OrderTracking | null>(null);
-  usePoll(async () => { if (active) setT(await apiOrderTracking(orderId)); }, 8000, [orderId, active]);
-  if (!active || !t) return null;
+  const mapOn = useMapOn();
+  usePoll(async () => { if (active && mapOn) setT(await apiOrderTracking(orderId)); }, 8000, [orderId, active, mapOn]);
+  if (!active || !mapOn || !t) return null;
   const markers: MapMarker[] = [];
   if (t.shop) markers.push({ ...t.shop, kind: 'shop' });
   if (t.dest) markers.push({ ...t.dest, kind: 'dest' });
@@ -148,5 +151,102 @@ export function CouriersMapScreen({ navigation }: any) {
         ))}
       </View>
     </View>
+  );
+}
+
+/**
+ * On the order screens: the delivery pin of THIS order. It is found automatically when the screen opens (after the customer allows the location),
+ * and he can move it by tapping the map or press "find me again". Without the permission he picks the spot by hand.
+ */
+export function DeliveryPin() {
+  const { cartDest, db, userId } = useStore();
+  const on = useMapOn();
+  const me = db.users.find((u) => u.id === userId);
+  const [state, setState] = useState<'idle' | 'finding' | 'auto' | 'manual' | 'denied'>('idle');
+  const find = async () => {
+    setState('finding');
+    try { const p = await getPosition(); setCartDest({ pin: { lat: p.lat, lng: p.lng } }); setState('auto'); }
+    catch (e: any) {
+      // no permission / no GPS: use the saved spot when there is one, otherwise the customer picks it on the map
+      if (me?.homeLat != null && me?.homeLng != null && !cartDest.pin) setCartDest({ pin: { lat: me.homeLat, lng: me.homeLng } });
+      setState('denied');
+      toast(e?.message || 'تعذر تحديد موقعك، اختر المكان من الخريطة', 'err');
+    }
+  };
+  useEffect(() => { if (on && !cartDest.pin) find(); /* once, when the screen opens */ // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [on]);
+  if (!on) return null;
+  const pin = cartDest.pin;
+  const line = state === 'finding' ? 'جاري تحديد موقعك...' : pin ? (state === 'manual' ? 'تم تحديد المكان على الخريطة ✓' : state === 'auto' ? 'تم تحديد موقعك تلقائياً ✓' : 'تم تحديد المكان ✓') : 'اضغط على الخريطة لتحديد مكان التوصيل';
+  return (
+    <Card style={{ gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <IconBubble icon="location" color={C.green} bg={C.greenSoft} size={40} />
+        <View style={{ flex: 1 }}>
+          <T w="bold" size={14.5}>موقع التوصيل</T>
+          <T size={12} color={pin ? C.green : C.sub}>{line}</T>
+        </View>
+      </View>
+      <MapView markers={pin ? [{ lat: pin.lat, lng: pin.lng, kind: 'dest' }] : [{ lat: 31.0, lng: 29.95, kind: 'me' }]} height={210} pickable onPick={(p) => { setCartDest({ pin: p }); setState('manual'); }} />
+      <T size={11.5} color={C.sub}>مش مكانك؟ اضغط على الخريطة وحرّك الدبوس للمكان الصح</T>
+      <Btn title="حدّد موقعي تاني" icon="locate" variant="soft" small onPress={find} loading={state === 'finding'} />
+    </Card>
+  );
+}
+
+/** Owner only: one switch for maps and live location, and whether a delivery pin is required. */
+export function MapModeCard() {
+  const { db } = useStore();
+  const m = db.settings.map || { enabled: true, required: true };
+  const [busy, setBusy] = useState(false);
+  const save = async (enabled: boolean, required: boolean) => {
+    setBusy(true);
+    const r = await setMapMode({ enabled, required });
+    setBusy(false);
+    toast(r.ok ? 'تم الحفظ ✅' : r.error, r.ok ? 'ok' : 'err');
+  };
+  return (
+    <Card style={{ gap: 12, opacity: busy ? 0.6 : 1 }}>
+      <View>
+        <T w="black" size={15}>الخريطة وتحديد الموقع</T>
+        <T size={12} color={C.sub}>تشغيل أو إيقاف الخرائط وتتبع المندوب لكل المستخدمين (فوري، من غير تحديث للتطبيق)</T>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ flex: 1 }}>
+          <T w="bold" size={14}>الخريطة شغّالة</T>
+          <T size={11.5} color={C.sub}>{m.enabled ? 'الخريطة وتتبع المندوب ودبوس التوصيل ظاهرين' : 'مقفولة: عنوان مكتوب فقط وتوصيل بسعر المناطق، زي الأول'}</T>
+        </View>
+        <Toggle value={m.enabled} onValueChange={(v) => save(v, m.required)} />
+      </View>
+      {m.enabled && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={14}>تحديد الموقع إجباري</T>
+            <T size={11.5} color={C.sub}>{m.required ? 'العميل لازم يحدد دبوس على الخريطة ليؤكد الطلب' : 'العميل يقدر يطلب بالعنوان المكتوب بس'}</T>
+          </View>
+          <Toggle value={m.required} onValueChange={(v) => save(m.enabled, v)} />
+        </View>
+      )}
+    </Card>
+  );
+}
+
+/** Owner only (inside a customer's page): the spot the customer saved himself. Not live tracking. */
+export function CustomerLocationCard({ lat, lng }: { lat?: number; lng?: number }) {
+  const on = useMapOn();
+  if (!on) return null;
+  const has = lat != null && lng != null;
+  return (
+    <Card style={{ gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <IconBubble icon="location" color={C.green} bg={C.greenSoft} size={40} />
+        <View style={{ flex: 1 }}>
+          <T w="bold" size={14.5}>موقع العميل على الخريطة</T>
+          <T size={12} color={C.sub}>{has ? 'الموقع اللي حدده العميل بنفسه' : 'لم يحدد موقعه بعد'}</T>
+        </View>
+      </View>
+      {has && <MapView markers={[{ lat: lat!, lng: lng!, kind: 'dest' }]} height={200} />}
+      {has && <Btn title="افتح في خرائط جوجل" icon="navigate" variant="green" small onPress={() => Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`)} />}
+    </Card>
   );
 }

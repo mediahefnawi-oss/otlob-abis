@@ -9,6 +9,8 @@ const commissions = require('./commissions');
 const services = require('./services');
 const offersLib = require('./offers');
 const kmFee = require('./kmfee');
+const tracking = require('./tracking');
+const mapMode = require('./mapmode');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
   const num = v => Number(v) || 0;
   const ms = d => new Date(d).getTime();
@@ -70,22 +72,50 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     } catch { return null; } // table not migrated yet: never block an order
   }
   /** What a customer pays for delivery from a shop: only the owner's route price counts. A route without a price is closed. */
-  async function deliveryFeeFor(db, prov, region, fallback, customerId) {
+  async function deliveryFeeFor(db, prov, region, fallback, customerId, dest) {
     if (['booking', 'lab'].includes(services.tplOf(prov.type))) return 0;
     // owner's "by kilometre" switch: priced from the shop's spot to the customer's spot; without both spots the area price below applies
-    if (customerId) { const k = await kmFee.forOrder(db, prov.id, customerId); if (k) return k.fee; }
+    if (customerId) { const k = await kmFee.forOrder(db, prov.id, customerId, dest); if (k) return k.fee; }
     if (!region) return Number(fallback) || 0; // an old customer account with no area: the shop's own price
     const r = await routeFee(db, prov.id, region.id);
     if (r === null) throw fail(409, `التوصيل من منطقة ${prov.name} إلى منطقتك غير متاح حالياً`);
     return r;
   }
+  /**
+   * Where this order goes on the map. The customer chooses: his saved spot (default), or "another address" - with a pin picked for this order, or none.
+   * Returns undefined = saved spot, null = no pin, {lat,lng} = that pin.
+   */
+  const destOf = b => {
+    if (!b || !b.destMode) return undefined; // an older app version: the saved spot, as before
+    if (b.destMode === 'none') return null;
+    const lat = Number(b.destLat), lng = Number(b.destLng);
+    return tracking.validPoint(lat, lng) ? { lat, lng } : null;
+  };
+  /** One place for the rules: maps off = no pin at all; maps on and "required" = a new app must send a pin. Returns the destination to store. */
+  const destRule = async (b) => {
+    const mode = await mapMode.load(pool);
+    if (!mode.enabled) return null;
+    const dest = destOf(b);
+    if (mode.required && b && b.destMode && dest === null) throw fail(400, 'حدد موقع التوصيل على الخريطة أولاً');
+    return dest;
+  };
+  /** The first pin a customer ever sends becomes his saved spot (the owner sees it in his page); later pins belong to their orders only. */
+  const rememberSpot = async (userId, dest) => {
+    if (!dest) return;
+    try { await pool.query('UPDATE users SET home_lat=COALESCE(home_lat,$1), home_lng=COALESCE(home_lng,$2) WHERE id=$3', [dest.lat, dest.lng, userId]); } catch { /* never blocks an order */ }
+  };
+  const destPoint = (user, dest) => {
+    if (dest === null) return {};
+    if (dest) return { destLat: dest.lat, destLng: dest.lng, destOther: true };
+    return user.home_lat != null && user.home_lng != null ? { destLat: Number(user.home_lat), destLng: Number(user.home_lng) } : {};
+  };
   /** The owner's label on the customer (trusted / watch / fraud), copied onto the order so shops and couriers see it. */
-  async function flagData(db, userId) {
+  async function flagData(db, userId, dest) {
     try {
       const r = await db.query('SELECT account_flag, flag_note, phone2, home_lat, home_lng FROM users WHERE id=$1', [userId]);
       const x = r.rows[0] || {};
       // the customer's optional second number travels with the order so the shop and courier can ring it if the first does not answer
-      return { ...(x.account_flag ? { customerFlag: x.account_flag, customerFlagNote: x.flag_note || '' } : {}), ...(x.phone2 ? { phone2: x.phone2 } : {}), ...(x.home_lat != null && x.home_lng != null ? { destLat: Number(x.home_lat), destLng: Number(x.home_lng) } : {}) };
+      return { ...(x.account_flag ? { customerFlag: x.account_flag, customerFlagNote: x.flag_note || '' } : {}), ...(x.phone2 ? { phone2: x.phone2 } : {}), ...(destPoint(x, dest)) };
     } catch { return {}; } // column not migrated yet: never block an order because of a label
   }
   // shops, couriers and the owner see the label; the customer never does
@@ -334,6 +364,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   app.post('/api/orders/checkout', auth, roles('customer'), guard(async (req, res) => {
     await requireOpen();
     const b = req.body || {};
+    const dest = await destRule(b);
+    await rememberSpot(Number(req.auth.sub), dest);
     const name = String(b.name || '').trim();
     if (name.length < 3) throw fail(400, 'اكتب الاسم بالكامل');
     const { address, phone } = checkContact(b);
@@ -365,10 +397,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const region = await regionOf(db, Number(req.auth.sub));
       const orders = [];
       for (const g of groups.values()) {
-        const fee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee, Number(req.auth.sub));
+        const fee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee, Number(req.auth.sub), dest);
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
-          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub))),
+          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
           // every shop decides first: it must press accept or reject (a maker also picks the ready day and hour); nothing starts by itself
           history: [{ status: 'pending', at: Date.now() }],
         };
@@ -407,6 +439,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     await requireOpen();
     if (!services.errandActive()) throw fail(409, 'هذه الخدمة متوقفة حالياً');
     const b = req.body || {};
+    const dest = await destRule(b);
+    await rememberSpot(Number(req.auth.sub), dest);
     const text = String(b.text || '').trim();
     if (text.length < 3) throw fail(400, 'اكتب ما تريد طلبه');
     const { address, phone } = checkContact(b);
@@ -416,7 +450,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const fee = 0; // the courier who takes the errand sets the price of the goods and his delivery fee
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: CUSTOM_NAME, providerType: 'custom', providerOwnerId: '', items: [],
-        customText: text.slice(0, 1000), subtotal: 0, deliveryFee: fee, errandQuote: 'open', regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub))),
+        customText: text.slice(0, 1000), subtotal: 0, deliveryFee: fee, errandQuote: 'open', regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub), dest)),
         history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
       };
       let o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,NULL,\'accepted\',$2,$3,$4) RETURNING *',
@@ -440,6 +474,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   app.post('/api/orders/request', auth, roles('customer'), guard(async (req, res) => {
     await requireOpen();
     const b = req.body || {};
+    const dest = await destRule(b);
+    await rememberSpot(Number(req.auth.sub), dest);
     const providerId = positiveId(b.providerId);
     const text = String(b.text || '').trim().slice(0, 1500);
     const image = typeof b.image === 'string' && b.image ? b.image : null;
@@ -455,10 +491,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
-      const fee = await deliveryFeeFor(db, prov, region, prov.delivery_fee, Number(req.auth.sub));
+      const fee = await deliveryFeeFor(db, prov, region, prov.delivery_fee, Number(req.auth.sub), dest);
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
-        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub))),
+        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub), dest)),
         request: { text, hasImage: !!image }, history: [{ status: 'pending', at: Date.now() }],
       };
       const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',
@@ -644,7 +680,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       let total = 0;
       let patch = { ...d, rejectReason: undefined, cancelledBy: undefined, staffHandled: undefined, readyDate: undefined, readyTime: undefined };
       // the delivery price follows the new shop's area (a route without a price is closed)
-      const fee = await deliveryFeeFor(db, prov, row.region_id ? { id: row.region_id } : null, num(row.data.deliveryFee), row.customer_user_id);
+      const fee = await deliveryFeeFor(db, prov, row.region_id ? { id: row.region_id } : null, num(row.data.deliveryFee), row.customer_user_id, row.data.destLat != null && row.data.destLng != null ? { lat: Number(row.data.destLat), lng: Number(row.data.destLng) } : null);
       if (isReq) patch = { ...patch, invoiceId: undefined, subtotal: 0, deliveryFee: fee };
       else {
         // the order keeps its items and prices

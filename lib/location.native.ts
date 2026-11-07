@@ -44,3 +44,19 @@ export async function stopCourierTracking() {
   try { const Loc = L(); if (await Loc.hasStartedLocationUpdatesAsync(TASK)) await Loc.stopLocationUpdatesAsync(TASK); } catch { /* not running */ }
   try { await apiCourierStop(); } catch { /* the server drops stale positions by itself */ }
 }
+
+export type LocAccess = 'granted' | 'denied' | 'unsupported';
+/** Asks once (the phone shows its own question only while the answer is still undecided) and tells where we stand. */
+export async function askLocationAccess(): Promise<LocAccess> {
+  try {
+    const Loc = L();
+    const cur = await Loc.getForegroundPermissionsAsync();
+    if (cur.status === 'granted') return 'granted';
+    if (cur.canAskAgain === false) return 'denied';
+    const r = await Loc.requestForegroundPermissionsAsync();
+    return r.status === 'granted' ? 'granted' : 'denied';
+  } catch { return 'unsupported'; } // a build without the library
+}
+export async function openLocationSettings() {
+  try { require('react-native').Linking.openSettings(); } catch { /* nothing to open */ }
+}

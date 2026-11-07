@@ -172,7 +172,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
 const offersLib = require('./offers');
-const SCHEMA_VERSION = 20261124;
+const SCHEMA_VERSION = 20261125;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -723,7 +723,7 @@ async function loadSettingsBase() {
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 // the clock part is never cached: the app uses it to know when to open / close without asking again
 async function loadSettings() {
@@ -1023,6 +1023,7 @@ app.delete('/api/products/:id/image', auth, roles('provider','admin'), asyncRout
 // Orders, invoices, bookings and chat live in orders.js
 require('./commissions')(app, { pool, auth, roles, asyncRoute, positiveId });
 services.register(app, { pool, auth, roles, asyncRoute });
+require('./mapmode').registerMapModeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });

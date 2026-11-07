@@ -76,6 +76,14 @@ async function call(key, { as, body, query, params } = {}) {
   await call('DELETE /api/courier/location', { as: CO });
   r = await call('GET /api/orders/:id/tracking', { as: C1, params: { id: oLive } }); eq(r.json.courier, null, 'no marker after courier stops sharing');
   near(coms.km(30, 31, 30, 31), 0, 'km zero'); near(coms.km(30.0, 31.0, 30.0, 32.0), 96.3, 'km 1 degree lng at 30N');
+  // the owner's switch: maps off = every map endpoint is closed
+  await q('UPDATE app_settings SET map_enabled=FALSE WHERE id=1');
+  r = await call('PUT /api/me/location', { as: C1, body: { lat: 31.05, lng: 29.9 } }); eq(r.status, 409, 'maps off: customer spot refused');
+  r = await call('POST /api/courier/location', { as: CO, body: { lat: 31.02, lng: 29.97 } }); eq(r.status, 409, 'maps off: courier ping refused');
+  r = await call('GET /api/orders/:id/tracking', { as: C1, params: { id: oLive } }); eq(r.status, 409, 'maps off: tracking closed');
+  r = await call('GET /api/staff/courier-locations', { as: A }); eq(r.json.couriers.length, 0, 'maps off: empty courier map');
+  await q('UPDATE app_settings SET map_enabled=TRUE WHERE id=1');
+  r = await call('PUT /api/me/location', { as: C1, body: { lat: 31.05, lng: 29.9 } }); eq(r.status, 200, 'maps on again: works');
   console.log(`tracking: ${pass} passed, ${failN} failed`);
   await pool.end(); process.exit(failN ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

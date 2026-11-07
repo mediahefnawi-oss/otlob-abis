@@ -109,6 +109,7 @@ export type CentralSettings = {
   hours?: Hours;
   tzOffsetMin?: number;
   theme?: string;
+  map?: { enabled: boolean; required: boolean };
   delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number };
   serverNow?: number;
   updatedAt?: string;
@@ -253,10 +254,10 @@ export type SyncPayload = { unchanged?: boolean; tag?: string; warnings?: string
 export async function apiSync(tag?: string | null) {
   return apiRequest<SyncPayload>(tag ? `/api/sync?tag=${encodeURIComponent(tag)}` : '/api/sync');
 }
-export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[] }) {
+export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[]; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ invoice: any; orders: any[]; address: string }>('/api/orders/checkout', { method: 'POST', body: JSON.stringify(input) });
 }
-export async function apiCustomOrder(input: { text: string; phone: string; address: string }) {
+export async function apiCustomOrder(input: { text: string; phone: string; address: string; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ invoice: any; orders: any[] }>('/api/orders/custom', { method: 'POST', body: JSON.stringify(input) });
 }
 export async function apiOrderAction(id: string | number, action: string, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string }) {
@@ -290,7 +291,7 @@ export async function apiCatalog<T = any>() {
 }
 
 /** Free-text requests to supermarkets / pharmacies, priced by the shop. */
-export async function apiPlaceRequest(input: { providerId: string; text: string; image?: string | null; phone: string; address: string }) {
+export async function apiPlaceRequest(input: { providerId: string; text: string; image?: string | null; phone: string; address: string; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ order: any }>('/api/orders/request', { method: 'POST', body: JSON.stringify(input) });
 }
 export async function apiQuote(orderId: string | number, input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string; readyDate?: string; readyTime?: string }) {
@@ -379,3 +380,4 @@ export const apiOfferCreate = (b: { title: string; percent: number; color: strin
 export const apiOfferActive = (id: string, active: boolean) => apiRequest<{ offers: AdminOffer[] }>(`/api/admin/offers/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
 export const apiOfferDelete = (id: string) => apiRequest<{ offers: AdminOffer[] }>(`/api/admin/offers/${id}`, { method: 'DELETE' });
 export const apiSetDeliveryMode = (b: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }) => apiRequest<{ ok: boolean }>('/api/admin/delivery-mode', { method: 'PATCH', body: JSON.stringify(b) });
+export const apiSetMapMode = (b: { enabled: boolean; required: boolean }) => apiRequest<{ ok: boolean }>('/api/admin/map-mode', { method: 'PATCH', body: JSON.stringify(b) });

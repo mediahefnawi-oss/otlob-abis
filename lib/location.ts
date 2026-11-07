@@ -27,3 +27,8 @@ export async function stopCourierTracking() {
   watch = null;
   try { await apiCourierStop(); } catch { /* offline: the server drops stale positions by itself */ }
 }
+
+/** Asking for the location when the customer signs in is done in the phone app only; a browser asks when the location is first used. */
+export type LocAccess = 'granted' | 'denied' | 'unsupported';
+export async function askLocationAccess(): Promise<LocAccess> { return 'unsupported'; }
+export async function openLocationSettings() { /* nothing to open on the web */ }

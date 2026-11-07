@@ -21,6 +21,7 @@ import { useCounters } from '../lib/finance';
 import { SupportInbox, useSupportUnread } from '../components/SupportChat';
 import { ThemePicker } from '../components/ThemePicker';
 import { DeliveryModeCard } from '../components/DeliveryMode';
+import { MapModeCard, CustomerLocationCard } from '../components/Location';
 import { apiSupervisorSupport } from '../lib/api';
 import { AdsManager } from '../components/Ads';
 import { HoursSettings } from '../components/HoursSettings';
@@ -101,6 +102,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
       <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }}>
         <AppSwitch />
         <ThemePicker />
+        <MapModeCard />
         <DeliveryModeCard />
 
         <Card onPress={() => navigation.navigate('AdminCustomers')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -660,6 +662,8 @@ export function AdminCustomerScreen({ navigation, route }: any) {
             <Btn small variant="green" icon="logo-whatsapp" title="واتساب" style={{ flex: 1 }} onPress={() => openWhats(user.phone)} />
           </View>
         </Card>
+
+        <CustomerLocationCard lat={user.homeLat} lng={user.homeLng} />
 
         <Card style={{ gap: 12 }}>
           <T w="bold" size={15}>علامة الحساب</T>

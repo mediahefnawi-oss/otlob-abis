@@ -4,6 +4,7 @@
  * road factor (a straight line is shorter than the road). Needs the shop's spot and the customer's spot; without both, the area price is used.
  */
 const { km } = require('./tracking');
+const mapMode = require('./mapmode');
 
 /** Pure: the fee for two points, or null when either spot is missing. */
 function feeFor(cfg, a, b) {
@@ -20,14 +21,18 @@ async function loadCfg(db) {
   try { const r = await db.query('SELECT fee_mode, fee_per_km, fee_min, fee_max, fee_factor FROM app_settings WHERE id=1'); return r.rowCount ? cfgFromRow(r.rows[0]) : { mode: 'region' }; }
   catch { return { mode: 'region' }; } // not migrated yet
 }
-/** The fee for a shop and a customer from the database, or null (switch off / a spot missing). */
-async function forOrder(db, providerId, customerId) {
+/**
+ * The fee for a shop and a delivery spot, or null (switch off / a spot missing).
+ * `dest`: undefined = the customer's saved spot; null = this order goes to another address with no pin (so no distance price); {lat,lng} = a pin chosen for this order.
+ */
+async function forOrder(db, providerId, customerId, dest) {
   const cfg = await loadCfg(db);
-  if (cfg.mode !== 'km') return null;
+  if (cfg.mode !== 'km' || !(await mapMode.load(db)).enabled) return null;
   try {
     const p = await db.query('SELECT lat, lng FROM providers WHERE id=$1', [providerId]);
-    const u = await db.query('SELECT home_lat AS lat, home_lng AS lng FROM users WHERE id=$1', [customerId]);
-    return feeFor(cfg, p.rows[0], u.rows[0]);
+    let to = dest;
+    if (dest === undefined) { const u = await db.query('SELECT home_lat AS lat, home_lng AS lng FROM users WHERE id=$1', [customerId]); to = u.rows[0]; }
+    return feeFor(cfg, p.rows[0], to);
   } catch { return null; }
 }
 

@@ -13,6 +13,7 @@ import { C } from './lib/theme';
 import { initStore, useStore, useMe, useAppGate, availableCouriers, setStoreErrorHandler, setStoreNoticeHandler } from './lib/store';
 import { Overlays, Logo, toast } from './components/ui';
 import { SoundGate } from './components/SoundGate';
+import { LocationGate } from './components/LocationGate';
 import { SyncBanner } from './components/SyncBanner';
 import { OrderAlarmBar } from './components/OrderAlarmBar';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -52,7 +53,7 @@ const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background
 function Main({ navigation }: any) {
   const me = useMe()!;
   const { db } = useStore();
-  useCourierTracking(me.role === 'courier', !!me.available || db.orders.some((o) => o.courierId === me.id && ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)));
+  useCourierTracking(me.role === 'courier', db.settings.map?.enabled !== false && (!!me.available || db.orders.some((o) => o.courierId === me.id && ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status))));
   const supUnread = useSupportUnread(me.role !== 'admin' && (me.role !== 'supervisor' || !!me.supportChat));
 
   let tabs: TabDef[] = [];
@@ -197,6 +198,7 @@ export default function App() {
       <View style={{ flex: 1, backgroundColor: C.dark, direction: 'rtl' }}>
         <View style={{ flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
           <SoundGate />
+          <LocationGate />
           <SyncBanner />
           <UpdateBanner />
           <InstallBanner />

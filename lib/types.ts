@@ -251,6 +251,7 @@ export interface Settings {
   credits?: Credits | null; // the developer lines at the bottom of the first screen (null = the defaults)
   hours?: Hours; // opening hours (Cairo time); outside them customers see the closed screen
   delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }; // delivery price by area or by kilometre
+  map?: { enabled: boolean; required: boolean }; // owner switch: maps + live location, and whether a delivery pin is required
   theme?: string; // colour theme picked by the owner
   tzOffsetMin?: number; // Cairo's offset from UTC when the settings were fetched (120 or 180)
 }

@@ -506,3 +506,8 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_per_km NUMERIC(8,2) NOT NU
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_min NUMERIC(8,2) NOT NULL DEFAULT 10;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_max NUMERIC(8,2) NOT NULL DEFAULT 40;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_factor NUMERIC(4,2) NOT NULL DEFAULT 1.3;
+
+-- Owner switch for maps and live location. map_enabled=false: the app works as before (typed address only, no maps, no tracking).
+-- map_required: a delivery pin is needed to confirm an order (only when maps are on).
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS map_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS map_required BOOLEAN NOT NULL DEFAULT TRUE;
