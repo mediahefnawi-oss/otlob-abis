@@ -36,7 +36,7 @@ async function done(action: Promise<{ ok: boolean }>, okMsg: string, okKind: 'ok
   else toast(r.error || 'تعذر تنفيذ العملية', 'err');
 }
 
-function AppSwitch() {
+function AppSwitch({ compact }: { compact?: boolean }) {
   const { db } = useStore();
   const on = db.settings.appEnabled;
   const toggle = () =>
@@ -49,6 +49,22 @@ function AppSwitch() {
         done(updateSettings({ appEnabled: !on }), on ? 'تم إيقاف التطبيق لجميع المستخدمين' : 'تم تشغيل التطبيق لجميع المستخدمين', on ? 'info' : 'ok');
       },
     });
+  if (compact) {
+    return (
+      <Pressable onPress={toggle}>
+        <LinearGradient colors={on ? ['#16A163', '#0E7A4F'] : ['#B53A3A', '#8E2A2A']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 16, paddingVertical: 9, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Icon name="power" size={18} color="#fff" />
+          <View style={{ flex: 1 }}>
+            <T w="black" size={13.5} color="#fff">{on ? 'التطبيق يعمل' : 'التطبيق متوقف'}</T>
+          </View>
+          <T size={11} color="rgba(255,255,255,0.85)">{on ? 'اضغط للإيقاف' : 'اضغط للتشغيل'}</T>
+          <View style={{ width: 40, height: 23, borderRadius: 12, backgroundColor: on ? C.gold : 'rgba(255,255,255,0.3)', padding: 2.5, alignItems: on ? 'flex-start' : 'flex-end' }}>
+            <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff' }} />
+          </View>
+        </LinearGradient>
+      </Pressable>
+    );
+  }
   return (
     <Pressable onPress={toggle}>
       <LinearGradient colors={on ? ['#16A163', '#0E7A4F'] : ['#B53A3A', '#8E2A2A']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 22, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, ...shadow }}>
@@ -115,7 +131,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="لوحة الإدارة" subtitle={`مرحباً ${me.name}`} />
       <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }}>
-        <AppSwitch />
+        <AppSwitch compact />
 
         {(pendingProv.length > 0 || pendingCour.length > 0 || pendingCust.length > 0) && (
           <Appear>
@@ -148,14 +164,14 @@ export function AdminDashboardScreen({ navigation, go }: any) {
           <T w="black" size={15} style={{ marginBottom: 8 }}>اليوم</T>
           <View style={{ gap: 10 }}>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Stat icon="receipt" label="طلبات اليوم" value={todayOrders.length} />
-              <Stat icon="cash" label="مبيعات اليوم" value={money(todaySales)} color={C.goldDeep} soft={C.goldSoft} />
-              <Stat icon="bicycle" label="قيد التنفيذ" value={active.length} color={C.orange} soft={C.orangeSoft} />
+              <Stat compact icon="receipt" label="طلبات اليوم" value={todayOrders.length} />
+              <Stat compact icon="cash" label="مبيعات اليوم" value={money(todaySales)} color={C.goldDeep} soft={C.goldSoft} />
+              <Stat compact icon="bicycle" label="قيد التنفيذ" value={active.length} color={C.orange} soft={C.orangeSoft} />
             </View>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Stat icon="checkmark-done" label="مكتملة اليوم" value={todayDone.length} color={C.blue} soft={C.blueSoft} />
-              <Stat icon="close-circle" label="ملغاة اليوم" value={todayDead.length} color={C.red} soft={C.redSoft} />
-              <Stat icon="radio" label={`مناديب متاحون / ${couriers.length}`} value={avail} color={C.green} />
+              <Stat compact icon="checkmark-done" label="مكتملة اليوم" value={todayDone.length} color={C.blue} soft={C.blueSoft} />
+              <Stat compact icon="close-circle" label="ملغاة اليوم" value={todayDead.length} color={C.red} soft={C.redSoft} />
+              <Stat compact icon="radio" label={`مناديب متاحون / ${couriers.length}`} value={avail} color={C.green} />
             </View>
           </View>
         </View>
@@ -212,19 +228,19 @@ export function AdminDashboardScreen({ navigation, go }: any) {
           <T w="black" size={15} style={{ marginBottom: 8 }}>الإجمالي (كل الوقت)</T>
           <View style={{ gap: 10 }}>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="receipt" label="إجمالي الطلبات" value={counters ? counters.totals.orders : orders.length} />
-          <Stat icon="checkmark-done" label="المكتملة" value={delivered.length} color={C.blue} soft={C.blueSoft} />
-          <Stat icon="bicycle" label="قيد التنفيذ" value={active.length} color={C.orange} soft={C.orangeSoft} />
+          <Stat compact icon="receipt" label="إجمالي الطلبات" value={counters ? counters.totals.orders : orders.length} />
+          <Stat compact icon="checkmark-done" label="المكتملة" value={delivered.length} color={C.blue} soft={C.blueSoft} />
+          <Stat compact icon="bicycle" label="قيد التنفيذ" value={active.length} color={C.orange} soft={C.orangeSoft} />
         </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="cash" label="إجمالي المبيعات" value={money(counters ? counters.totals.sales : revenue)} color={C.goldDeep} soft={C.goldSoft} />
-          <Stat icon="trending-up" label="أرباح المنصة" value={money(counters ? counters.totals.profit : 0)} color={C.green} soft={C.greenSoft} />
-          <Stat icon="calendar" label="حجوزات العيادات" value={db.appointments.length} color="#8A5CD1" soft="#EFE6FB" />
+          <Stat compact icon="cash" label="إجمالي المبيعات" value={money(counters ? counters.totals.sales : revenue)} color={C.goldDeep} soft={C.goldSoft} />
+          <Stat compact icon="trending-up" label="أرباح المنصة" value={money(counters ? counters.totals.profit : 0)} color={C.green} soft={C.greenSoft} />
+          <Stat compact icon="calendar" label="حجوزات العيادات" value={db.appointments.length} color="#8A5CD1" soft="#EFE6FB" />
         </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="people" label="العملاء" value={db.users.filter((u) => u.role === 'customer').length} />
-          <Stat icon="storefront" label="مقدمو الخدمة" value={db.providers.filter((p) => p.status === 'active').length} color={C.blue} soft={C.blueSoft} />
-          <Stat icon="radio" label={`مناديب متاحون / ${couriers.length}`} value={avail} color={C.green} />
+          <Stat compact icon="people" label="العملاء" value={db.users.filter((u) => u.role === 'customer').length} />
+          <Stat compact icon="storefront" label="مقدمو الخدمة" value={db.providers.filter((p) => p.status === 'active').length} color={C.blue} soft={C.blueSoft} />
+          <Stat compact icon="radio" label={`مناديب متاحون / ${couriers.length}`} value={avail} color={C.green} />
         </View>
 
           </View>

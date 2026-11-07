@@ -354,7 +354,15 @@ export const Toggle = ({ value, onValueChange, dark }: { value: boolean; onValue
   </Pressable>
 );
 
-export const Stat = ({ icon, label, value, color = C.green, soft = C.greenSoft }: { icon: string; label: string; value: string | number; color?: string; soft?: string }) => (
+export const Stat = ({ icon, label, value, color = C.green, soft = C.greenSoft, compact }: { icon: string; label: string; value: string | number; color?: string; soft?: string; compact?: boolean }) => compact ? (
+  <View style={[styles.card, { flex: 1, paddingVertical: 9, paddingHorizontal: 10, gap: 4, minWidth: 96 }]}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+      <IconBubble icon={icon} color={color} bg={soft} size={26} />
+      <T w="black" size={17} numberOfLines={1} style={{ flexShrink: 1 }}>{value}</T>
+    </View>
+    <T size={10.5} color={C.sub} numberOfLines={1}>{label}</T>
+  </View>
+) : (
   <View style={[styles.card, { flex: 1, padding: 12, gap: 6, minWidth: 96 }]}>
     <IconBubble icon={icon} color={color} bg={soft} size={34} />
     <T w="black" size={20}>{value}</T>
