@@ -19,6 +19,8 @@ import { OrderAlarmBar } from './components/OrderAlarmBar';
 import { UpdateBanner } from './components/UpdateBanner';
 import { InstallBanner } from './components/InstallBanner';
 import { navigationRef } from './lib/nav';
+import { SideNav } from './components/SideNav';
+import { useWide, useNav } from './lib/wide';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
@@ -172,6 +174,9 @@ export default function App() {
     Cairo_400Regular, Cairo_600SemiBold, Cairo_700Bold, Cairo_800ExtraBold,
   });
   const { ready } = useStore();
+  const wide = useWide();
+  const navState = useNav();
+  const side = wide && !!navState; // computer view with a signed-in user: side menu + wider content
 
   useEffect(() => {
     initStore();
@@ -195,8 +200,10 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <View style={{ flex: 1, backgroundColor: C.dark, direction: 'rtl' }}>
-        <View style={{ flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
+      <View style={{ flex: 1, flexDirection: 'row', backgroundColor: C.dark, direction: 'rtl' }}>
+        {wide && <SideNav />}
+        <View style={{ flex: 1, backgroundColor: side ? C.bg : C.dark }}>
+        <View style={{ flex: 1, width: '100%', maxWidth: side ? 940 : 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
           <SoundGate />
           <LocationGate />
           <SyncBanner />
@@ -205,6 +212,7 @@ export default function App() {
           <OrderAlarmBar />
           <View style={{ flex: 1 }}><ErrorBoundary><Root /></ErrorBoundary></View>
           <Overlays />
+        </View>
         </View>
       </View>
     </SafeAreaProvider>

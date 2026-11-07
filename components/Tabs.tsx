@@ -1,8 +1,9 @@
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode, useEffect, useState } from 'react';
 import { View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, shadow } from '../lib/theme';
 import { T, Icon } from './ui';
+import { useWide, setNav } from '../lib/wide';
 
 export interface TabDef {
   key: string;
@@ -20,6 +21,13 @@ export function TabHost({ tabs, initial }: { tabs: TabDef[]; initial?: string })
     setActive(k);
     setVisited((v) => (v.includes(k) ? v : [...v, k]));
   };
+  const wide = useWide();
+  // computer view: publish the tabs so the side menu can show them (the bottom bar is hidden then)
+  useEffect(() => {
+    if (!wide) { setNav(null); return; }
+    setNav({ items: tabs.map((t) => ({ key: t.key, label: t.label, icon: t.icon, badge: t.badge })), active, go });
+  });
+  useEffect(() => () => setNav(null), []);
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <View style={{ flex: 1 }}>
@@ -31,7 +39,7 @@ export function TabHost({ tabs, initial }: { tabs: TabDef[]; initial?: string })
           ) : null
         )}
       </View>
-      <View
+      {!wide && <View
         style={{
           flexDirection: 'row', backgroundColor: '#fff', paddingTop: 8, paddingBottom: Math.max(insets.bottom, 8),
           borderTopLeftRadius: 24, borderTopRightRadius: 24, ...shadow, shadowOffset: { width: 0, height: -3 }, paddingHorizontal: 6,
@@ -58,7 +66,7 @@ export function TabHost({ tabs, initial }: { tabs: TabDef[]; initial?: string })
             </Pressable>
           );
         })}
-      </View>
+      </View>}
     </View>
   );
 }
