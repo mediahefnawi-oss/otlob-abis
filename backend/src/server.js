@@ -173,7 +173,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
-const SCHEMA_VERSION = 20261127;
+const SCHEMA_VERSION = 20261128;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -724,7 +724,7 @@ async function loadSettingsBase() {
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', privacy: { on: x.privacy_hide !== false, minutes: x.privacy_minutes != null ? Number(x.privacy_minutes) : 1 }, ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 // the clock part is never cached: the app uses it to know when to open / close without asking again
 async function loadSettings() {
@@ -765,6 +765,23 @@ app.patch('/api/admin/update-notice', auth, roles('admin'), asyncRoute(async (re
   try {
     await pool.query('UPDATE app_settings SET update_version=$1, update_message=$2, update_required=$3, updated_at=NOW() WHERE id=1', [version, message, required]);
   } catch (e) { if (e.code === '42703') return res.status(503).json({ error: 'قاعدة البيانات لم تُحدَّث بعد' }); throw e; }
+  settingsMemo.clear();
+  res.json({ settings: await loadSettings() });
+}));
+
+// The owner decides whether shops and couriers lose sight of the customer's data after delivery, and after how many minutes.
+app.patch('/api/admin/privacy', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  const sets = [], values = [];
+  if (b.on !== undefined) { values.push(!!b.on); sets.push(`privacy_hide=$${values.length}`); }
+  if (b.minutes !== undefined) {
+    const m = Math.floor(Number(b.minutes));
+    if (![1, 5, 30, 60].includes(m)) return res.status(400).json({ error: 'اختر 1 أو 5 أو 30 أو 60 دقيقة' });
+    values.push(m); sets.push(`privacy_minutes=$${values.length}`);
+  }
+  if (!sets.length) return res.status(400).json({ error: 'لا يوجد تغيير' });
+  try { await pool.query(`UPDATE app_settings SET ${sets.join(', ')}, updated_at=NOW() WHERE id=1`, values); }
+  catch (e) { if (e.code === '42703') return res.status(503).json({ error: 'قاعدة البيانات لم تُحدَّث بعد' }); throw e; }
   settingsMemo.clear();
   res.json({ settings: await loadSettings() });
 }));

@@ -144,15 +144,16 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           {provider && !!provider.address && <Row icon="location" label="عنوان المتجر" value={provider.address} />}
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Row icon="person" label="اسم العميل" value={o.customerName} />
-          <Row icon="call" label="الهاتف" value={o.phone} />
-          {!!o.phone2 && me.role !== 'customer' && <Row icon="call" label="رقم آخر للعميل" value={o.phone2} />}
+          {o.privacyMasked && <T size={12} color={C.sub} align="center" style={{ backgroundColor: '#F3F4EE', borderRadius: 12, padding: 10 }}>🔒 أُخفيت بيانات العميل للخصوصية بعد انتهاء الطلب</T>}
+          {!o.privacyMasked && <Row icon="call" label="الهاتف" value={o.phone} />}
+          {!o.privacyMasked && !!o.phone2 && me.role !== 'customer' && <Row icon="call" label="رقم آخر للعميل" value={o.phone2} />}
           {!!o.regionName && <Row icon="map" label="منطقة العميل" value={o.regionName} />}
-          <Row icon="location" label="العنوان التفصيلي" value={o.address} />
-          {!!o.notes && <Row icon="create" label="ملاحظات" value={o.notes} />}
+          {!o.privacyMasked && <Row icon="location" label="العنوان التفصيلي" value={o.address} />}
+          {!o.privacyMasked && !!o.notes && <Row icon="create" label="ملاحظات" value={o.notes} />}
           {me.role !== 'customer' || true ? (
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {(me.role !== 'customer') && <Btn small variant="soft" icon="call" title="اتصال بالعميل" style={{ flex: 1 }} onPress={() => callPhone(o.phone)} />}
-              {(me.role !== 'customer' && !!o.phone2) && <Btn small variant="soft" icon="call" title="الرقم الآخر" style={{ flex: 1 }} onPress={() => callPhone(o.phone2 as string)} />}
+              {(me.role !== 'customer' && !o.privacyMasked) && <Btn small variant="soft" icon="call" title="اتصال بالعميل" style={{ flex: 1 }} onPress={() => callPhone(o.phone)} />}
+              {(me.role !== 'customer' && !!o.phone2 && !o.privacyMasked) && <Btn small variant="soft" icon="call" title="الرقم الآخر" style={{ flex: 1 }} onPress={() => callPhone(o.phone2 as string)} />}
               {(me.role === 'customer' && provider) && <Btn small variant="soft" icon="call" title="اتصال بالمتجر" style={{ flex: 1 }} onPress={() => callPhone(provider.phone)} />}
             </View>
           ) : null}
@@ -236,7 +237,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
               {o.status === 'arrived' && <Btn title="تم تسليم الطلب للعميل" icon="checkmark-done" variant="green" onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(o.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => act('deliver') })} />}
             </>
           )}
-          {canChat && !isStaff && <OrderChatCard orderId={o.id} me={me} messages={db.messages} onOpen={() => navigation.navigate('Chat', { orderId: o.id })} />}
+          {canChat && !isStaff && o.status !== 'delivered' && <OrderChatCard orderId={o.id} me={me} messages={db.messages} onOpen={() => navigation.navigate('Chat', { orderId: o.id })} />}
           {canChat && isStaff && <Btn title="عرض المحادثة" icon="chatbubbles" variant="dark" onPress={() => navigation.navigate('Chat', { orderId: o.id })} />}
           {me.role === 'customer' && o.customerId === me.id && o.status === 'quoted' && (
             <Card style={{ gap: 10, borderWidth: 1.5, borderColor: C.gold, backgroundColor: C.goldSoft }}>
@@ -508,7 +509,7 @@ export function ChatScreen({ navigation, route }: any) {
   if (!o) return <Empty title="غير موجود" />;
   const msgs = db.messages.filter((m) => m.orderId === o.id).sort((a, b) => b.createdAt - a.createdAt);
   const other = me.role === 'courier' || me.role === 'provider' ? `${o.customerName} (العميل)` : me.role === 'customer' ? `${o.providerName || 'المتجر'}${o.courierName ? ` • ${o.courierName}` : ''}` : `${o.customerName} ↔ ${o.courierName || o.providerName || '—'}`;
-  const canWrite = me.role !== 'admin' && me.role !== 'supervisor' && !['delivered', 'cancelled', 'rejected'].includes(o.status);
+  const canWrite = me.role !== 'admin' && me.role !== 'supervisor' && !['delivered', 'cancelled', 'rejected', 'unavailable'].includes(o.status);
   const quick = me.role === 'provider' ? ['تم استلام طلبك', 'الطلب جاري تجهيزه', 'المنتج غير متوفر، نستبدله بغيره؟'] : me.role === 'courier' ? ['أنا في الطريق إليك', 'وصلت أمام العنوان', 'ممكن توضح العنوان أكتر؟'] : ['أنا في انتظارك', 'العنوان بجوار المسجد', 'من فضلك اتصل بي عند الوصول'];
 
   const send = (t = text) => {

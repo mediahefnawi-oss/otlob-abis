@@ -92,5 +92,18 @@ const pass1 = (req, res, next) => next();
   await q("UPDATE users SET region_id=$1 WHERE id=ANY($2)", [rid2, [far, near, noloc, stale]]);
   let o6 = await mk(p); await accept(o6);
   ok((await who(o6)).c === null, 'couriers of another area are not used');
+  // order chat closes with the order for everyone but the staff
+  let oc = await mk(p); await accept(oc);
+  const cc = (await who(oc)).c || near;
+  await q("UPDATE orders SET courier_user_id=$2, status='on_the_way' WHERE id=$1", [oc, cc]);
+  r = await call('POST /api/orders/:id/messages', { sub: String(cc), role: 'courier' }, { id: String(oc) }, { text: 'في الطريق' });
+  ok(r.status === 201, 'courier can write while the order is running: ' + r.status);
+  await q("UPDATE orders SET status='delivered' WHERE id=$1", [oc]);
+  r = await call('POST /api/orders/:id/messages', { sub: String(cc), role: 'courier' }, { id: String(oc) }, { text: 'بعد التسليم' });
+  ok(r.status === 409, 'courier cannot write after delivery: ' + r.status);
+  r = await call('POST /api/orders/:id/messages', { sub: String(cust), role: 'customer' }, { id: String(oc) }, { text: 'بعد التسليم' });
+  ok(r.status === 409, 'customer cannot write after delivery: ' + r.status);
+  r = await call('POST /api/orders/:id/messages', { sub: String((await q("SELECT id FROM users WHERE role='admin' LIMIT 1")).rows[0]?.id || 0), role: 'admin' }, { id: String(oc) }, { text: 'المالك' });
+  ok(r.status === 201, 'the owner still can: ' + r.status);
   console.log(`autoassign: ${pass} passed, ${bad} failed`); await pool.end(); process.exit(bad ? 1 : 0);
 })().catch(e => { console.error('CRASH', e); process.exit(2); });

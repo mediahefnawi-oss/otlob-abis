@@ -119,9 +119,13 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     } catch { return {}; } // column not migrated yet: never block an order because of a label
   }
   // shops, couriers and the owner see the label; the customer never does
-  const orderJsonFor = (r, role) => {
-    const o = orderJson(r);
+  // After delivery, shops and couriers no longer see the customer's name / phone / address / notes (the owner can switch it off or change the delay).
+  const privacyMask = (r, role, pv) => !!(pv && pv.on && (role === 'provider' || role === 'courier') && r.status === 'delivered'
+    && Date.now() - new Date(r.delivered_at || r.updated_at).getTime() > Math.max(0, Number(pv.minutes) || 1) * 60000);
+  const orderJsonFor = (r, role, pv) => {
+    let o = orderJson(r);
     const d = r.data || {};
+    if (privacyMask(r, role, pv)) o = { ...o, customerName: 'عميل', phone: '', phone2: '', address: '', notes: '', privacyMasked: true };
     return role === 'customer' || !d.customerFlag ? o : { ...o, customerFlag: d.customerFlag, customerFlagNote: d.customerFlagNote || undefined };
   };
   const apptJsonFor = (r, role) => {
@@ -338,9 +342,12 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
    */
   async function syncTag(auth) {
     const p = [Number(auth.sub)];
+    const pv = (await loadSettings()).privacy || { on: false, minutes: 1 };
     const so = orderScope(auth, p);
     const sa = apptScope(auth, p);
-    const r = await pool.query(`WITH ord AS (SELECT o.id, o.status, o.updated_at, o.courier_user_id FROM orders o WHERE ${so} ORDER BY o.created_at DESC LIMIT 300),
+    const pvOn = pv.on && (auth.role === 'provider' || auth.role === 'courier') ? 'TRUE' : 'FALSE';
+    const pvMin = Math.max(0, Math.floor(Number(pv.minutes) || 1));
+    const r = await pool.query(`WITH ord AS (SELECT o.id, o.status, o.updated_at, o.delivered_at, o.courier_user_id FROM orders o WHERE ${so} ORDER BY o.created_at DESC LIMIT 300),
         apt AS (SELECT a.id, a.status, a.updated_at FROM appointments a WHERE ${sa} ORDER BY a.created_at DESC LIMIT 300)
       SELECT
         (SELECT md5(u::text) FROM users u WHERE u.id=$1) AS me,
@@ -348,6 +355,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         (SELECT COALESCE(SUM(hashtextextended(apt.id::text||apt.status||apt.updated_at::text,0)::numeric),0)::text||':'||COUNT(*) FROM apt) AS a,
         (SELECT COUNT(*)||':'||COALESCE(MAX(m.id),0) FROM messages m WHERE m.order_id IN (SELECT id FROM ord)) AS m,
         (SELECT updated_at::text FROM app_settings WHERE id=1) AS s,
+        (SELECT COUNT(*) FROM ord WHERE ${pvOn} AND ord.status='delivered' AND COALESCE(ord.delivered_at, ord.updated_at) < NOW() - make_interval(mins => ${pvMin})) AS pv,
         (SELECT updated_at::text FROM site_images WHERE key='login') AS li,
         (SELECT updated_at::text FROM site_images WHERE key='welcome_logo') AS wl,
         (SELECT MAX(updated_at)::text||':'||COUNT(*) FROM site_images WHERE key LIKE 'cat\\_%') AS ci,
@@ -399,10 +407,16 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       }),
     ]);
     const slots = { rows: slotRows };
+    const maskInvoice = inv => {
+      const parts = inv.parts || [];
+      if (!hiddenOrders.size || !parts.length || !parts.every(pt => hiddenOrders.has(String(pt.orderId)))) return inv;
+      return { ...inv, customerName: 'عميل', phone: '', address: '', privacyMasked: true };
+    };
+    const hiddenOrders = new Set(orders.filter(r => privacyMask(r, req.auth.role, settings.privacy)).map(r => String(r.id)));
     res.set('Cache-Control', 'no-store');
     res.json({
       warnings, tag: warnings.length ? undefined : tag || undefined, settings, user: me, couriersOnline: online,
-      orders: orders.map(r => orderJsonFor(r, req.auth.role)), invoices: invoices.map(invoiceJson), appointments: appts.map(r => apptJsonFor(r, req.auth.role)), messages: messages.map(messageJson),
+      orders: orders.map(r => orderJsonFor(r, req.auth.role, settings.privacy)), invoices: invoices.map(r => maskInvoice(invoiceJson(r))), appointments: appts.map(r => apptJsonFor(r, req.auth.role)), messages: messages.filter(m => !hiddenOrders.has(String(m.order_id))).map(messageJson),
       bookedSlots: slots.rows.filter(s => s.doctor_product_id).map(s => ({ doctorId: String(s.doctor_product_id), date: s.d, time: s.t })),
     });
   }));
@@ -929,9 +943,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const id = positiveId(req.params.id);
     const body = String((req.body || {}).text || '').trim().slice(0, 2000);
     if (!id || !body) throw fail(400, 'اكتب رسالة');
-    const o = await pool.query('SELECT o.customer_user_id, o.courier_user_id, o.region_id, p.owner_user_id AS powner FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1', [id]);
+    const o = await pool.query('SELECT o.status, o.customer_user_id, o.courier_user_id, o.region_id, p.owner_user_id AS powner FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1', [id]);
     if (!o.rowCount) throw fail(404, 'الطلب غير موجود');
     const me = Number(req.auth.sub); const x = o.rows[0];
+    // the order chat closes with the order: after delivery / cancellation only the owner and supervisors may still write (everyone else uses support chat)
+    if (['delivered', 'cancelled', 'rejected', 'unavailable'].includes(x.status) && req.auth.role !== 'admin' && req.auth.role !== 'supervisor') throw fail(409, 'انتهى الطلب وأُغلقت المحادثة. للتواصل استخدم شات الدعم');
     const allowed = req.auth.role === 'admin' || (req.auth.role === 'supervisor' && await staffCan(pool, req.auth, x)) || [x.customer_user_id, x.courier_user_id, x.powner].some(v => v && Number(v) === me);
     if (!allowed) throw fail(403, 'غير مسموح بالمشاركة في هذه المحادثة');
     const u = await pool.query('SELECT name, role FROM users WHERE id=$1', [me]);

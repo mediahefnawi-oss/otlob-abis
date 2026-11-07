@@ -532,3 +532,6 @@ CREATE INDEX IF NOT EXISTS idx_ratings_courier ON ratings(courier_user_id);
 -- UI size chosen by the owner: phones (app + narrow web) and computers (wide web). 1.00 = the original size.
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ui_phone_scale NUMERIC(4,2) NOT NULL DEFAULT 1.00;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ui_desktop_scale NUMERIC(4,2) NOT NULL DEFAULT 0.90;
+-- shops and couriers lose sight of the customer's data some minutes after delivery (the owner can switch it off)
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS privacy_hide BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS privacy_minutes INTEGER NOT NULL DEFAULT 1;

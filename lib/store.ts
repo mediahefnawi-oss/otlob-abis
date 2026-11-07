@@ -6,7 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { phaseAt, allowedIn, renderMessage, type HoursPhase, type NextOpen } from './hours';
 import { AppState } from 'react-native';
 import {
-  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiUpdateNotice, apiSetTheme, apiSetUiScale, apiSetDeliveryMode, apiSetMapMode, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
+  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiUpdateNotice, apiSetTheme, apiSetUiScale, apiSetPrivacy, apiSetDeliveryMode, apiSetMapMode, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
@@ -151,7 +151,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null]);
 
 let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
@@ -174,6 +174,7 @@ function applySettings(c: CentralSettings) {
     tzOffsetMin: c.tzOffsetMin,
     theme: c.theme || 'default',
     ui: c.ui,
+    privacy: c.privacy,
     delivery: c.delivery,
     map: c.map,
   };
@@ -1184,6 +1185,11 @@ export async function setDeliveryMode(b: { mode: 'region' | 'km'; perKm: number;
 /** The customer saved (or removed) his spot: the delivery price by distance follows at once. */
 export function setMyHome(p: { lat: number; lng: number } | null) {
   mutate((db) => { const u = db.users.find((x) => x.id === state.userId); if (u) { u.homeLat = p ? p.lat : undefined; u.homeLng = p ? p.lng : undefined; } });
+}
+
+/** Owner-only: hide the customer's data from shops / couriers some minutes after delivery. */
+export async function setPrivacy(b: { on?: boolean; minutes?: number }): Promise<Result> {
+  try { const { settings } = await apiSetPrivacy(b); applySettings(settings); return { ok: true }; } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 
 /** Owner-only: how big the interface is on phones / computers (1 = the original size). */

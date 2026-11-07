@@ -110,6 +110,26 @@ module.exports = function registerSupportRoutes(app, { pool, auth, roles, asyncR
     notify([out.t.user_id], { title: 'رد من الدعم الفني', body: text.slice(0, 100), tag: 'support-reply', url: '/', requireInteraction: true });
     res.status(201).json({ message: msgJson(out.m) });
   }));
+  // the owner (or an allowed supervisor) opens a conversation with any customer / shop / courier and the user gets a push at once
+  app.post('/api/support/start', auth, staffRoles, guard(async (req, res) => {
+    await staffOnly(req);
+    const uid = positiveId((req.body || {}).userId);
+    if (!uid) throw fail(400, 'اختر المستخدم');
+    const text = bodyOf(req);
+    const target = (await pool.query("SELECT id, role FROM users WHERE id=$1 AND role IN ('customer','provider','courier') AND deleted_at IS NULL", [uid])).rows[0];
+    if (!target) throw fail(404, 'المستخدم غير موجود');
+    const u = (await pool.query('SELECT name, role FROM users WHERE id=$1', [me(req)])).rows[0];
+    const out = await withTx(async db => {
+      const t = (await db.query(
+        `INSERT INTO support_threads(user_id, status, last_message, last_message_at, unread_user, unread_staff) VALUES($1,'open',$2,NOW(),1,0)
+         ON CONFLICT (user_id) DO UPDATE SET status='open', last_message=EXCLUDED.last_message, last_message_at=NOW(), unread_user=support_threads.unread_user+1, unread_staff=0 RETURNING *`,
+        [uid, text.slice(0, 200)])).rows[0];
+      const m = (await db.query('INSERT INTO support_messages(thread_id, sender_user_id, sender_name, sender_role, body) VALUES($1,$2,$3,$4,$5) RETURNING *', [t.id, me(req), u.name, u.role, text])).rows[0];
+      return { t, m };
+    });
+    notify([uid], { title: 'رسالة من الدعم الفني', body: text.slice(0, 100), tag: 'support-reply', url: '/', requireInteraction: true });
+    res.status(201).json({ message: msgJson(out.m), thread: { id: String(out.t.id), status: out.t.status } });
+  }));
   app.post('/api/support/threads/:id/status', auth, staffRoles, guard(async (req, res) => {
     await staffOnly(req);
     const id = positiveId(req.params.id);

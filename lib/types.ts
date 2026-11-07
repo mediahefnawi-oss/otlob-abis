@@ -119,6 +119,7 @@ export interface OrderItem {
 export interface Order {
   staffHandled?: boolean; // a supervisor took the order over (the shop left it stuck)
   cancelledBy?: string; // who cancelled it: customer / provider / admin / supervisor
+  privacyMasked?: boolean; // the customer's data was hidden from this shop/courier after delivery
   autoPending?: boolean; // the owner's auto-assign gave it to this courier and he has not opened it yet (the app opens it for him)
   errandQuote?: 'open' | 'quoted' | 'approved'; // «اطلب إيه نجيبهولك»: waiting for the courier's price / waiting for the customer / agreed
   id: string;
@@ -255,6 +256,7 @@ export interface Settings {
   delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }; // delivery price by area or by kilometre
   map?: { enabled: boolean; required: boolean }; // owner switch: maps + live location, and whether a delivery pin is required
   theme?: string; // colour theme picked by the owner
+  privacy?: { on: boolean; minutes: number }; // shops/couriers lose the customer's data this long after delivery
   ui?: { phone: number; desktop: number }; // interface size picked by the owner (1 = original)
   tzOffsetMin?: number; // Cairo's offset from UTC when the settings were fetched (120 or 180)
 }

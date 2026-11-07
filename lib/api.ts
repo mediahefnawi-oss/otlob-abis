@@ -109,6 +109,7 @@ export type CentralSettings = {
   hours?: Hours;
   tzOffsetMin?: number;
   theme?: string;
+  privacy?: { on: boolean; minutes: number };
   ui?: { phone: number; desktop: number };
   map?: { enabled: boolean; required: boolean };
   delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number };
@@ -357,6 +358,7 @@ export const apiSupportUnread = () => apiRequest<{ unread: number }>('/api/suppo
 export const apiSupportThreads = (status: 'open' | 'closed') => apiRequest<{ threads: SupportThread[] }>(`/api/support/threads?status=${status}`);
 export const apiSupportThread = (id: string, after = 0) => apiRequest<{ thread: SupportThread; messages: SupportMsg[] }>(`/api/support/threads/${id}?after=${after}`);
 export const apiSupportReply = (id: string, text: string) => apiRequest<{ message: SupportMsg }>(`/api/support/threads/${id}/messages`, { method: 'POST', body: JSON.stringify({ text }) });
+export const apiSupportStart = (userId: string, text: string) => apiRequest<{ message: SupportMsg; thread: { id: string; status: string } }>('/api/support/start', { method: 'POST', body: JSON.stringify({ userId, text }) });
 export const apiSupportStatus = (id: string, status: 'open' | 'closed') => apiRequest<{ ok: boolean }>(`/api/support/threads/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
 export const apiSupervisorSupport = (id: string, enabled: boolean) => apiRequest<{ enabled: boolean }>(`/api/admin/supervisors/${id}/support`, { method: 'PATCH', body: JSON.stringify({ enabled }) });
 
@@ -393,3 +395,5 @@ export const apiRateOrder = (orderId: string, b: { providerStars: number; courie
 export const apiShopRatings = (providerId: string) => apiRequest<ShopRatings>(`/api/providers/${encodeURIComponent(providerId)}/ratings`);
 export const apiStaffRatings = () => apiRequest<{ ratings: StaffRating[]; couriers: Record<string, { avg: number; count: number }> }>('/api/staff/ratings');
 export const apiHideRating = (id: string, hidden: boolean) => apiRequest<{ id: string; hidden: boolean }>(`/api/admin/ratings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ hidden }) });
+
+export const apiSetPrivacy = (b: { on?: boolean; minutes?: number }) => apiRequest<{ settings: CentralSettings }>('/api/admin/privacy', { method: 'PATCH', body: JSON.stringify(b) });

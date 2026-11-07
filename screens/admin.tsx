@@ -21,6 +21,7 @@ import { useCounters } from '../lib/finance';
 import { SupportInbox, useSupportUnread } from '../components/SupportChat';
 import { ThemePicker } from '../components/ThemePicker';
 import { UiScaleCard } from '../components/UiScaleCard';
+import { PrivacyCard } from '../components/PrivacyCard';
 import { DeliveryModeCard } from '../components/DeliveryMode';
 import { MapModeCard, CustomerLocationCard } from '../components/Location';
 import { apiSupervisorSupport } from '../lib/api';
@@ -547,6 +548,7 @@ export function AdminSettingsScreen({ navigation }: any) {
           <Toggle value={s.autoAssign} onValueChange={(v) => done(updateSettings({ autoAssign: v }), v ? 'تم تفعيل التعيين التلقائي' : 'تم إيقاف التعيين التلقائي')} />
         </View>
       </Card>
+      <PrivacyCard />
       </Section>
       <Section icon="color-palette" title="المظهر وحجم الواجهة" sub="لون التطبيق • حجم الخط والعناصر للموبايل والكمبيوتر">
         <ThemePicker />

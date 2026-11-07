@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Modal } from 'react-native';
 import { C, FONT } from '../lib/theme';
-import { T, Icon, Card, Header, Empty, toast, callPhone } from './ui';
-import { useMe } from '../lib/store';
+import { T, Icon, Card, Header, Empty, toast, callPhone, Sheet, Field, Btn } from './ui';
+import { useMe, useStore } from '../lib/store';
 import {
-  SupportMsg, SupportThread, apiSupportMine, apiSupportSend, apiSupportUnread, apiSupportThreads, apiSupportThread, apiSupportReply, apiSupportStatus,
+  SupportMsg, SupportThread, apiSupportMine, apiSupportSend, apiSupportUnread, apiSupportThreads, apiSupportThread, apiSupportReply, apiSupportStatus, apiSupportStart,
 } from '../lib/api';
 
 const ROLE_AR: Record<string, string> = { customer: 'عميل', provider: 'مقدم خدمة', courier: 'مندوب', admin: 'الإدارة', supervisor: 'مشرف' };
@@ -62,36 +62,59 @@ function Composer({ onSend, placeholder }: { onSend: (t: string) => Promise<void
   );
 }
 
-/** Customer / shop / courier: a card at the top of the support screen. Last messages + a box to write. */
-export function SupportChatCard() {
+/** The whole conversation of a customer / shop / courier with the support, in its own full screen (a modal on top of the app). */
+function SupportChatFull({ onClose }: { onClose: () => void }) {
   const me = useMe();
   const [msgs, setMsgs] = useState<SupportMsg[]>([]);
-  const [full, setFull] = useState(false);
   const last = useRef(0);
   const load = useCallback(async () => {
     const r = await apiSupportMine(last.current);
     if (r.messages.length) { last.current = Number(r.messages[r.messages.length - 1].id); setMsgs((p) => [...p, ...r.messages.filter((m) => !p.some((x) => x.id === m.id))]); }
   }, []);
-  usePolling(load, 5000);
+  usePolling(load, 4000);
   if (!me) return null;
-  const shown = full ? msgs : msgs.slice(-4);
-  const mine = (m: SupportMsg) => m.senderId === me.id;
   return (
-    <Card style={{ gap: 10 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Icon name="chatbubbles" size={20} color={C.dark3} />
-        <T w="black" size={15} style={{ flex: 1 }}>محادثة مع الدعم داخل التطبيق</T>
-        {msgs.length > 4 && <Pressable onPress={() => setFull(!full)}><T w="bold" size={12} color={C.green}>{full ? 'عرض الأحدث' : 'عرض الكل'}</T></Pressable>}
-      </View>
-      {msgs.length === 0 && <T size={12.5} color={C.sub}>اكتب مشكلتك أو سؤالك وسيرد عليك فريق الدعم هنا.</T>}
-      {shown.map((m) => (
-        <View key={m.id} style={{ alignSelf: mine(m) ? 'flex-start' : 'flex-end', maxWidth: '85%', backgroundColor: mine(m) ? C.goldSoft : '#F3F4EE', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 }}>
-          {!mine(m) && <T w="bold" size={10.5} color={C.goldDeep}>{m.senderName}</T>}
-          <T size={13}>{m.text}</T>
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="محادثة مع الدعم" subtitle="فريق الدعم يرد عليك هنا" onBack={onClose} />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}>
+        <View style={{ flex: 1 }}>
+          {msgs.length === 0 ? <Empty icon="chatbubbles" title="ابدأ المحادثة" text="اكتب مشكلتك أو سؤالك وسيرد عليك فريق الدعم هنا" /> : <Bubbles msgs={msgs} mine={(m) => m.senderId === me.id} />}
         </View>
-      ))}
-      <Composer placeholder="اكتب رسالتك للدعم..." onSend={async (t) => { const r = await apiSupportSend(t); last.current = Math.max(last.current, Number(r.message.id)); setMsgs((p) => (p.some((x) => x.id === r.message.id) ? p : [...p, r.message])); }} />
-    </Card>
+        <View style={{ padding: 10, backgroundColor: '#fff' }}>
+          <Composer placeholder="اكتب رسالتك للدعم..." onSend={async (t) => { const r = await apiSupportSend(t); last.current = Math.max(last.current, Number(r.message.id)); setMsgs((p) => (p.some((x) => x.id === r.message.id) ? p : [...p, r.message])); }} />
+        </View>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+/** Customer / shop / courier: one card on the support screen; tapping it opens the full chat screen. */
+export function SupportChatCard() {
+  const me = useMe();
+  const [open, setOpen] = useState(false);
+  const [lastText, setLastText] = useState('');
+  const [n, setN] = useState(0);
+  usePolling(async () => {
+    if (open) { setN(0); return; }
+    const r = await apiSupportUnread(); setN(r.unread);
+  }, 8000, [open]);
+  useEffect(() => { apiSupportMine(0).then((r) => { const m = r.messages[r.messages.length - 1]; setLastText(m ? m.text : ''); }).catch(() => {}); }, [open]);
+  if (!me) return null;
+  return (
+    <>
+      <Card onPress={() => setOpen(true)} style={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Icon name="chatbubbles" size={20} color={C.dark3} />
+          <T w="black" size={15} style={{ flex: 1 }}>محادثة مع الدعم داخل التطبيق</T>
+          {n > 0 && <View style={{ minWidth: 22, height: 22, borderRadius: 11, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}><T w="black" size={11} color="#fff">{n}</T></View>}
+          <Icon name="chevron-back" size={17} color={C.sub} />
+        </View>
+        <T size={12.5} color={C.sub} numberOfLines={1}>{lastText || 'اضغط لفتح المحادثة وكتابة مشكلتك أو سؤالك'}</T>
+      </Card>
+      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
+        <SupportChatFull onClose={() => setOpen(false)} />
+      </Modal>
+    </>
   );
 }
 
@@ -132,12 +155,63 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
 }
 
 /** Inbox of every support conversation (owner always, supervisor only while the owner allows it). */
+
+/** The owner starts a conversation with any customer / shop / courier; the user gets a push notification. */
+function NewMessageSheet({ visible, onClose, onSent }: { visible: boolean; onClose: () => void; onSent: (threadId: string) => void }) {
+  const { db } = useStore();
+  const [q, setQ] = useState('');
+  const [kind, setKind] = useState<'all' | 'customer' | 'provider' | 'courier'>('all');
+  const [pick, setPick] = useState<{ id: string; name: string; role: string; phone: string } | null>(null);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!visible) { setQ(''); setKind('all'); setPick(null); setText(''); } }, [visible]);
+  const people = db.users.filter((u) => ['customer', 'provider', 'courier'].includes(u.role) && (kind === 'all' || u.role === kind)
+    && (!q.trim() || (u.name || '').includes(q.trim()) || (u.phone || '').includes(q.trim()))).slice(0, 30);
+  const send = async () => {
+    if (!pick || !text.trim() || busy) return;
+    setBusy(true);
+    try { const r = await apiSupportStart(pick.id, text.trim()); toast('تم إرسال الرسالة وإشعار المستخدم'); onSent(r.thread.id); } catch (e: any) { toast(e?.message || 'تعذر الإرسال', 'err'); }
+    setBusy(false);
+  };
+  return (
+    <Sheet visible={visible} onClose={onClose} title={pick ? `إلى: ${pick.name}` : 'رسالة جديدة'}>
+      {!pick ? (
+        <View style={{ gap: 10 }}>
+          <Field label="بحث بالاسم أو رقم الهاتف" icon="search" value={q} onChangeText={setQ} />
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+            {([['all', 'الكل'], ['customer', 'عملاء'], ['provider', 'محلات'], ['courier', 'مناديب']] as const).map(([k, l]) => (
+              <Pressable key={k} onPress={() => setKind(k)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: kind === k ? C.dark : '#F3F4EE' }}><T w="bold" size={12} color={kind === k ? '#fff' : C.dark3}>{l}</T></Pressable>
+            ))}
+          </View>
+          <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
+            {people.length === 0 && <T size={12.5} color={C.sub} align="center">لا توجد نتائج</T>}
+            {people.map((u) => (
+              <Pressable key={u.id} onPress={() => setPick({ id: u.id, name: u.name, role: u.role, phone: u.phone || '' })} style={{ paddingVertical: 10, borderBottomWidth: 1, borderColor: C.line }}>
+                <T w="bold" size={14}>{u.name}</T>
+                <T size={11.5} color={C.sub}>{ROLE_AR[u.role] || ''} • {u.phone}</T>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      ) : (
+        <View style={{ gap: 10 }}>
+          <T size={12} color={C.sub}>{ROLE_AR[pick.role] || ''} • {pick.phone}</T>
+          <Field label="رسالتك" icon="chatbubble" value={text} onChangeText={setText} multiline />
+          <Btn title="إرسال وإشعار المستخدم" icon="send" loading={busy} onPress={send} />
+          <Pressable onPress={() => setPick(null)} style={{ alignSelf: 'center', padding: 4 }}><T w="bold" size={12} color={C.sub}>اختيار مستخدم آخر</T></Pressable>
+        </View>
+      )}
+    </Sheet>
+  );
+}
+
 export function SupportInbox({ onBack, title = 'شات الدعم' }: { onBack?: () => void; title?: string }) {
   const [tab, setTab] = useState<'open' | 'closed'>('open');
   const [list, setList] = useState<SupportThread[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [compose, setCompose] = useState(false);
   usePolling(async () => {
     try { setList((await apiSupportThreads(tab)).threads); setDenied(false); } catch (e: any) { if (/غير مسموح|forbidden/.test(String(e?.message))) setDenied(true); else throw e; }
     setLoaded(true);
@@ -152,7 +226,12 @@ export function SupportInbox({ onBack, title = 'شات الدعم' }: { onBack?:
             <T w="bold" size={13} color={tab === k ? '#fff' : C.dark3}>{k === 'open' ? 'مفتوحة' : 'مغلقة'}</T>
           </Pressable>
         ))}
+        <View style={{ flex: 1 }} />
+        <Pressable onPress={() => setCompose(true)} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, backgroundColor: C.gold }}>
+          <T w="black" size={13} color={C.dark}>＋ رسالة جديدة</T>
+        </Pressable>
       </View>
+      <NewMessageSheet visible={compose} onClose={() => setCompose(false)} onSent={(tid) => { setCompose(false); setOpen(tid); }} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
         {denied ? <Empty icon="lock-closed" title="غير مفعّل لك" text="لم يسمح لك المالك بشات الدعم" />
           : loaded && list.length === 0 ? <Empty icon="chatbubbles" title="لا توجد محادثات" text={tab === 'open' ? 'لا توجد رسائل دعم مفتوحة' : 'لا توجد محادثات مغلقة'} />

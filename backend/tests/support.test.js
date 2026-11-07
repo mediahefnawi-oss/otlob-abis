@@ -104,6 +104,22 @@ async function call(key, { as, body, query, params } = {}) {
   eq((await call('GET /api/support/threads/:id', { as: A, params: { id: '9999' } })).status, 404, 'unknown thread');
   eq((await call('GET /api/support/mine', { as: SH })).status, 200, 'shops can use support too');
 
+  console.log('N) the owner starts a conversation with any user');
+  const c3 = await user('عميل 3', 'customer'); pushes.length = 0;
+  const st = await call('POST /api/support/start', { as: A, body: { userId: String(c3), text: 'أهلاً، بخصوص طلبك' } });
+  eq(st.status, 201, 'started'); eq(st.json.message.senderRole, 'admin', 'sent by the owner');
+  ok(pushes.some(x => x.ids.includes(Number(c3)) && /الدعم/.test(x.p.title)), 'the user gets a push');
+  eq((await call('GET /api/support/unread', { as: { sub: String(c3), role: 'customer' } })).json.unread, 1, 'badge for the user');
+  const mine3 = await call('GET /api/support/mine', { as: { sub: String(c3), role: 'customer' } });
+  eq(mine3.json.messages.length, 1, 'the user sees it in his support chat');
+  eq((await call('POST /api/support/start', { as: A, body: { userId: String(c3), text: 'تاني' } })).status, 201, 'second message to the same user reuses the thread');
+  eq((await q('SELECT count(*) c FROM support_threads WHERE user_id=$1', [c3])).rows[0].c, '1', 'still one thread');
+  eq((await call('POST /api/support/start', { as: A, body: { userId: String(shop), text: 'للمحل' } })).status, 201, 'shops too');
+  eq((await call('POST /api/support/start', { as: A, body: { userId: '99999', text: 'x' } })).status, 404, 'unknown user');
+  eq((await call('POST /api/support/start', { as: A, body: { userId: String(c3), text: '  ' } })).status, 400, 'empty refused');
+  eq((await call('POST /api/support/start', { as: C1, body: { userId: String(c3), text: 'x' } })).status, 403, 'users cannot start');
+  eq((await call('POST /api/support/start', { as: S1, body: { userId: String(c3), text: 'x' } })).status, 403, 'supervisor without permission refused');
+
   console.log(failN ? `FAILED ${failN}` : 'ALL OK', 'pass=' + pass);
   await pool.end();
   process.exit(failN ? 1 : 0);
