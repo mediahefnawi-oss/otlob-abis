@@ -21,7 +21,7 @@ import { InstallBanner } from './components/InstallBanner';
 import { navigationRef } from './lib/nav';
 import { SideNav } from './components/SideNav';
 import { useWide, useNav } from './lib/wide';
-import { setUiScale } from './lib/scale';
+import { setUiScale, setScaleConfig } from './lib/scale';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
@@ -58,6 +58,13 @@ function Main({ navigation }: any) {
   const me = useMe()!;
   const { db } = useStore();
   useCourierTracking(me.role === 'courier', db.settings.map?.enabled !== false && (!!me.available || db.orders.some((o) => o.courierId === me.id && ['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status))));
+  // the system gave this courier an order: open it for him right away (opening it confirms it, see ackOrder)
+  const gift = me.role === 'courier' ? db.orders.find((o) => o.courierId === me.id && o.autoPending) : undefined;
+  useEffect(() => {
+    if (!gift) return;
+    toast('طلب جديد معيّن لك 🛵', 'ok');
+    if (navigationRef.isReady()) navigationRef.navigate('OrderDetail', { id: gift.id });
+  }, [gift?.id]);
   const supUnread = useSupportUnread(me.role !== 'admin' && (me.role !== 'supervisor' || !!me.supportChat));
 
   let tabs: TabDef[] = [];
@@ -176,8 +183,9 @@ export default function App() {
     ...Ionicons.font,
     Cairo_400Regular, Cairo_600SemiBold, Cairo_700Bold, Cairo_800ExtraBold,
   });
-  const { ready } = useStore();
+  const { ready, db: appDb } = useStore();
   const wide = useWide();
+  setScaleConfig(appDb.settings.ui?.phone, appDb.settings.ui?.desktop); // the owner's size choice
   setUiScale(wide); // text/icons/buttons a little smaller (see lib/scale.ts)
   const navState = useNav();
   const side = wide && !!navState; // computer view with a signed-in user: side menu + wider content

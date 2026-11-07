@@ -145,8 +145,8 @@ function RulesTab() {
   const [open, setOpen] = useState(false);
   const load = useCallback(() => { apiJson<{ rules: any[] }>('/api/admin/commissions/rules').then((r) => setRules(r.rules)).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load]);
-  const provName = (id: string) => db.providers.find((p) => p.id === id)?.name || `#${id}`;
-  const courName = (id?: string) => db.users.find((u) => u.id === id)?.name || `#${id}`;
+  const provName = (id: string) => db.providers.find((p) => p.id === id)?.name || `‎#${id}`;
+  const courName = (id?: string) => db.users.find((u) => u.id === id)?.name || `‎#${id}`;
   const now = Date.now();
   const toggle = (r: any, v: boolean) => run(apiJson(`/api/admin/commissions/rules/${r.id}`, 'PATCH', { active: v }), v ? 'تم تفعيل القاعدة' : 'تم إيقاف القاعدة').then(load);
   const del = (r: any) => confirmDialog({ title: 'حذف القاعدة؟', message: 'لن تتأثر العمولات المحتسبة سابقاً. سيُسجَّل الحذف في السجل.', danger: true, confirmText: 'حذف', onConfirm: () => { run(apiJson(`/api/admin/commissions/rules/${r.id}`, 'DELETE'), 'تم حذف القاعدة').then(load); } });
@@ -312,7 +312,7 @@ function CountersTab() {
   const [sheet, setSheet] = useState(false);
   const load = useCallback(() => { apiJson<any>('/api/admin/counters/resets').then(setHist).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load]);
-  const provName = (id?: string) => db.providers.find((p) => p.id === id)?.name || `#${id}`;
+  const provName = (id?: string) => db.providers.find((p) => p.id === id)?.name || `‎#${id}`;
   const tgt = (x: any) => (x.scope === 'all' ? 'الجميع' : x.scope === 'type' ? `قسم ${TYPES[x.providerType as ProviderType]?.label}` : provName(x.providerId));
   const doReset = () => {
     if (!counters.length) return toast('اختر عداداً واحداً على الأقل', 'err');
@@ -433,7 +433,7 @@ function ClosingTab() {
     message: `سيرجع عداد ${name} وطلباته المقفولة كما كانت. المبلغ المستلم (${money(c.received)}) يفضل مسجلاً ولا يُلغى.`,
     onConfirm: () => { run(apiJson(`/api/admin/closings/${c.id}/undo`, 'POST'), 'تم التراجع عن التقفيل').then(() => { load(); refreshCounters(); }); },
   });
-  const name = (id: string) => data?.providers.find((p) => p.id === id)?.name || `#${id}`;
+  const name = (id: string) => data?.providers.find((p) => p.id === id)?.name || `‎#${id}`;
   const latest = new Set<string>();
   (data?.closings || []).forEach((c) => { if (!c.undone && !latest.has(c.providerId)) latest.add(c.id); });
   const list = (data?.providers || []).filter((p) => p.orders > 0 || p.sales > 0 || p.due > 0);

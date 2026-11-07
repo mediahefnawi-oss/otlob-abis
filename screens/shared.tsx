@@ -10,7 +10,7 @@ import {
   toast, confirmDialog, openWhats, callPhone, IconBtn, SectionTitle, AcctPill, FlagPill,
 } from '../components/ui';
 import { APP_VERSION } from '../lib/version';
-import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened } from '../lib/store';
+import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened, ackOrder } from '../lib/store';
 import { CommissionTrail } from '../components/Finance';
 import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel, isMakerTpl } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
@@ -41,6 +41,8 @@ export function OrderDetailScreen({ navigation, route }: any) {
   const o = db.orders.find((x) => x.id === route.params.id);
   // a shop that opens its order silences the new-order alarm for it
   useEffect(() => { if (o && me.role === 'provider') markOrderOpened(o.id); }, [o?.id, me.role]);
+  // an order the system gave a courier is confirmed the moment he opens it
+  useEffect(() => { if (o && me.role === 'courier' && o.autoPending && o.courierId === me.id) ackOrder(o.id); }, [o?.id, o?.autoPending, me.role]);
   if (!o) return <View style={{ flex: 1 }}><Header title="الطلب" onBack={() => navigation.goBack()} /><Empty title="الطلب غير موجود" /></View>;
   const st = ORDER_STATUS[o.status];
   const dead = ['rejected', 'cancelled', 'unavailable'].includes(o.status);
@@ -67,7 +69,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={`طلب #${o.number}`} subtitle={fmtDateTime(o.createdAt)} onBack={() => navigation.goBack()} right={<OrderPill s={o.status} />} />
+      <Header title={`طلب ‎#${o.number}`} subtitle={fmtDateTime(o.createdAt)} onBack={() => navigation.goBack()} right={<OrderPill s={o.status} />} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
         {/* tracking */}
         <Animated.View entering={Platform.OS === 'web' ? FadeInDown : undefined}>
@@ -252,7 +254,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           {((me.role === 'customer' && o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready'].includes(o.status)) || (staffOpen && !['delivered', 'cancelled', 'rejected', 'unavailable'].includes(o.status))) && (
             <Btn title="إلغاء الطلب" icon="close-circle" variant="danger" onPress={() => confirmDialog({ title: 'إلغاء الطلب؟', message: 'لا يمكن التراجع عن الإلغاء', danger: true, confirmText: 'إلغاء الطلب', onConfirm: () => act('cancel') })} />
           )}
-          <Btn title="مشكلة في الطلب؟ تواصل مع الدعم" icon="logo-whatsapp" variant="soft" onPress={() => openWhats(db.settings.supportPhone || '01004379508', `مرحباً، أحتاج مساعدة بخصوص الطلب رقم #${o.number}`)} />
+          <Btn title="مشكلة في الطلب؟ تواصل مع الدعم" icon="logo-whatsapp" variant="soft" onPress={() => openWhats(db.settings.supportPhone || '01004379508', `مرحباً، أحتاج مساعدة بخصوص الطلب رقم ‎#${o.number}`)} />
         </View>
       </ScrollView>
     </View>
@@ -273,7 +275,7 @@ export function ApptDetailScreen({ navigation, route }: any) {
   };
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={`حجز #${a.number}`} subtitle={fmtDateTime(a.createdAt)} onBack={() => navigation.goBack()} right={<ApptPill s={a.status} />} />
+      <Header title={`حجز ‎#${a.number}`} subtitle={fmtDateTime(a.createdAt)} onBack={() => navigation.goBack()} right={<ApptPill s={a.status} />} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
         <Card style={{ alignItems: 'center', gap: 8, paddingVertical: 20 }}>
           <EmojiBubble emoji={SPEC_EMOJI[a.specialty] || '🩺'} size={72} bg="#EFE6FB" />
@@ -517,7 +519,7 @@ export function ChatScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#ECEFE8' }}>
-      <Header title={other} subtitle={`شات طلب #${o.number}`} onBack={() => navigation.goBack()} right={me.role !== 'admin' && me.role !== 'supervisor' ? <IconBtn icon="call" onPress={() => callPhone(me.role === 'courier' || me.role === 'provider' ? o.phone : (db.users.find((u) => u.id === o.courierId)?.phone || db.providers.find((p) => p.id === o.providerId)?.phone || ''))} /> : undefined} />
+      <Header title={other} subtitle={`شات طلب ‎#${o.number}`} onBack={() => navigation.goBack()} right={me.role !== 'admin' && me.role !== 'supervisor' ? <IconBtn icon="call" onPress={() => callPhone(me.role === 'courier' || me.role === 'provider' ? o.phone : (db.users.find((u) => u.id === o.courierId)?.phone || db.providers.find((p) => p.id === o.providerId)?.phone || ''))} /> : undefined} />
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <FlatList
           inverted

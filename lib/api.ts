@@ -109,6 +109,7 @@ export type CentralSettings = {
   hours?: Hours;
   tzOffsetMin?: number;
   theme?: string;
+  ui?: { phone: number; desktop: number };
   map?: { enabled: boolean; required: boolean };
   delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number };
   serverNow?: number;
@@ -371,6 +372,7 @@ export const apiCourierPing = (p: GeoPoint & { accuracy?: number; heading?: numb
 export const apiCourierStop = () => apiRequest<{ ok: boolean }>('/api/courier/location', { method: 'DELETE' });
 export const apiOrderTracking = (id: string) => apiRequest<OrderTracking>(`/api/orders/${encodeURIComponent(id)}/tracking`);
 export const apiStaffCourierLocations = () => apiRequest<{ couriers: StaffCourierPos[] }>('/api/staff/courier-locations');
+export const apiSetUiScale = (b: { phone?: number; desktop?: number }) => apiRequest<{ settings: CentralSettings }>('/api/admin/ui-scale', { method: 'PATCH', body: JSON.stringify(b) });
 export const apiSetTheme = (theme: string) => apiRequest<{ settings: CentralSettings }>('/api/admin/theme', { method: 'PATCH', body: JSON.stringify({ theme }) });
 
 /* ---------------- offers (owner only) ---------------- */

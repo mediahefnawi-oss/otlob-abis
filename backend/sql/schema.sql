@@ -528,3 +528,7 @@ CREATE TABLE IF NOT EXISTS ratings (
 );
 CREATE INDEX IF NOT EXISTS idx_ratings_provider ON ratings(provider_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ratings_courier ON ratings(courier_user_id);
+
+-- UI size chosen by the owner: phones (app + narrow web) and computers (wide web). 1.00 = the original size.
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ui_phone_scale NUMERIC(4,2) NOT NULL DEFAULT 1.00;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ui_desktop_scale NUMERIC(4,2) NOT NULL DEFAULT 0.90;

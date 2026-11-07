@@ -30,7 +30,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
       courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
-      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], staffHandled: d.staffHandled ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined,
+      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined,
     };
   };
   const invoiceJson = r => ({
@@ -155,19 +155,66 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const r = await db.query('UPDATE orders SET status=$1, data=$2, courier_user_id=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [status, JSON.stringify(d), cid, row.id]);
     return r.rows[0];
   }
-  /** Auto-assign (when the owner switched it on): the least busy available courier whose area is the order's area. No courier there = the order waits for a courier to take it. */
+  /**
+   * Auto-assign (when the owner switched it on): an available courier of the order's area, the NEAREST to the shop first.
+   * score = km from the shop to the courier's live position (seen in the last 3 minutes) + 2 km for every order he already carries;
+   * a courier with no recent position counts as far away. Without a shop position the least busy courier wins.
+   * Couriers who already ignored this order (autoSkip) are left out. No courier = the order waits for a courier to take it.
+   * The courier must open the order within ACK_MS, otherwise it moves on to the next one (see sweepUnacked).
+   */
+  const ACK_MS = 2 * 60 * 1000;
+  const NEAR_FRESH = "INTERVAL '3 minutes'";
   async function tryAutoAssign(db, row) {
     if (row.courier_user_id) return row;
     const s = await db.query('SELECT auto_assign FROM app_settings WHERE id=1');
     if (!s.rowCount || !s.rows[0].auto_assign) return row;
+    if (row.region_id == null) return row;
+    const skip = ((row.data && row.data.autoSkip) || []).map(Number).filter(Boolean);
     const c = await db.query(
-      `SELECT u.id, u.name, u.phone, u.vehicle FROM users u WHERE u.role='courier' AND u.status='active' AND u.available=TRUE AND u.deleted_at IS NULL
-         AND $2::bigint IS NOT NULL AND u.region_id = $2::bigint
-       ORDER BY (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1)) ASC, u.available_since ASC NULLS LAST LIMIT 1`, [BUSY, row.region_id]);
+      `SELECT u.id, u.name, u.phone, u.vehicle, u.available_since,
+              (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1))::int AS busy,
+              cl.lat, cl.lng
+         FROM users u LEFT JOIN courier_locations cl ON cl.courier_id=u.id AND cl.updated_at > NOW() - ${NEAR_FRESH}
+        WHERE u.role='courier' AND u.status='active' AND u.available=TRUE AND u.deleted_at IS NULL
+          AND u.region_id = $2::bigint AND NOT (u.id = ANY($3::bigint[]))`, [BUSY, row.region_id, skip]);
     if (!c.rowCount) return row;
-    const updated = await moveOrder(db, row, row.status, {}, { id: c.rows[0].id, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
-    await sysMsg(db, row.id, `تم تعيين المندوب ${c.rows[0].name} تلقائياً لتوصيل طلبك 🛵`);
+    let shop = null;
+    if (row.provider_id) {
+      try { const p = (await db.query('SELECT lat, lng FROM providers WHERE id=$1', [row.provider_id])).rows[0]; if (p && p.lat != null && p.lng != null) shop = { lat: Number(p.lat), lng: Number(p.lng) }; } catch { /* not migrated: no shop position */ }
+    }
+    const scored = c.rows.map(x => {
+      const km = shop && x.lat != null ? tracking.km(shop.lat, shop.lng, Number(x.lat), Number(x.lng)) : null;
+      return { x, km, score: shop ? (km == null ? 99 : km) + 2 * x.busy : x.busy };
+    }).sort((a, b) => a.score - b.score || (a.x.available_since ? new Date(a.x.available_since).getTime() : Infinity) - (b.x.available_since ? new Date(b.x.available_since).getTime() : Infinity));
+    const best = scored[0];
+    const updated = await moveOrder(db, row, row.status, { autoAssigned: { at: Date.now() }, courierAck: undefined }, { id: best.x.id, name: best.x.name, phone: best.x.phone, vehicle: best.x.vehicle });
+    await sysMsg(db, row.id, `تم تعيين المندوب ${best.x.name} تلقائياً لتوصيل طلبك 🛵${best.km != null ? ` (الأقرب للمتجر، ${best.km < 1 ? 'أقل من كيلو' : Math.round(best.km * 10) / 10 + ' كم'})` : ''}`);
     return updated;
+  }
+  /** An auto-assigned courier who did not open the order in time loses it: the next nearest gets it, or it opens to every courier. */
+  async function sweepUnacked() {
+    const due = await pool.query(
+      `SELECT id FROM orders WHERE courier_user_id IS NOT NULL AND status IN ('accepted','ready')
+          AND data->'autoAssigned' IS NOT NULL AND data->>'courierAck' IS NULL AND (data->'autoAssigned'->>'at')::bigint < $1 LIMIT 50`, [Date.now() - ACK_MS]);
+    const moved = [];
+    for (const r of due.rows) {
+      try {
+        const out = await withTx(async db => {
+          const f = await db.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [r.id]);
+          const row = f.rows[0];
+          if (!row || !row.courier_user_id || !['accepted', 'ready'].includes(row.status) || !row.data.autoAssigned || row.data.courierAck || Number(row.data.autoAssigned.at) >= Date.now() - ACK_MS) return null;
+          const old = row.data.courierName || '';
+          const skip = [...((row.data.autoSkip) || []), Number(row.courier_user_id)];
+          let next = await moveOrder(db, row, row.status, { autoSkip: skip, autoAssigned: undefined }, null);
+          await sysMsg(db, row.id, `لم يستجب المندوب ${old} في الوقت المحدد، جاري تحويل طلبك لمندوب آخر 🔄`);
+          next = await tryAutoAssign(db, next);
+          return next;
+        });
+        if (out) moved.push(out);
+      } catch (e) { console.error('sweepUnacked failed:', e.message); }
+    }
+    if (moved.length) await notifyCouriers(moved);
+    return moved.length;
   }
   async function withTx(fn) {
     const client = await pool.connect();
@@ -613,6 +660,20 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     res.json({ couriers: r.rows.map(c => ({ id: String(c.id), name: c.name, phone: c.phone, vehicle: c.vehicle || '', available: !!c.available, regionId: c.region_id ? String(c.region_id) : '', busy: Number(c.busy) })) });
   }));
   /** Link an order to a chosen courier (also moves it from one courier to another while it has not been picked up). */
+  // the auto-assigned courier opened the order: it stays with him
+  app.post('/api/orders/:id/ack', auth, roles('courier'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'رقم الطلب غير صحيح');
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [id]);
+      const row = f.rows[0];
+      if (!row || String(row.courier_user_id) !== String(req.auth.sub)) throw fail(404, 'الطلب غير موجود');
+      if (!row.data.autoAssigned || row.data.courierAck) return row;
+      const r = await db.query('UPDATE orders SET data=$1 WHERE id=$2 RETURNING *', [JSON.stringify({ ...row.data, courierAck: Date.now() }), id]);
+      return r.rows[0];
+    });
+    res.json({ order: orderJson(out) });
+  }));
   app.post('/api/orders/:id/assign', auth, roles('admin', 'supervisor'), guard(async (req, res) => {
     const id = positiveId(req.params.id);
     const cid = positiveId((req.body || {}).courierId);
@@ -1119,4 +1180,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     res.set('Content-Type', m[1]); res.set('Content-Disposition', `inline; filename="lab-${id}-${kind}.${m[1] === 'application/pdf' ? 'pdf' : m[1].split('/')[1]}"`); res.set('Cache-Control', 'no-store');
     res.send(Buffer.from(m[2], 'base64'));
   }));
+
+  // an auto-assigned order the courier never opened goes to the next courier (checked every 30 seconds)
+  app.sweepUnacked = sweepUnacked;
+  if (!process.env.NO_SWEEP) {
+    const timer = setInterval(() => { sweepUnacked().catch(e => console.error('sweepUnacked:', e.message)); }, 30 * 1000);
+    if (timer.unref) timer.unref();
+  }
 };

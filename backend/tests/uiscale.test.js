@@ -1,0 +1,35 @@
+// The route lives in server.js (which needs the full server stack), so its code is cut out of the file and run against a real database.
+const fs = require('fs'); const path = require('path');
+const { Pool } = require('./shim');
+let pass = 0, bad = 0; const ok = (c, m) => { if (c) pass++; else { bad++; console.log('  FAIL:', m); } };
+(async () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'server.js'), 'utf8');
+  const a = src.indexOf("app.patch('/api/admin/ui-scale'"), b = src.indexOf('// The owner alone chooses the colour theme');
+  ok(a > 0 && b > a, 'route found in server.js');
+  const code = src.slice(a, b);
+  const pool = new Pool(); const routes = {};
+  const app = { patch: (p, ...c) => { routes[p] = c; } };
+  const roleCalls = []; const roles = (...r) => { roleCalls.push(r); return (q, s, n) => n(); };
+  const asyncRoute = fn => fn; const settingsMemo = { clear() {} };
+  const loadSettings = async () => { const x = (await pool.query('SELECT ui_phone_scale, ui_desktop_scale FROM app_settings WHERE id=1')).rows[0]; return { ui: { phone: Number(x.ui_phone_scale), desktop: Number(x.ui_desktop_scale) } }; };
+  new Function('app', 'auth', 'roles', 'asyncRoute', 'pool', 'settingsMemo', 'loadSettings', code)(app, (q, s, n) => n(), roles, asyncRoute, pool, settingsMemo, loadSettings);
+  ok(roleCalls.length === 1 && roleCalls[0].length === 1 && roleCalls[0][0] === 'admin', 'owner only');
+  const h = routes['/api/admin/ui-scale'][routes['/api/admin/ui-scale'].length - 1];
+  const call = async body => { const out = { status: 200, json: null }; await h({ body }, { status(c) { out.status = c; return this; }, json(j) { out.json = j; return this; } }); return out; };
+  await pool.query('UPDATE app_settings SET ui_phone_scale=1.00, ui_desktop_scale=0.90 WHERE id=1');
+  let r = await call({ phone: 0.95 });
+  ok(r.status === 200 && r.json.settings.ui.phone === 0.95 && r.json.settings.ui.desktop === 0.9, 'phone only: ' + JSON.stringify(r.json));
+  r = await call({ desktop: 0.85, phone: 1.05 });
+  ok(r.json.settings.ui.phone === 1.05 && r.json.settings.ui.desktop === 0.85, 'both');
+  r = await call({ phone: 0.5 }); ok(r.status === 400, 'below 80% refused');
+  r = await call({ phone: 1.5 }); ok(r.status === 400, 'above 120% refused');
+  r = await call({ phone: 'abc' }); ok(r.status === 400, 'text refused');
+  r = await call({ phone: null }); ok(r.status === 400 || r.json.settings.ui.phone === 0, 'null refused');
+  r = await call({}); ok(r.status === 400, 'nothing to change');
+  r = await call({ phone: 1.2, desktop: 0.8 }); ok(r.status === 200 && r.json.settings.ui.phone === 1.2 && r.json.settings.ui.desktop === 0.8, 'limits 0.8 and 1.2 accepted');
+  r = await call({ phone: 0.954 }); ok(r.json.settings.ui.phone === 0.95, 'rounded to 2 decimals');
+  const before = (await pool.query('SELECT ui_phone_scale FROM app_settings WHERE id=1')).rows[0].ui_phone_scale;
+  r = await call({ phone: 5, desktop: 1 }); ok(r.status === 400 && (await pool.query('SELECT ui_phone_scale FROM app_settings WHERE id=1')).rows[0].ui_phone_scale === before, 'a bad value changes nothing');
+  await pool.query('UPDATE app_settings SET ui_phone_scale=1.00, ui_desktop_scale=0.90 WHERE id=1');
+  console.log(`uiscale: ${pass} passed, ${bad} failed`); await pool.end(); process.exit(bad ? 1 : 0);
+})().catch(e => { console.error('CRASH', e); process.exit(2); });

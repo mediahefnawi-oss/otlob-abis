@@ -20,6 +20,7 @@ import { LoginImageManager, WelcomeScreenManager, AppIconManager, UpdateNoticeMa
 import { useCounters } from '../lib/finance';
 import { SupportInbox, useSupportUnread } from '../components/SupportChat';
 import { ThemePicker } from '../components/ThemePicker';
+import { UiScaleCard } from '../components/UiScaleCard';
 import { DeliveryModeCard } from '../components/DeliveryMode';
 import { MapModeCard, CustomerLocationCard } from '../components/Location';
 import { apiSupervisorSupport } from '../lib/api';
@@ -93,6 +94,20 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     }
     return arr;
   }, [orders]);
+  const todayKey = isoDay(new Date());
+  const todayOrders = orders.filter((o) => isoDay(new Date(o.createdAt)) === todayKey);
+  const todayDone = orders.filter((o) => o.status === 'delivered' && isoDay(new Date(o.updatedAt)) === todayKey);
+  const todayDead = orders.filter((o) => ['rejected', 'cancelled'].includes(o.status) && isoDay(new Date(o.updatedAt)) === todayKey);
+  const todaySales = todayDone.reduce((sum, o) => sum + o.total, 0);
+  const stuck = orders.filter((o) => inStaffQueue(o)).length;
+  const shortcuts = [
+    { label: 'العملاء', route: 'AdminCustomers', icon: 'people', color: C.goldDeep, bg: C.goldSoft, badge: 0 },
+    { label: 'المناديب على الخريطة', route: 'CouriersMap', icon: 'map', color: C.orange, bg: C.orangeSoft, badge: 0 },
+    { label: 'شات الدعم', route: 'AdminSupport', icon: 'chatbubbles', color: C.goldDeep, bg: C.goldSoft, badge: supUnread },
+    { label: 'العروض والخصومات', route: 'AdminOffers', icon: 'pricetags', color: C.red, bg: C.redSoft, badge: 0 },
+    { label: 'التقييمات', route: 'AdminRatings', icon: 'star', color: C.goldDeep, bg: C.goldSoft, badge: 0 },
+    { label: 'المشرفون', route: 'AdminSupervisors', icon: 'shield-checkmark', color: C.green, bg: C.greenSoft, badge: 0 },
+  ];
   const max = Math.max(1, ...bars.map((b) => b.n));
   const recent = [...orders].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
 
@@ -101,64 +116,6 @@ export function AdminDashboardScreen({ navigation, go }: any) {
       <Header title="لوحة الإدارة" subtitle={`مرحباً ${me.name}`} />
       <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }}>
         <AppSwitch />
-        <ThemePicker />
-        <MapModeCard />
-        <DeliveryModeCard />
-
-        <Card onPress={() => navigation.navigate('AdminCustomers')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <IconBubble icon="people" color={C.goldDeep} bg={C.goldSoft} size={46} />
-          <View style={{ flex: 1 }}>
-            <T w="bold" size={15}>إدارة العملاء</T>
-            <T size={12} color={C.sub}>إيقاف الحسابات ووضع علامات (معتمد / مراقبة / احتيالي)</T>
-          </View>
-          <Icon name="chevron-back" size={18} color={C.sub} />
-        </Card>
-
-        <Card onPress={() => navigation.navigate('AdminRatings')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <IconBubble icon="star" color={C.goldDeep} bg={C.goldSoft} size={46} />
-          <View style={{ flex: 1 }}>
-            <T w="bold" size={15}>التقييمات</T>
-            <T size={12} color={C.sub}>تقييمات العملاء للمتاجر والمناديب، وإخفاء التعليقات المسيئة</T>
-          </View>
-          <Icon name="chevron-back" size={18} color={C.sub} />
-        </Card>
-
-        <Card onPress={() => navigation.navigate('AdminOffers')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <IconBubble icon="pricetags" color={C.red} bg={C.redSoft} size={46} />
-          <View style={{ flex: 1 }}>
-            <T w="bold" size={15}>العروض والخصومات</T>
-            <T size={12} color={C.sub}>أنشئ عرضاً بنسبة خصم ولون ومدة، ويظهر عند العملاء</T>
-          </View>
-          <Icon name="chevron-back" size={18} color={C.sub} />
-        </Card>
-
-        <Card onPress={() => navigation.navigate('CouriersMap')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <IconBubble icon="map" color={C.orange} bg={C.orangeSoft} size={46} />
-          <View style={{ flex: 1 }}>
-            <T w="bold" size={15}>المناديب على الخريطة</T>
-            <T size={12} color={C.sub}>مواقع المناديب المتاحين ومن معهم طلبات لحظة بلحظة</T>
-          </View>
-          <Icon name="chevron-back" size={18} color={C.sub} />
-        </Card>
-
-        <Card onPress={() => navigation.navigate('AdminSupport')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <IconBubble icon="chatbubbles" color={C.goldDeep} bg={C.goldSoft} size={46} />
-          <View style={{ flex: 1 }}>
-            <T w="bold" size={15}>شات الدعم</T>
-            <T size={12} color={C.sub}>رسائل العملاء ومقدمي الخدمة والمناديب والرد عليها</T>
-          </View>
-          {supUnread > 0 && <View style={{ minWidth: 24, height: 24, borderRadius: 12, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 }}><T w="black" size={11} color="#fff">{supUnread}</T></View>}
-          <Icon name="chevron-back" size={18} color={C.sub} />
-        </Card>
-
-        <Card onPress={() => navigation.navigate('AdminSupervisors')} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <IconBubble icon="shield-checkmark" color={C.green} bg={C.greenSoft} size={46} />
-          <View style={{ flex: 1 }}>
-            <T w="bold" size={15}>المشرفون</T>
-            <T size={12} color={C.sub}>حسابات تدير الطلبات في مناطق محددة: قبول وتحويل وتعيين مندوب</T>
-          </View>
-          <Icon name="chevron-back" size={18} color={C.sub} />
-        </Card>
 
         {(pendingProv.length > 0 || pendingCour.length > 0 || pendingCust.length > 0) && (
           <Appear>
@@ -176,20 +133,46 @@ export function AdminDashboardScreen({ navigation, go }: any) {
           </Appear>
         )}
 
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="receipt" label="إجمالي الطلبات" value={counters ? counters.totals.orders : orders.length} />
-          <Stat icon="checkmark-done" label="المكتملة" value={delivered.length} color={C.blue} soft={C.blueSoft} />
-          <Stat icon="bicycle" label="قيد التنفيذ" value={active.length} color={C.orange} soft={C.orangeSoft} />
+        {(supUnread > 0 || stuck > 0) && (
+          <Card style={{ backgroundColor: C.goldSoft, gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Icon name="alert-circle" size={20} color={C.goldDeep} />
+              <T w="black" size={15} color={C.goldDeep}>يحتاج انتباهك</T>
+            </View>
+            {supUnread > 0 && <Pressable onPress={() => navigation.navigate('AdminSupport')}><T w="bold" size={13}>💬 {supUnread} رسائل دعم غير مقروءة ›</T></Pressable>}
+            {stuck > 0 && <Pressable onPress={() => go('orders')}><T w="bold" size={13}>⏳ {stuck} طلب متعطل يحتاج تدخل ›</T></Pressable>}
+          </Card>
+        )}
+
+        <View>
+          <T w="black" size={15} style={{ marginBottom: 8 }}>اليوم</T>
+          <View style={{ gap: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Stat icon="receipt" label="طلبات اليوم" value={todayOrders.length} />
+              <Stat icon="cash" label="مبيعات اليوم" value={money(todaySales)} color={C.goldDeep} soft={C.goldSoft} />
+              <Stat icon="bicycle" label="قيد التنفيذ" value={active.length} color={C.orange} soft={C.orangeSoft} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Stat icon="checkmark-done" label="مكتملة اليوم" value={todayDone.length} color={C.blue} soft={C.blueSoft} />
+              <Stat icon="close-circle" label="ملغاة اليوم" value={todayDead.length} color={C.red} soft={C.redSoft} />
+              <Stat icon="radio" label={`مناديب متاحون / ${couriers.length}`} value={avail} color={C.green} />
+            </View>
+          </View>
         </View>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="cash" label="إجمالي المبيعات" value={money(counters ? counters.totals.sales : revenue)} color={C.goldDeep} soft={C.goldSoft} />
-          <Stat icon="trending-up" label="أرباح المنصة" value={money(counters ? counters.totals.profit : 0)} color={C.green} soft={C.greenSoft} />
-          <Stat icon="calendar" label="حجوزات العيادات" value={db.appointments.length} color="#8A5CD1" soft="#EFE6FB" />
-        </View>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Stat icon="people" label="العملاء" value={db.users.filter((u) => u.role === 'customer').length} />
-          <Stat icon="storefront" label="مقدمو الخدمة" value={db.providers.filter((p) => p.status === 'active').length} color={C.blue} soft={C.blueSoft} />
-          <Stat icon="radio" label={`مناديب متاحون / ${couriers.length}`} value={avail} color={C.green} />
+
+        <View>
+          <T w="black" size={15} style={{ marginBottom: 8 }}>اختصارات</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+            {shortcuts.map((x) => (
+              <Pressable key={x.label} onPress={() => navigation.navigate(x.route)} style={{ width: '31.3%' }}>
+                <Card style={{ alignItems: 'center', gap: 6, paddingVertical: 14, paddingHorizontal: 6 }}>
+                  <IconBubble icon={x.icon} color={x.color} bg={x.bg} size={46} />
+                  <T w="bold" size={12} align="center" numberOfLines={2}>{x.label}</T>
+                  {!!x.badge && <View style={{ position: 'absolute', top: 8, left: 8, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }}><T w="black" size={10.5} color="#fff" align="center">{x.badge}</T></View>}
+                </Card>
+              </Pressable>
+            ))}
+          </View>
         </View>
 
         <Card style={{ gap: 12 }}>
@@ -211,7 +194,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
             {recent.length === 0 && <Empty title="لا توجد طلبات" />}
             {recent.map((o, i) => (
               <Pressable key={o.id} onPress={() => navigation.navigate('OrderDetail', { id: o.id })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 11, borderTopWidth: i ? 1 : 0, borderColor: C.line }}>
-                <T w="bold" size={12} color={C.sub} style={{ width: 38 }}>#{o.number}</T>
+                <T w="bold" size={12} color={C.sub} style={{ width: 38 }}>‎#{o.number}</T>
                 <View style={{ flex: 1 }}>
                   <T w="semi" size={13} numberOfLines={1}>{o.customerName}</T>
                   <T size={11} color={C.sub} numberOfLines={1}>{o.providerName}</T>
@@ -223,6 +206,28 @@ export function AdminDashboardScreen({ navigation, go }: any) {
               </Pressable>
             ))}
           </Card>
+        </View>
+
+        <View>
+          <T w="black" size={15} style={{ marginBottom: 8 }}>الإجمالي (كل الوقت)</T>
+          <View style={{ gap: 10 }}>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Stat icon="receipt" label="إجمالي الطلبات" value={counters ? counters.totals.orders : orders.length} />
+          <Stat icon="checkmark-done" label="المكتملة" value={delivered.length} color={C.blue} soft={C.blueSoft} />
+          <Stat icon="bicycle" label="قيد التنفيذ" value={active.length} color={C.orange} soft={C.orangeSoft} />
+        </View>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Stat icon="cash" label="إجمالي المبيعات" value={money(counters ? counters.totals.sales : revenue)} color={C.goldDeep} soft={C.goldSoft} />
+          <Stat icon="trending-up" label="أرباح المنصة" value={money(counters ? counters.totals.profit : 0)} color={C.green} soft={C.greenSoft} />
+          <Stat icon="calendar" label="حجوزات العيادات" value={db.appointments.length} color="#8A5CD1" soft="#EFE6FB" />
+        </View>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Stat icon="people" label="العملاء" value={db.users.filter((u) => u.role === 'customer').length} />
+          <Stat icon="storefront" label="مقدمو الخدمة" value={db.providers.filter((p) => p.status === 'active').length} color={C.blue} soft={C.blueSoft} />
+          <Stat icon="radio" label={`مناديب متاحون / ${couriers.length}`} value={avail} color={C.green} />
+        </View>
+
+          </View>
         </View>
       </ScrollView>
     </View>
@@ -521,11 +526,19 @@ export function AdminSettingsScreen({ navigation }: any) {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={{ flex: 1 }}>
             <T w="bold" size={14}>التعيين التلقائي للمناديب</T>
-            <T size={11.5} color={C.sub}>يتم إسناد الطلب تلقائياً لأقل مندوب متاح انشغالاً بدلاً من قبول المندوب يدوياً</T>
+            <T size={11.5} color={C.sub}>يُسند الطلب تلقائياً لأقرب مندوب متاح للمتجر (والأقل انشغالاً) ويفتح له فوراً، ولو لم يفتحه خلال دقيقتين ينتقل للمندوب التالي</T>
           </View>
           <Toggle value={s.autoAssign} onValueChange={(v) => done(updateSettings({ autoAssign: v }), v ? 'تم تفعيل التعيين التلقائي' : 'تم إيقاف التعيين التلقائي')} />
         </View>
       </Card>
+      </Section>
+      <Section icon="color-palette" title="المظهر وحجم الواجهة" sub="لون التطبيق • حجم الخط والعناصر للموبايل والكمبيوتر">
+        <ThemePicker />
+        <UiScaleCard />
+      </Section>
+      <Section icon="map" title="الخريطة والتوصيل" sub="نوع الخريطة • طريقة حساب التوصيل">
+        <MapModeCard />
+        <DeliveryModeCard />
       </Section>
       <Section icon="moon" title="مواعيد التشغيل" sub="ساعة الفتح والغلق، الأيام، رسالة الغلق للعميل">
         <HoursSettings />

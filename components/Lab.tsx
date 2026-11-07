@@ -205,7 +205,7 @@ export function LabDetail({ navigation, a }: { navigation: any; a: Appointment }
   const run = async (action: 'confirm' | 'reject' | 'visit', ok: string) => { const r = await labAction(a.id, { action }); toast(r.ok ? ok : r.error || 'تعذر التنفيذ', r.ok ? 'ok' : 'err'); };
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={`طلب تحليل #${a.number}`} subtitle={fmtDateTime(a.createdAt)} onBack={() => navigation.goBack()} right={<LabPill stage={lab.stage} />} />
+      <Header title={`طلب تحليل ‎#${a.number}`} subtitle={fmtDateTime(a.createdAt)} onBack={() => navigation.goBack()} right={<LabPill stage={lab.stage} />} />
       <View style={{ flex: 1 }}>
         <Scroll>
           <Card style={{ gap: 12 }}>

@@ -79,7 +79,7 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
           <T w="bold" size={14.5} numberOfLines={1}>
             {perspective === 'provider' || perspective === 'courier' ? o.customerName : o.providerName}
           </T>
-          <T size={11.5} color={C.sub}>طلب #{o.number} • {fmtDateTime(o.createdAt)}</T>
+          <T size={11.5} color={C.sub}>طلب ‎#{o.number} • {fmtDateTime(o.createdAt)}</T>
         </View>
         <OrderPill s={o.status} />
       </View>
@@ -124,7 +124,7 @@ export function ApptCard({ a, onPress, perspective, children }: { a: Appointment
         <View style={{ flex: 1 }}>
           <T w="bold" size={14.5} numberOfLines={1}>{perspective === 'provider' ? a.patientName : a.doctorName}</T>
           <T size={11.5} color={C.sub} numberOfLines={1}>
-            {perspective === 'customer' ? a.clinicName : perspective === 'admin' ? `${a.clinicName} • ${a.patientName}` : a.doctorName} • حجز #{a.number}
+            {perspective === 'customer' ? a.clinicName : perspective === 'admin' ? `${a.clinicName} • ${a.patientName}` : a.doctorName} • حجز ‎#{a.number}
           </T>
         </View>
         {a.lab ? <LabPill stage={a.lab.stage} /> : <ApptPill s={a.status} />}

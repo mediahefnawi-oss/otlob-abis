@@ -173,7 +173,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
-const SCHEMA_VERSION = 20261126;
+const SCHEMA_VERSION = 20261127;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -724,7 +724,7 @@ async function loadSettingsBase() {
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 // the clock part is never cached: the app uses it to know when to open / close without asking again
 async function loadSettings() {
@@ -765,6 +765,24 @@ app.patch('/api/admin/update-notice', auth, roles('admin'), asyncRoute(async (re
   try {
     await pool.query('UPDATE app_settings SET update_version=$1, update_message=$2, update_required=$3, updated_at=NOW() WHERE id=1', [version, message, required]);
   } catch (e) { if (e.code === '42703') return res.status(503).json({ error: 'قاعدة البيانات لم تُحدَّث بعد' }); throw e; }
+  settingsMemo.clear();
+  res.json({ settings: await loadSettings() });
+}));
+
+// The owner alone chooses how big the interface is: one number for phones and one for computers (0.80 - 1.20).
+app.patch('/api/admin/ui-scale', auth, roles('admin'), asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  const val = v => { const n = Math.round(Number(v) * 100) / 100; return Number.isFinite(n) && n >= 0.8 && n <= 1.2 ? n : null; };
+  const sets = [], values = [];
+  for (const [key, col] of [['phone', 'ui_phone_scale'], ['desktop', 'ui_desktop_scale']]) {
+    if (b[key] === undefined) continue;
+    const n = val(b[key]);
+    if (n == null) return res.status(400).json({ error: 'الحجم من 80% إلى 120%' });
+    values.push(n); sets.push(`${col}=$${values.length}`);
+  }
+  if (!sets.length) return res.status(400).json({ error: 'اختر حجماً' });
+  try { await pool.query(`UPDATE app_settings SET ${sets.join(', ')}, updated_at=NOW() WHERE id=1`, values); }
+  catch (e) { if (e.code === '42703') return res.status(503).json({ error: 'قاعدة البيانات لم تُحدَّث بعد' }); throw e; }
   settingsMemo.clear();
   res.json({ settings: await loadSettings() });
 }));

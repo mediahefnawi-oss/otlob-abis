@@ -160,7 +160,7 @@ export function AdminRatingsScreen({ navigation }: any) {
             {d.ratings.map((r) => (
               <Card key={r.id} style={{ gap: 6, opacity: r.hidden ? 0.55 : 1 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <T w="bold" size={13.5}>{r.providerName} · طلب #{r.orderNumber}</T>
+                  <T w="bold" size={13.5}>{r.providerName} · طلب ‎#{r.orderNumber}</T>
                   <T size={11} color={C.sub}>{ago(r.createdAt)}</T>
                 </View>
                 <T size={12.5}>المتجر: {'★'.repeat(r.providerStars || 0)}{r.courierStars ? `   المندوب ${r.courierName}: ${'★'.repeat(r.courierStars)}` : ''}</T>
