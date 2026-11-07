@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تثبيت تطبيق أطلب أبيس</title>
+<meta name="theme-color" content="#00211A">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800;900&display=swap">
+<style>
+  :root { --bg:#F3F4EE; --card:#fff; --ink:#00211A; --sub:#5B6B65; --gold:#F2B51D; --green:#0B6B4D; --line:#E4E7DE; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0B1713; --card:#12231D; --ink:#F3F4EE; --sub:#A8B8B1; --line:#22362E; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:'Cairo',system-ui,sans-serif; line-height:1.7; }
+  header { background:#00211A; color:#fff; padding:28px 16px 36px; text-align:center; border-radius:0 0 28px 28px; }
+  header h1 { margin:0 0 6px; font-size:26px; font-weight:900; color:var(--gold); }
+  header p { margin:0; color:#CFE0D8; font-size:15px; }
+  main { max-width:560px; margin:0 auto; padding:16px; display:grid; gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px; }
+  h2 { margin:0 0 10px; font-size:18px; font-weight:800; }
+  .btn { display:block; text-align:center; background:var(--gold); color:#00211A; font-weight:900; font-size:17px; padding:14px; border-radius:14px; text-decoration:none; }
+  .btn.alt { background:transparent; border:2px solid var(--gold); color:var(--ink); }
+  ol { margin:0; padding:0 22px 0 0; display:grid; gap:8px; }
+  li::marker { font-weight:900; color:var(--green); }
+  .note { color:var(--sub); font-size:13.5px; margin:10px 0 0; }
+  .tag { display:inline-block; background:var(--gold); color:#00211A; font-weight:800; font-size:12px; padding:2px 10px; border-radius:20px; margin-bottom:8px; }
+  details { border-top:1px solid var(--line); padding:10px 0; }
+  details:first-of-type { border-top:0; }
+  summary { font-weight:800; cursor:pointer; }
+  details p { margin:6px 0 0; color:var(--sub); font-size:14.5px; }
+  footer { text-align:center; color:var(--sub); font-size:13px; padding:8px 16px 28px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>أطلب أبيس</h1>
+  <p>كل اللي محتاجه في أبيس .. لحد باب بيتك</p>
+</header>
+<main>
+  <section class="card">
+    <span class="tag">أندرويد</span>
+    <h2>حمّل التطبيق</h2>
+    <a class="btn" href="https://github.com/mediahefnawi-oss/otlob-abis/releases/latest/download/otlob-abis.apk">تحميل التطبيق (APK)</a>
+    <p class="note">الملف بيتحمّل مباشرة على موبايلك، والتحميل والتطبيق مجانيين.</p>
+  </section>
+
+  <section class="card">
+    <h2>إزاي تثبّته (أندرويد)؟</h2>
+    <ol>
+      <li>اضغط زرار التحميل، وافتح الملف بعد ما يخلص (من إشعار التحميل أو من تطبيق "الملفات").</li>
+      <li>لو ظهرلك تنبيه إن التثبيت من مصدر غير معروف، اضغط <b>الإعدادات</b> وفعّل <b>السماح من هذا المصدر</b>، وارجع.</li>
+      <li>اضغط <b>تثبيت</b>.</li>
+      <li>لو ظهرلك تحذير من Google Play Protect، اضغط <b>تفاصيل</b> ثم <b>التثبيت على أي حال</b>.</li>
+      <li>افتح التطبيق، وسجّل دخولك أو أنشئ حساب جديد، ووافق على الإشعارات عشان توصلك حالة طلباتك.</li>
+    </ol>
+    <p class="note">التطبيق مش على متجر جوجل بلاي لسه، عشان كده الموبايل بيعرض تنبيه التثبيت من خارج المتجر. ده طبيعي.</p>
+  </section>
+
+  <section class="card">
+    <span class="tag">آيفون وأي موبايل</span>
+    <h2>أو استخدمه من الموقع</h2>
+    <a class="btn alt" href="https://otlobabis.com">افتح otlobabis.com</a>
+    <ol style="margin-top:12px">
+      <li><b>أندرويد (Chrome):</b> القايمة (⋮) ← <b>تثبيت التطبيق</b> أو <b>إضافة إلى الشاشة الرئيسية</b>.</li>
+      <li><b>آيفون (Safari):</b> زرار المشاركة ← <b>إضافة إلى الشاشة الرئيسية</b>.</li>
+    </ol>
+    <p class="note">بيفتح من الأيقونة زي أي تطبيق، وبيتحدّث لوحده.</p>
+  </section>
+
+  <section class="card">
+    <h2>أسئلة سريعة</h2>
+    <details><summary>هل التطبيق آمن؟</summary><p>أيوه. بنطلب بس الصلاحيات اللازمة: الصور والكاميرا (للروشتة وصور المنتجات)، والإشعارات، والاتصال.</p></details>
+    <details><summary>إزاي أحدّث التطبيق؟</summary><p>لما ينزل تحديث جديد هيظهرلك شريط في أعلى التطبيق، اضغط عليه وثبّت النسخة الجديدة فوق القديمة، وبياناتك وحسابك هيفضلوا زي ما هم.</p></details>
+    <details><summary>مش راضي يتثبّت؟</summary><p>اتأكد إنك سمحت بالتثبيت من المصدر، وإن فيه مساحة فاضية على الموبايل، وجرّب تحمّله تاني. ولو لسه، كلّمنا على واتساب: 01004379508.</p></details>
+  </section>
+</main>
+<footer>أطلب أبيس — خدمة التوصيل في أبيس</footer>
+</body>
+</html>
