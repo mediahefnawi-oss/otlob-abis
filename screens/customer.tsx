@@ -495,7 +495,7 @@ export function CartScreen({ navigation }: any) {
       {det.groups.length === 0 ? (
         <Empty icon="cart" title="السلة فارغة" text="أضف منتجات من المطاعم أو السوبر ماركت أو الصيدليات" />
       ) : (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">
             {det.groups.map((g, gi) => (
               <Appear key={g.provider.id} i={gi}>
@@ -566,7 +566,7 @@ export function CustomOrderScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="اطلب إيه؟ نجيبهولك" onBack={() => navigation.goBack()} subtitle="اكتب طلبك والمندوب يحدد السعر ويجيبه لك" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: 'center' }}><Text style={{ fontSize: 70 }}>🎁</Text></View>
           <Card style={{ gap: 12 }}>
@@ -628,7 +628,7 @@ export function BookingScreen({ navigation, route }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="حجز موعد" onBack={() => navigation.goBack()} subtitle={clinic.name} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">
           <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
             <EmojiBubble emoji={SPEC_EMOJI[doc.category] || '👨‍⚕️'} size={60} bg="#EFE6FB" />

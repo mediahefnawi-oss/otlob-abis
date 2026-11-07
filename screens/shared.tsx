@@ -511,7 +511,7 @@ export function ChatScreen({ navigation, route }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: '#ECEFE8' }}>
       <Header title={other} subtitle={`شات طلب #${o.number}`} onBack={() => navigation.goBack()} right={me.role !== 'admin' && me.role !== 'supervisor' ? <IconBtn icon="call" onPress={() => callPhone(me.role === 'courier' || me.role === 'provider' ? o.phone : (db.users.find((u) => u.id === o.courierId)?.phone || db.providers.find((p) => p.id === o.providerId)?.phone || ''))} /> : undefined} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <FlatList
           inverted
           data={msgs}

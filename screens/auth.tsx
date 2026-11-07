@@ -91,7 +91,7 @@ export function LoginScreen({ navigation }: any) {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: C.dark }}>
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: C.dark }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, alignItems: 'center' }}>
           <View style={{ alignSelf: 'stretch' }}>
@@ -170,7 +170,7 @@ export function RegisterScreen({ navigation, route }: any) {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: C.dark }}>
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: C.dark }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <Pressable onPress={() => navigation.goBack()} style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>

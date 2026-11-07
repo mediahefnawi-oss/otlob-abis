@@ -120,7 +120,7 @@ function ThreadView({ id, onBack }: { id: string; onBack: () => void }) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title={th?.userName || 'محادثة'} subtitle={th ? `${ROLE_AR[th.userRole] || ''} • ${th.userPhone}` : ''} onBack={onBack}
         right={th ? <Pressable onPress={() => callPhone(th.userPhone)} style={{ padding: 8 }}><Icon name="call" size={20} color={C.green} /></Pressable> : undefined} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <View style={{ flex: 1 }}><Bubbles msgs={msgs} mine={(m) => m.senderId === me?.id} /></View>
         <View style={{ padding: 10, gap: 8, backgroundColor: '#fff' }}>
           <Composer placeholder="اكتب الرد..." onSend={async (t) => { const r = await apiSupportReply(id, t); last.current = Math.max(last.current, Number(r.message.id)); setMsgs((p) => (p.some((x) => x.id === r.message.id) ? p : [...p, r.message])); if (th && th.status === 'closed') setTh({ ...th, status: 'open' }); }} />
