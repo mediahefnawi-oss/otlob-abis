@@ -122,6 +122,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     { label: 'المناديب على الخريطة', route: 'CouriersMap', icon: 'map', color: C.orange, bg: C.orangeSoft, badge: 0 },
     { label: 'شات الدعم', route: 'AdminSupport', icon: 'chatbubbles', color: C.goldDeep, bg: C.goldSoft, badge: supUnread },
     { label: 'العروض والخصومات', route: 'AdminOffers', icon: 'pricetags', color: C.red, bg: C.redSoft, badge: 0 },
+    { label: 'أكواد الخصم', route: 'AdminCoupons', icon: 'ticket', color: C.green, bg: C.greenSoft, badge: 0 },
     { label: 'التقييمات', route: 'AdminRatings', icon: 'star', color: C.goldDeep, bg: C.goldSoft, badge: 0 },
     { label: 'المشرفون', route: 'AdminSupervisors', icon: 'shield-checkmark', color: C.green, bg: C.greenSoft, badge: 0 },
   ];

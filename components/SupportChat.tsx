@@ -7,7 +7,8 @@ import {
   SupportMsg, SupportThread, apiSupportMine, apiSupportSend, apiSupportUnread, apiSupportThreads, apiSupportThread, apiSupportReply, apiSupportStatus, apiSupportStart,
 } from '../lib/api';
 
-const ROLE_AR: Record<string, string> = { customer: 'عميل', provider: 'مقدم خدمة', courier: 'مندوب', admin: 'الإدارة', supervisor: 'مشرف' };
+const ROLE_AR: Record<string, string> = { customer: 'عميل', provider: 'مقدم خدمة', courier: 'مندوب', admin: 'الإدارة', supervisor: 'مشرف', bot: 'رد آلي' };
+const QUICK = ['إزاي أطلب؟', 'رسوم التوصيل', 'أكواد الخصم', 'الدفع', 'إلغاء طلب', 'فين طلبي؟', '👤 كلم الدعم'];
 const timeOf = (t: number) => { try { return new Date(t).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 
 /** polls a loader every `ms` while mounted; a failed poll is ignored (the next one retries) */
@@ -72,16 +73,30 @@ function SupportChatFull({ onClose }: { onClose: () => void }) {
     if (r.messages.length) { last.current = Number(r.messages[r.messages.length - 1].id); setMsgs((p) => [...p, ...r.messages.filter((m) => !p.some((x) => x.id === m.id))]); }
   }, []);
   usePolling(load, 4000);
+  const send = async (t: string) => {
+    const r = await apiSupportSend(t);
+    const add = [r.message, ...(r.reply ? [r.reply] : [])];
+    last.current = Math.max(last.current, ...add.map((x) => Number(x.id)));
+    setMsgs((p) => [...p, ...add.filter((m) => !p.some((x) => x.id === m.id))]);
+  };
+  const quick = async (t: string) => { try { await send(t); } catch (e: any) { toast(e?.message || 'تعذر الإرسال', 'err'); } };
   if (!me) return null;
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="محادثة مع الدعم" subtitle="فريق الدعم يرد عليك هنا" onBack={onClose} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}>
         <View style={{ flex: 1 }}>
-          {msgs.length === 0 ? <Empty icon="chatbubbles" title="ابدأ المحادثة" text="اكتب مشكلتك أو سؤالك وسيرد عليك فريق الدعم هنا" /> : <Bubbles msgs={msgs} mine={(m) => m.senderId === me.id} />}
+          {msgs.length === 0 ? <Empty icon="chatbubbles" title="أهلاً بيك 👋" text="اسأل عن أي حاجة في التطبيق وهيرد عليك المساعد فوراً، ولو محتاج حد من الدعم اضغط «كلم الدعم»" /> : <Bubbles msgs={msgs} mine={(m) => m.senderRole !== 'bot' && m.senderId === me.id} />}
         </View>
-        <View style={{ padding: 10, backgroundColor: '#fff' }}>
-          <Composer placeholder="اكتب رسالتك للدعم..." onSend={async (t) => { const r = await apiSupportSend(t); last.current = Math.max(last.current, Number(r.message.id)); setMsgs((p) => (p.some((x) => x.id === r.message.id) ? p : [...p, r.message])); }} />
+        <View style={{ padding: 10, backgroundColor: '#fff', gap: 8 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }} keyboardShouldPersistTaps="handled">
+            {QUICK.map((q) => (
+              <Pressable key={q} onPress={() => quick(q)} style={{ backgroundColor: q.startsWith('👤') ? C.dark : C.goldSoft, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 }}>
+                <T w="bold" size={12} color={q.startsWith('👤') ? C.gold : C.goldDeep}>{q}</T>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <Composer placeholder="اكتب رسالتك للدعم..." onSend={send} />
         </View>
       </KeyboardAvoidingView>
     </View>

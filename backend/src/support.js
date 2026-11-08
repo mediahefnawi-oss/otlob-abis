@@ -8,7 +8,10 @@
  *    database on every request, so switching it off takes effect at once: the supervisor can no longer list, open or answer anything.
  *  - Nothing is deleted. A conversation can be closed and reopens by itself when the user writes again.
  */
+const bot = require('./supportbot');
 const MAX_BODY = 2000;
+const BOT = { name: 'المساعد الآلي', role: 'bot' };
+const STAFF_QUIET_MS = 12 * 3600 * 1000; // after a person from the staff answered, the helper stays silent for 12 hours
 
 module.exports = function registerSupportRoutes(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers }) {
   const fail = (status, error) => Object.assign(new Error(error), { http: status });
@@ -51,17 +54,30 @@ module.exports = function registerSupportRoutes(app, { pool, auth, roles, asyncR
     const u = (await pool.query('SELECT name, role FROM users WHERE id=$1', [me(req)])).rows[0];
     if (!u) throw fail(404, 'الحساب غير موجود');
     const out = await withTx(async db => {
+      // who spoke last on our side decides what happens to this message: a person recently answered -> straight to the staff;
+      // the helper already handed over -> straight to the staff; otherwise the helper tries first
+      const prev = (await db.query(
+        `SELECT m.sender_role, m.body, m.created_at FROM support_messages m JOIN support_threads t ON t.id=m.thread_id
+         WHERE t.user_id=$1 AND m.sender_role IN ('bot','admin','supervisor') ORDER BY m.id DESC LIMIT 1`, [me(req)])).rows[0];
+      const personRecent = prev && prev.sender_role !== 'bot' && Date.now() - new Date(prev.created_at).getTime() < STAFF_QUIET_MS;
+      const handedOver = prev && prev.sender_role === 'bot' && prev.body === bot.HANDOFF;
+      const ans = personRecent || handedOver ? null : bot.answer(text);
+      const toStaff = !ans || ans.escalate;
       const t = (await db.query(
-        `INSERT INTO support_threads(user_id, status, last_message, last_message_at, unread_staff) VALUES($1,'open',$2,NOW(),1)
-         ON CONFLICT (user_id) DO UPDATE SET status='open', last_message=EXCLUDED.last_message, last_message_at=NOW(), unread_staff=support_threads.unread_staff+1 RETURNING *`,
-        [me(req), text.slice(0, 200)])).rows[0];
+        `INSERT INTO support_threads(user_id, status, last_message, last_message_at, unread_staff) VALUES($1,'open',$2,NOW(),$3)
+         ON CONFLICT (user_id) DO UPDATE SET status='open', last_message=EXCLUDED.last_message, last_message_at=NOW(), unread_staff=support_threads.unread_staff+$3 RETURNING *`,
+        [me(req), text.slice(0, 200), toStaff ? 1 : 0])).rows[0];
       const m = (await db.query('INSERT INTO support_messages(thread_id, sender_user_id, sender_name, sender_role, body) VALUES($1,$2,$3,$4,$5) RETURNING *', [t.id, me(req), u.name, u.role, text])).rows[0];
-      return { t, m };
+      let r = null;
+      if (ans) r = (await db.query('INSERT INTO support_messages(thread_id, sender_user_id, sender_name, sender_role, body) VALUES($1,$2,$3,$4,$5) RETURNING *', [t.id, me(req), BOT.name, BOT.role, ans.reply])).rows[0];
+      return { t, m, r, toStaff };
     });
-    // tell the owner and every supervisor who may answer
-    const staff = (await pool.query("SELECT id FROM users WHERE deleted_at IS NULL AND status='active' AND (role='admin' OR (role='supervisor' AND support_chat=TRUE))")).rows.map(r => r.id);
-    notify(staff, { title: 'رسالة دعم جديدة', body: `${u.name}: ${text.slice(0, 80)}`, tag: 'support-' + out.t.id, url: '/', requireInteraction: true });
-    res.status(201).json({ message: msgJson(out.m), thread: { id: String(out.t.id), status: out.t.status } });
+    // only what really needs a person reaches the owner and the allowed supervisors
+    if (out.toStaff) {
+      const staff = (await pool.query("SELECT id FROM users WHERE deleted_at IS NULL AND status='active' AND (role='admin' OR (role='supervisor' AND support_chat=TRUE))")).rows.map(r => r.id);
+      notify(staff, { title: out.r ? 'دعم: يحتاج تدخلك' : 'رسالة دعم جديدة', body: `${u.name}: ${text.slice(0, 80)}`, tag: 'support-' + out.t.id, url: '/', requireInteraction: true });
+    }
+    res.status(201).json({ message: msgJson(out.m), ...(out.r ? { reply: msgJson(out.r) } : {}), thread: { id: String(out.t.id), status: out.t.status } });
   }));
   // a small counter for the badge: unread replies for a user, unread conversations for the staff who may work them
   app.get('/api/support/unread', auth, guard(async (req, res) => {

@@ -11,6 +11,7 @@ const offersLib = require('./offers');
 const kmFee = require('./kmfee');
 const tracking = require('./tracking');
 const mapMode = require('./mapmode');
+const couponsLib = require('./coupons');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
   const num = v => Number(v) || 0;
   const ms = d => new Date(d).getTime();
@@ -27,10 +28,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       customerId: String(r.customer_user_id), customerName: d.customerName || '', phone: d.phone || '', phone2: d.phone2 || '', address: d.address || '', notes: d.notes || '',
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
-      request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
+      request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), discount: d.discount > 0 ? num(d.discount) : undefined, couponCode: d.discount > 0 ? d.couponCode : undefined, giftCode: d.giftCode || undefined, deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
       courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
-      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined,
+      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, staffDismissed: d.staffDismissed ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined,
     };
   };
   const invoiceJson = r => ({
@@ -125,6 +126,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   const orderJsonFor = (r, role, pv) => {
     let o = orderJson(r);
     const d = r.data || {};
+    if (o.giftCode && role !== 'customer' && role !== 'admin' && role !== 'supervisor') o = { ...o, giftCode: undefined }; // the owner's gift is for the customer only
     if (privacyMask(r, role, pv)) o = { ...o, customerName: 'عميل', phone: '', phone2: '', address: '', notes: '', privacyMasked: true };
     return role === 'customer' || !d.customerFlag ? o : { ...o, customerFlag: d.customerFlag, customerFlagNote: d.customerFlagNote || undefined };
   };
@@ -157,6 +159,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       d.courierVehicle = courier ? courier.vehicle : undefined;
     }
     const r = await db.query('UPDATE orders SET status=$1, data=$2, courier_user_id=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [status, JSON.stringify(d), cid, row.id]);
+    if (status === 'cancelled' && status !== row.status && d.couponCode) await couponsLib.release(db, row.id); // a cancelled order gives its discount code back
     return r.rows[0];
   }
   /**
@@ -303,7 +306,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'deliver': jobs.push(notify(cust, 'تم تسليم طلبك 💚', 'بالهناء والشفاء', tag), notify(shop, 'تم تسليم الطلب للعميل', `#${row.order_number}`, tag)); break;
         case 'ready': jobs.push(notify(row.courier_user_id ? [row.courier_user_id] : [], 'الطلب جاهز للاستلام ✅', d.providerName || '', tag)); break;
         case 'reject': jobs.push(notify(cust, 'اعتذر المتجر عن طلبك', d.rejectReason || '', tag)); break;
-        case 'cancel': jobs.push(actorRole === 'customer' ? notify([...shop, row.courier_user_id], 'ألغى العميل الطلب', `#${row.order_number}`, tag) : notify(cust, 'تم إلغاء طلبك', d.rejectReason || '', tag)); break;
+        case 'cancel': jobs.push(actorRole === 'customer' ? notify([...shop, row.courier_user_id], 'ألغى العميل الطلب', `#${row.order_number}`, tag) : notify(cust, 'تم إلغاء طلبك', (d.rejectReason || '') + (d.giftCode ? ` 🎁 كود خصم لك: ${d.giftCode}` : ''), tag)); break;
         case 'decline_quote': jobs.push(d.providerType === 'custom' ? notifyCouriers([row]) : notify(shop, 'رفض العميل السعر', `#${row.order_number}`, tag)); break;
         default: break;
       }
@@ -422,23 +425,17 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   }));
 
   /* ---------- placing orders ---------- */
-  app.post('/api/orders/checkout', auth, roles('customer'), guard(async (req, res) => {
-    await requireOpen();
-    const b = req.body || {};
-    const dest = await destRule(b);
-    await rememberSpot(Number(req.auth.sub), dest);
-    const name = String(b.name || '').trim();
-    if (name.length < 3) throw fail(400, 'اكتب الاسم بالكامل');
-    const { address, phone } = checkContact(b);
-    const lines = (Array.isArray(b.lines) ? b.lines : []).slice(0, 100)
-      .map(l => ({ id: positiveId(l && l.productId), qty: Math.floor(Number(l && l.qty)) }))
-      .filter(l => l.id && l.qty > 0 && l.qty <= 50);
+  /** The cart lines the app sent, cleaned. */
+  const cleanLines = raw => (Array.isArray(raw) ? raw : []).slice(0, 100)
+    .map(l => ({ id: positiveId(l && l.productId), qty: Math.floor(Number(l && l.qty)) }))
+    .filter(l => l.id && l.qty > 0 && l.qty <= 50);
+  /** The server prices a cart: products grouped by shop, with the offers taken off, exactly as the customer saw them. */
+  async function buildGroups(lines) {
     if (!lines.length) throw fail(400, 'السلة فارغة');
     const prods = await pool.query(
       `SELECT pr.*, p.name AS pname, p.type AS ptype, p.owner_user_id, p.delivery_fee AS pfee, p.status AS pstatus, p.is_open, p.deleted_at
        FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE pr.id = ANY($1::bigint[])`, [lines.map(l => l.id)]);
     const offersNow = await offersLib.activeOffers(pool);
-    // the server prices the order: an active offer lowers the price exactly as the customer saw it
     for (const r of prods.rows) r.price = offersLib.salePrice(r.price, offersLib.bestOffer(offersNow, r.provider_id));
     const byId = new Map(prods.rows.map(r => [Number(r.id), r]));
     const groups = new Map();
@@ -449,30 +446,68 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       if (!services.isActive(p.ptype)) throw fail(409, `${p.pname}: هذه الخدمة متوقفة حالياً`);
       if (services.tplOf(p.ptype) === 'request') throw fail(409, `${p.pname}: اطلب بكتابة طلبك (بدون سلة منتجات)`);
       if (!p.available) throw fail(409, `${p.name} غير متاح حالياً`);
-      if (!groups.has(p.provider_id)) groups.set(p.provider_id, { p, items: [], subtotal: 0 });
+      if (!groups.has(p.provider_id)) groups.set(p.provider_id, { p, items: [], subtotal: 0, hasOffer: !!offersLib.bestOffer(offersNow, p.provider_id) });
       const g = groups.get(p.provider_id);
       g.items.push({ productId: String(p.id), name: p.name, price: Number(p.price), qty: l.qty, emoji: (p.data && p.data.emoji) || '📦' });
       g.subtotal += Number(p.price) * l.qty;
     }
+    return groups;
+  }
+
+  /** The private codes (gifts) saved for this customer that he can still use. */
+  app.get('/api/coupons/mine', auth, roles('customer'), guard(async (req, res) => {
+    const r = await pool.query(
+      `SELECT c.* FROM coupons c WHERE c.user_id=$1 AND c.active AND c.starts_at <= NOW() AND c.ends_at > NOW()
+         AND (c.per_user IS NULL OR (SELECT COUNT(DISTINCT group_ref) FROM coupon_uses WHERE coupon_id=c.id AND user_id=$1) < c.per_user)
+         AND (c.max_uses IS NULL OR (SELECT COUNT(DISTINCT group_ref) FROM coupon_uses WHERE coupon_id=c.id) < c.max_uses)
+       ORDER BY c.ends_at LIMIT 20`, [Number(req.auth.sub)]);
+    res.json({ coupons: r.rows.map(couponsLib.couponJson) });
+  }));
+
+  /** The customer asks, in the cart, what his discount code would take off (nothing is saved). */
+  app.post('/api/coupons/check', auth, roles('customer'), guard(async (req, res) => {
+    const b = req.body || {};
+    const groups = await buildGroups(cleanLines(b.lines));
+    const ev = await couponsLib.evaluate(pool, { code: b.code, userId: Number(req.auth.sub), groups: [...groups.values()].map(g => ({ providerId: g.p.provider_id, subtotal: g.subtotal, hasOffer: g.hasOffer })) });
+    res.json({ code: ev.coupon.code, discount: ev.discount, kind: ev.coupon.kind, value: Number(ev.coupon.value) });
+  }));
+
+  app.post('/api/orders/checkout', auth, roles('customer'), guard(async (req, res) => {
+    await requireOpen();
+    const b = req.body || {};
+    const dest = await destRule(b);
+    await rememberSpot(Number(req.auth.sub), dest);
+    const name = String(b.name || '').trim();
+    if (name.length < 3) throw fail(400, 'اكتب الاسم بالكامل');
+    const { address, phone } = checkContact(b);
+    const lines = cleanLines(b.lines);
+    const groups = await buildGroups(lines);
     const out = await withTx(async db => {
       const region = await regionOf(db, Number(req.auth.sub));
       const orders = [];
+      // a discount code is checked again here, with its row locked, so two customers cannot both take the last use
+      const ev = String(b.coupon || '').trim()
+        ? await couponsLib.evaluate(db, { code: b.coupon, userId: Number(req.auth.sub), forUpdate: true, groups: [...groups.values()].map(g => ({ providerId: g.p.provider_id, subtotal: g.subtotal, hasOffer: g.hasOffer })) })
+        : null;
+      const discounts = [];
       for (const g of groups.values()) {
+        const disc = ev ? (ev.perGroup.get(String(g.p.provider_id)) || 0) : 0;
         const fee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee, Number(req.auth.sub), dest);
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
-          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
+          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, ...(disc > 0 ? { discount: disc, couponCode: ev.coupon.code } : {}), deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
           // every shop decides first: it must press accept or reject (a maker also picks the ready day and hour); nothing starts by itself
           history: [{ status: 'pending', at: Date.now() }],
         };
         const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
-          [Number(req.auth.sub), g.p.provider_id, 'pending', g.subtotal + fee, region ? region.id : null, JSON.stringify(d)]);
+          [Number(req.auth.sub), g.p.provider_id, 'pending', Math.round((g.subtotal - disc + fee) * 100) / 100, region ? region.id : null, JSON.stringify(d)]);
         orders.push(r.rows[0]);
+        discounts.push(disc);
       }
       const total = orders.reduce((s, o) => s + Number(o.total), 0);
       const parts = orders.map(o => ({
         orderId: String(o.id), providerId: String(o.provider_id), providerName: o.data.providerName, providerType: o.data.providerType,
-        items: o.data.items, subtotal: o.data.subtotal, deliveryFee: o.data.deliveryFee,
+        items: o.data.items, subtotal: o.data.subtotal, deliveryFee: o.data.deliveryFee, ...(o.data.discount > 0 ? { discount: o.data.discount, couponCode: o.data.couponCode } : {}),
       }));
       const inv = await db.query('INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,\'delivery\',$3,$4) RETURNING *', [
         Number(req.auth.sub), orders[0].id, total,
@@ -485,6 +520,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         await sysMsg(db, row.id, services.tplOf((o.data || {}).providerType) === 'maker' ? 'تم إرسال طلبك للصانع، وسيقبله ويحدد موعد جاهزيته أو يعتذر عنه 🧵' : 'تم إرسال طلبك للمتجر ✅');
         finalOrders.push(row);
       }
+      if (ev) await couponsLib.record(db, { coupon: ev.coupon, userId: Number(req.auth.sub), groupRef: inv.rows[0].id, orders: finalOrders.map((o, i) => ({ id: o.id, discount: discounts[i] })) });
       const u = await db.query('UPDATE users SET address=$1 WHERE id=$2 RETURNING *', [address, Number(req.auth.sub)]);
       return { invoice: inv.rows[0], orders: finalOrders, user: u.rows[0] };
     });
@@ -894,8 +930,20 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           break;
         case 'cancel':
           need(isCustomer || isShop);
-          if (['picked_up', 'on_the_way', 'arrived', 'delivered', 'rejected', 'cancelled'].includes(row.status)) throw fail(409, 'لا يمكن إلغاء الطلب الآن');
-          next = await moveOrder(db, row, 'cancelled', { cancelledBy: role, rejectReason: role === 'admin' ? 'ألغاه المدير' : role === 'supervisor' ? 'ألغاه المشرف' : role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
+          // the owner / supervisor may also end an order the shop refused, and give the customer the reason
+          if (['picked_up', 'on_the_way', 'arrived', 'delivered', 'cancelled'].includes(row.status) || (row.status === 'rejected' && !['admin', 'supervisor'].includes(role))) throw fail(409, 'لا يمكن إلغاء الطلب الآن');
+          // the owner may give the customer a private one-use discount code with the cancellation
+          let gift = null;
+          if (role === 'admin' && (req.body || {}).gift) {
+            const g = req.body.gift;
+            gift = await couponsLib.makeGift(db, { userId: row.customer_user_id, kind: g.kind, value: g.value, days: g.days });
+          }
+          next = await moveOrder(db, row, 'cancelled', { ...(gift ? { giftCode: gift.code } : {}), cancelledBy: role, staffDismissed: ['admin', 'supervisor'].includes(role) ? true : undefined, rejectReason: ['admin', 'supervisor'].includes(role) && reason ? reason : role === 'admin' ? 'ألغاه المدير' : role === 'supervisor' ? 'ألغاه المشرف' : role === 'provider' ? 'ألغاه المتجر' : 'ألغاه العميل' });
+          if (gift) await sysMsg(db, id, `🎁 كود خصم هدية لك: ${gift.code} (يُستخدم مرة واحدة في سلة الطلب)`);
+          break;
+        case 'dismiss': // "handled": the order leaves the owner's needs-attention list, nothing else changes
+          need(role === 'admin' || supOk, 'للمدير والمشرف فقط');
+          next = await moveOrder(db, row, row.status, { staffDismissed: true });
           break;
         case 'courier_accept': {
           need(role === 'courier', 'للمناديب فقط'); state('accepted', 'ready');

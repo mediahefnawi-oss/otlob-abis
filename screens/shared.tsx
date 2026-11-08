@@ -22,6 +22,7 @@ import { LabDetail } from '../components/Lab';
 import { SupportChatCard } from '../components/SupportChat';
 import { OrderMapCard, MyLocationCard } from '../components/Location';
 import { RateOrderCard } from '../components/Ratings';
+import { MyCouponsSheet } from '../components/Coupons';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
@@ -169,6 +170,12 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
         {/* items */}
         <Card style={{ gap: 10 }}>
           <T w="black" size={15}>تفاصيل الطلب</T>
+          {!!o.giftCode && (me.role === 'customer' || me.role === 'admin') && (
+            <View style={{ backgroundColor: C.goldSoft, borderRadius: 12, padding: 12, gap: 2 }}>
+              <T w="bold" size={13} color={C.goldDeep}>🎁 كود خصم هدية: {o.giftCode}</T>
+              <T size={11.5} color={C.dark3}>يُكتب في سلة الطلب القادم</T>
+            </View>
+          )}
           {isRequest && (
             <View style={{ backgroundColor: C.goldSoft, borderRadius: 12, padding: 12, gap: 8 }}>
               <T w="bold" size={12} color={C.goldDeep}>الطلب المكتوب</T>
@@ -195,6 +202,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           ) : (
             <>
           <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>{isCustom ? 'المشتريات' : 'المجموع'}</T><T w="bold">{money(o.subtotal)}</T></View>
+          {!!o.discount && <View style={{ flexDirection: 'row' }}><T color={C.green} style={{ flex: 1 }}>خصم الكود {o.couponCode}</T><T w="bold" color={C.green}>- {money(o.discount)}</T></View>}
           <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>التوصيل</T><T w="bold">{money(o.deliveryFee)}</T></View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <T w="black" size={16} style={{ flex: 1 }}>الإجمالي</T>
@@ -330,7 +338,7 @@ export function InvoiceScreen({ navigation, route }: any) {
   const onlyProvider: string | undefined = route.params.providerId;
   if (!inv) return <View style={{ flex: 1 }}><Header title="الفاتورة" onBack={() => navigation.goBack()} /><Empty title="الفاتورة غير موجودة" /></View>;
   const parts = onlyProvider ? inv.parts.filter((p) => p.providerId === onlyProvider) : inv.parts;
-  const total = inv.kind === 'booking' ? inv.total : parts.reduce((s, p) => s + p.subtotal + p.deliveryFee, 0);
+  const total = inv.kind === 'booking' ? inv.total : parts.reduce((s, p) => s + p.subtotal - (p.discount || 0) + p.deliveryFee, 0);
   const appt = inv.appointmentId ? db.appointments.find((a) => a.id === inv.appointmentId) : null;
 
   const text = () => {
@@ -344,6 +352,7 @@ export function InvoiceScreen({ navigation, route }: any) {
         if (p.requestText) lines.push(`  📝 ${p.requestText}`);
         if (p.readyDate) lines.push(`  📅 جاهز للتسليم: ${readyLabel(p.readyDate, p.readyTime)}`);
         p.items.forEach((i) => lines.push(`  • ${i.qty}× ${i.name} = ${money(i.price * i.qty)}`));
+        if (p.discount) lines.push(`  خصم الكود ${p.couponCode}: -${money(p.discount)}`);
         lines.push(`  التوصيل: ${money(p.deliveryFee)}`, '');
       });
       lines.push(`الإجمالي: ${money(total)}`);
@@ -434,8 +443,9 @@ export function InvoiceScreen({ navigation, route }: any) {
                         ))}
                         <View style={{ height: 1, backgroundColor: C.line }} />
                         {p.providerType !== 'custom' && <View style={{ flexDirection: 'row' }}><T size={12.5} color={C.sub} style={{ flex: 1 }}>المجموع</T><T w="semi" size={12.5}>{money(p.subtotal)}</T></View>}
+                        {!!p.discount && <View style={{ flexDirection: 'row' }}><T size={12.5} color={C.green} style={{ flex: 1 }}>خصم الكود {p.couponCode}</T><T w="semi" size={12.5} color={C.green}>- {money(p.discount)}</T></View>}
                         <View style={{ flexDirection: 'row' }}><T size={12.5} color={C.sub} style={{ flex: 1 }}>التوصيل</T><T w="semi" size={12.5}>{money(p.deliveryFee)}</T></View>
-                        <View style={{ flexDirection: 'row' }}><T w="bold" size={13.5} style={{ flex: 1 }}>إجمالي {p.providerName}</T><T w="black" size={14}>{money(p.subtotal + p.deliveryFee)}</T></View>
+                        <View style={{ flexDirection: 'row' }}><T w="bold" size={13.5} style={{ flex: 1 }}>إجمالي {p.providerName}</T><T w="black" size={14}>{money(p.subtotal - (p.discount || 0) + p.deliveryFee)}</T></View>
                       </View>
                     </View>
                   );
@@ -632,6 +642,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
   const { db } = useStore();
   const [edit, setEdit] = useState(false);
   const [pw, setPw] = useState(false);
+  const [cpn, setCpn] = useState(false);
   const [name, setName] = useState(me.name);
   const [address, setAddress] = useState(me.address);
   const [regionId, setRegionId] = useState(me.regionId || '');
@@ -674,10 +685,12 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Item icon="key" label="تغيير كلمة المرور" onPress={() => setPw(true)} />
           <View style={{ height: 1, backgroundColor: C.line }} />
+          {me.role === 'customer' && <><Item icon="ticket" label="أكواد الخصم الخاصة بي" onPress={() => setCpn(true)} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
           <Item icon="logo-whatsapp" label="الدعم الفني واتساب" sub="01004379508 — أحمد حفناوي" onPress={() => openWhats('01004379508', `مرحباً، أنا ${me.name}`)} />
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Item icon="log-out" label="تسجيل الخروج" danger onPress={() => confirmDialog({ title: 'تسجيل الخروج', message: 'هل تريد تسجيل الخروج من حسابك؟', confirmText: 'خروج', danger: true, onConfirm: logout })} />
         </Card>
+        <MyCouponsSheet visible={cpn} onClose={() => setCpn(false)} />
         <View style={{ alignItems: 'center', gap: 4, marginTop: 6 }}>
           <Logo width={120} />
           <T size={11} color={C.sub} align="center">أطلب أبيس • الإصدار {APP_VERSION}</T>

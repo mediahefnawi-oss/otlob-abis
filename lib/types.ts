@@ -119,6 +119,7 @@ export interface OrderItem {
 export interface Order {
   staffHandled?: boolean; // a supervisor took the order over (the shop left it stuck)
   cancelledBy?: string; // who cancelled it: customer / provider / admin / supervisor
+  staffDismissed?: boolean; // the owner marked this refused/stuck order as handled
   privacyMasked?: boolean; // the customer's data was hidden from this shop/courier after delivery
   autoPending?: boolean; // the owner's auto-assign gave it to this courier and he has not opened it yet (the app opens it for him)
   errandQuote?: 'open' | 'quoted' | 'approved'; // «اطلب إيه نجيبهولك»: waiting for the courier's price / waiting for the customer / agreed
@@ -142,6 +143,9 @@ export interface Order {
   regionId?: string;
   regionName?: string;
   subtotal: number;
+  discount?: number; // taken off by a discount code
+  couponCode?: string;
+  giftCode?: string; // a gift code the owner gave with a cancellation (customer/admin only)
   deliveryFee: number;
   total: number;
   status: OrderStatus;
@@ -201,6 +205,8 @@ export interface InvoicePart {
   readyDate?: string;
   readyTime?: string;
   subtotal: number;
+  discount?: number;
+  couponCode?: string;
   deliveryFee: number;
 }
 

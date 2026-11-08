@@ -535,3 +535,32 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ui_desktop_scale NUMERIC(4,2) 
 -- shops and couriers lose sight of the customer's data some minutes after delivery (the owner can switch it off)
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS privacy_hide BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS privacy_minutes INTEGER NOT NULL DEFAULT 1;
+
+-- Discount codes: the owner makes a code (amount or percent) for some days, for all shops or chosen shops, for everyone or one customer.
+CREATE TABLE IF NOT EXISTS coupons (
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE CHECK (code ~ '^[A-Z0-9-]{4,20}$'),
+  kind TEXT NOT NULL CHECK (kind IN ('amount','percent')),
+  value NUMERIC(8,2) NOT NULL CHECK (value > 0),
+  max_discount NUMERIC(8,2) CHECK (max_discount IS NULL OR max_discount > 0),
+  starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ends_at TIMESTAMPTZ NOT NULL,
+  provider_ids BIGINT[],
+  user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  per_user SMALLINT CHECK (per_user IS NULL OR per_user BETWEEN 1 AND 100),
+  max_uses INTEGER CHECK (max_uses IS NULL OR max_uses > 0),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  source TEXT NOT NULL DEFAULT 'owner',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS coupon_uses (
+  id BIGSERIAL PRIMARY KEY,
+  coupon_id BIGINT NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL,
+  order_id BIGINT NOT NULL,
+  group_ref BIGINT NOT NULL,
+  amount NUMERIC(10,2) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (coupon_id, order_id)
+);
+CREATE INDEX IF NOT EXISTS idx_coupon_uses_user ON coupon_uses(coupon_id, user_id);

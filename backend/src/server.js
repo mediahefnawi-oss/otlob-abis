@@ -173,7 +173,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 // (concurrent ALTER TABLEs lock each other and fail), so it runs once per version, by one instance at a time.
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
-const SCHEMA_VERSION = 20261128;
+const SCHEMA_VERSION = 20261129;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -1063,6 +1063,7 @@ services.register(app, { pool, auth, roles, asyncRoute });
 require('./mapmode').registerMapModeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
+require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
 ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./support')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });

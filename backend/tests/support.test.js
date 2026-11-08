@@ -44,7 +44,7 @@ async function call(key, { as, body, query, params } = {}) {
   const m1 = await call('POST /api/support/mine/messages', { as: C1, body: { text: 'الطلب اتأخر' } });
   eq(m1.status, 201, 'sent'); eq(m1.json.message.senderName, 'عميل 1', 'sender name'); eq(m1.json.message.senderRole, 'customer', 'sender role');
   await call('POST /api/support/mine/messages', { as: C1, body: { text: 'ممكن حد يرد؟' } });
-  await call('POST /api/support/mine/messages', { as: C2, body: { text: 'عايز أغيّر عنواني' } });
+  await call('POST /api/support/mine/messages', { as: C2, body: { text: 'عندي مشكلة في عنواني' } });
   eq((await q('SELECT count(*) c FROM support_threads')).rows[0].c, '2', 'one thread per user'); 
   eq((await call('POST /api/support/mine/messages', { as: A, body: { text: 'x' } })).status, 403, 'admin has no personal thread');
   eq((await call('POST /api/support/mine/messages', { as: S1, body: { text: 'x' } })).status, 403, 'supervisor has no personal thread');
@@ -64,15 +64,15 @@ async function call(key, { as, body, query, params } = {}) {
   const t1 = l.json.threads.find(t => t.userId === String(c1));
   eq(t1.unread, 2, 'c1 has 2 unread'); eq(t1.userName, 'عميل 1', 'user name shown');
   const open = await call('GET /api/support/threads/:id', { as: A, params: { id: t1.id } });
-  eq(open.json.messages.length, 2, 'both messages'); eq((await call('GET /api/support/unread', { as: A })).json.unread, 1, 'opening clears that thread');
+  eq(open.json.messages.length, 3, 'both messages'); eq((await call('GET /api/support/unread', { as: A })).json.unread, 1, 'opening clears that thread');
   const rep = await call('POST /api/support/threads/:id/messages', { as: A, params: { id: t1.id }, body: { text: 'تم، بنتابع' } });
   eq(rep.status, 201, 'owner reply'); eq(rep.json.message.senderRole, 'admin', 'staff role shown');
   ok(pushes.some(x => x.ids.includes(Number(c1)) && x.p.title === 'رد من الدعم الفني'), 'user is notified of the reply');
   const mine = await call('GET /api/support/mine', { as: C1 });
-  eq(mine.json.messages.length, 3, 'user sees the thread'); eq((await call('GET /api/support/unread', { as: C1 })).json.unread, 0, 'unread cleared after reading');
+  eq(mine.json.messages.length, 4, 'user sees the thread'); eq((await call('GET /api/support/unread', { as: C1 })).json.unread, 0, 'unread cleared after reading');
   const later = await call('GET /api/support/mine', { as: C1, query: { after: String(m1.json.message.id) } });
-  eq(later.json.messages.length, 2, 'only messages after id');
-  eq((await call('GET /api/support/mine', { as: C2 })).json.messages.length, 1, 'c2 sees only his own conversation');
+  eq(later.json.messages.length, 3, 'only messages after id');
+  eq((await call('GET /api/support/mine', { as: C2 })).json.messages.length, 2, 'c2 sees only his own conversation');
 
   console.log('4) close and reopen');
   eq((await call('POST /api/support/threads/:id/status', { as: A, params: { id: t1.id }, body: { status: 'closed' } })).status, 200, 'closed');
@@ -119,6 +119,32 @@ async function call(key, { as, body, query, params } = {}) {
   eq((await call('POST /api/support/start', { as: A, body: { userId: String(c3), text: '  ' } })).status, 400, 'empty refused');
   eq((await call('POST /api/support/start', { as: C1, body: { userId: String(c3), text: 'x' } })).status, 403, 'users cannot start');
   eq((await call('POST /api/support/start', { as: S1, body: { userId: String(c3), text: 'x' } })).status, 403, 'supervisor without permission refused');
+
+  console.log('B) the helper answers common questions and hands the rest to a person');
+  const c4 = await user('عميل 4', 'customer'); const C4 = { sub: String(c4), role: 'customer' }; pushes.length = 0;
+  const badge0 = (await call('GET /api/support/unread', { as: A })).json.unread;
+  const b1 = await call('POST /api/support/mine/messages', { as: C4, body: { text: 'التوصيل بكام؟' } });
+  eq(b1.status, 201, 'sent'); ok(b1.json.reply && b1.json.reply.senderRole === 'bot', 'the helper answers a known question'); ok(/المسافة/.test(b1.json.reply.text), 'a correct answer');
+  eq(pushes.length, 0, 'the owner is NOT disturbed by an answered question');
+  eq((await call('GET /api/support/unread', { as: A })).json.unread, badge0, 'badge does not count the answered thread');
+  const b2 = await call('POST /api/support/mine/messages', { as: C4, body: { text: 'فلوسي اتخصمت مرتين' } });
+  ok(b2.json.reply && /حوّلت/.test(b2.json.reply.text), 'a problem is handed over');
+  ok(pushes.some(x => x.ids.includes(Number(admin)) && /يحتاج تدخلك/.test(x.p.title)), 'the owner gets a needs-you push');
+  pushes.length = 0;
+  const b3 = await call('POST /api/support/mine/messages', { as: C4, body: { text: 'التوصيل بكام؟' } });
+  ok(!b3.json.reply, 'after the hand-over the helper stays quiet'); ok(pushes.some(x => x.ids.includes(Number(admin))), 'and the message reaches the owner');
+  const th4 = (await call('GET /api/support/threads', { as: A })).json.threads.find(t => t.userId === String(c4));
+  await call('POST /api/support/threads/:id/messages', { as: A, params: { id: th4.id }, body: { text: 'تمام هنراجع' } });
+  pushes.length = 0;
+  const b4 = await call('POST /api/support/mine/messages', { as: C4, body: { text: 'الدفع ازاي؟' } });
+  ok(!b4.json.reply, 'after a person answered the helper stays quiet for hours'); ok(pushes.length > 0, 'the owner is told');
+  const c5 = await user('عميل 5', 'customer'); const C5 = { sub: String(c5), role: 'customer' };
+  eq((await call('POST /api/support/mine/messages', { as: C5, body: { text: 'ازاي اطلب' } })).json.reply.senderRole, 'bot', 'how to order');
+  eq((await call('POST /api/support/mine/messages', { as: C5, body: { text: 'شكرا' } })).json.reply.senderRole, 'bot', 'thanks');
+  const b5 = await call('POST /api/support/mine/messages', { as: C5, body: { text: 'كلم الدعم' } });
+  ok(/حوّلت/.test(b5.json.reply.text), 'talk to support');
+  const bot = require('../src/supportbot');
+  for (const [q, esc] of [['كود خصم', false], ['الدفع', false], ['الغاء طلب', false], ['فين طلبي', false], ['نسيت الباسورد', true], ['كلام غريب مش مفهوم', true], ['تعامل وحش من المندوب', true], ['', true]]) eq(bot.answer(q).escalate, esc, 'helper decision: ' + q);
 
   console.log(failN ? `FAILED ${failN}` : 'ALL OK', 'pass=' + pass);
   await pool.end();

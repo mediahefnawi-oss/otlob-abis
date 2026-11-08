@@ -684,7 +684,7 @@ export function cartDetails(db: DB, cart: CartLine[]) {
   return { groups: list, delivery, subtotal, total: subtotal + delivery };
 }
 
-export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
+export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string; coupon?: string }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
@@ -699,7 +699,7 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   try {
     const r = await apiCheckout({
       name: info.name.trim(), phone: normPhone(info.phone), address: info.address.trim(), notes: info.notes.trim(),
-      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })), ...destBody(),
+      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })), ...(info.coupon ? { coupon: info.coupon } : {}), ...destBody(),
     });
     mutate((db) => {
       db.orders = upsertById(db.orders, r.orders as Order[]);
@@ -797,6 +797,15 @@ export async function ackOrder(orderId: string): Promise<void> {
 export async function transferOrder(orderId: string, providerId: string): Promise<Result> {
   try {
     const r = await apiJson<{ order: Order }>(`/api/orders/${encodeURIComponent(orderId)}/transfer`, 'POST', { providerId });
+    mutate((db) => { db.orders = upsertById(db.orders, [r.order]); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+
+/** Owner / supervisor on an order the shop refused: end it for good (the customer is told the reason), or mark it "handled" so it leaves the needs-attention list. */
+export async function staffOrderAction(orderId: string, action: 'cancel' | 'dismiss', reason?: string, gift?: { kind: 'amount' | 'percent'; value: number; days: number }): Promise<Result> {
+  try {
+    const r = await apiOrderAction(orderId, action, reason, gift ? { gift } : undefined);
     mutate((db) => { db.orders = upsertById(db.orders, [r.order]); });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }

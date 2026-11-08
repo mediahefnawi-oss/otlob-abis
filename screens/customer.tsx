@@ -15,6 +15,8 @@ import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
 import { AreaTag } from '../components/Cards';
 import { ProviderLogo } from '../components/Brand';
 import { ProductPhoto } from '../components/Quote';
+import { CouponBox } from '../components/Coupons';
+import { ProductSheet } from '../components/ProductSheet';
 import {
   useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, deliveryOpen, feeFor, kmInfoFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
@@ -22,7 +24,7 @@ import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isLab, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { LabCardActions } from '../components/Lab';
-import { ProviderType, Provider } from '../lib/types';
+import { ProviderType, Provider, Product } from '../lib/types';
 
 const useRefresh = () => {
   const [r, setR] = useState(false);
@@ -340,6 +342,7 @@ export function ProviderScreen({ navigation, route }: any) {
   const p = db.providers.find((x) => x.id === route.params.id);
   const [cat, setCat] = useState('الكل');
   const [rateOpen, setRateOpen] = useState(false);
+  const [sel, setSel] = useState<Product | null>(null);
   const insets = useSafeAreaInsets();
   // a medical lab has no menu: the customer goes straight to the request form
   useEffect(() => { if (p && isLab(p.type)) navigation.replace('LabRequest', { id: p.id }); }, [p?.id]);
@@ -374,6 +377,7 @@ export function ProviderScreen({ navigation, route }: any) {
         </View>
       </Header>
       <ShopRatingsSheet providerId={p.id} name={p.name} visible={rateOpen} onClose={() => setRateOpen(false)} />
+      <ProductSheet p={sel} inCart={sel ? qty(sel.id) : 0} canOrder={!blocked} bg={t.soft} onClose={() => setSel(null)} />
       {closed && (
         <View style={{ backgroundColor: C.redSoft, margin: 16, marginBottom: 0, padding: 12, borderRadius: 14, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <Icon name="moon" size={18} color={C.red} />
@@ -438,11 +442,11 @@ export function ProviderScreen({ navigation, route }: any) {
             </Appear>
           ) : (
             <Appear i={index}>
-              <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: item.available ? 1 : 0.5 }}>
+              <Card onPress={() => setSel(item)} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: item.available ? 1 : 0.5 }}>
                 <ProductPhoto p={item} size={56} bg={t.soft} />
                 <View style={{ flex: 1, gap: 2 }}>
                   <T w="bold" size={14.5}>{item.name}</T>
-                  {!!item.desc && <T size={11.5} color={C.sub} numberOfLines={1}>{item.desc}</T>}
+                  {!!item.desc && <T size={11.5} color={C.sub} numberOfLines={2}>{item.desc}</T>}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <T w="black" size={14} color={item.oldPrice ? C.red : C.goldDeep}>{money(item.price)}</T>
                     {!!item.oldPrice && <T size={12} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{money(item.oldPrice)}</T>}
@@ -485,11 +489,16 @@ export function CartScreen({ navigation }: any) {
   const [address, setAddress] = useState(me.address);
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sel, setSel] = useState<Product | null>(null);
+  const [cp, setCp] = useState<{ code: string; discount: number } | null>(null);
+  const cpLines = cart.map((l) => ({ productId: l.productId, qty: l.qty }));
+  const off = cp ? Math.min(cp.discount, det.subtotal) : 0;
   const qty = (id: string) => cart.find((l) => l.productId === id)?.qty || 0;
+  const descOf = (id: string) => db.products.find((x) => x.id === id)?.desc || '';
 
   const submit = async () => {
     setBusy(true);
-    const r = await placeOrder(me, { name, phone, address, notes });
+    const r = await placeOrder(me, { name, phone, address, notes, coupon: cp?.code });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     toast('تم إرسال طلبك بنجاح ✅');
@@ -522,6 +531,11 @@ export function CartScreen({ navigation }: any) {
                       <View style={{ flex: 1 }}>
                         <T w="semi" size={13.5}>{it.name}</T>
                         <T size={12} color={C.sub}>{money(it.price)}</T>
+                        {!!descOf(it.productId) && (
+                          <Pressable onPress={() => setSel(db.products.find((x) => x.id === it.productId) || null)} hitSlop={6}>
+                            <T size={11.5} color={C.sub} numberOfLines={1}>{descOf(it.productId)} <T w="bold" size={11.5} color={C.goldDeep}>المزيد</T></T>
+                          </Pressable>
+                        )}
                       </View>
                       <Stepper qty={qty(it.productId)} onAdd={() => cartAdd(it.productId, 1)} onSub={() => cartAdd(it.productId, -1)} />
                     </View>
@@ -542,11 +556,15 @@ export function CartScreen({ navigation }: any) {
               <Field label="ملاحظات (اختياري)" icon="create" value={notes} onChangeText={setNotes} placeholder="مثال: الدور الثالث، الجرس لا يعمل" />
             </Card>
 
+            <ProductSheet p={sel} inCart={sel ? qty(sel.id) : 0} canOrder bg={C.goldSoft} onClose={() => setSel(null)} />
+            <CouponBox lines={cpLines} applied={cp} onApplied={setCp} />
+
             <Card style={{ gap: 8, backgroundColor: C.dark }}>
               <View style={{ flexDirection: 'row' }}><T color="#C9D8D2" style={{ flex: 1 }}>قيمة الطلبات</T><T w="bold" color="#fff">{money(det.subtotal)}</T></View>
+              {off > 0 && <View style={{ flexDirection: 'row' }}><T color="#7FE0B0" style={{ flex: 1 }}>خصم الكود {cp!.code}</T><T w="bold" color="#7FE0B0">- {money(off)}</T></View>}
               <View style={{ flexDirection: 'row' }}><T color="#C9D8D2" style={{ flex: 1 }}>رسوم التوصيل</T><T w="bold" color="#fff">{money(det.delivery)}</T></View>
               <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.15)' }} />
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}><T w="black" size={17} color={C.gold} style={{ flex: 1 }}>الإجمالي</T><T w="black" size={20} color={C.gold}>{money(det.total)}</T></View>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}><T w="black" size={17} color={C.gold} style={{ flex: 1 }}>الإجمالي</T><T w="black" size={20} color={C.gold}>{money(det.total - off)}</T></View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
                 <Icon name="cash" size={16} color={C.gold} />
                 <T size={12} color="#C9D8D2">الدفع كاش عند الاستلام</T>

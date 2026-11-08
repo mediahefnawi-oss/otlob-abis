@@ -256,13 +256,13 @@ export type SyncPayload = { unchanged?: boolean; tag?: string; warnings?: string
 export async function apiSync(tag?: string | null) {
   return apiRequest<SyncPayload>(tag ? `/api/sync?tag=${encodeURIComponent(tag)}` : '/api/sync');
 }
-export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[]; destMode?: string; destLat?: number; destLng?: number }) {
+export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[]; coupon?: string; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ invoice: any; orders: any[]; address: string }>('/api/orders/checkout', { method: 'POST', body: JSON.stringify(input) });
 }
 export async function apiCustomOrder(input: { text: string; phone: string; address: string; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ invoice: any; orders: any[] }>('/api/orders/custom', { method: 'POST', body: JSON.stringify(input) });
 }
-export async function apiOrderAction(id: string | number, action: string, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string }) {
+export async function apiOrderAction(id: string | number, action: string, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string; gift?: { kind: 'amount' | 'percent'; value: number; days: number } }) {
   return apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(id))}/action`, { method: 'POST', body: JSON.stringify({ action, reason, ...(extra || {}) }) });
 }
 export async function apiSendMessage(orderId: string | number, text: string) {
@@ -353,7 +353,7 @@ export async function apiPushUnsubscribe(endpoint: string) {
 export type SupportMsg = { id: string; threadId: string; senderId: string; senderName: string; senderRole: string; text: string; at: number };
 export type SupportThread = { id: string; userId: string; status: 'open' | 'closed'; lastMessage: string; lastAt: number; unread: number; userName: string; userPhone: string; userRole: string };
 export const apiSupportMine = (after = 0) => apiRequest<{ thread: { id: string; status: string } | null; messages: SupportMsg[] }>(`/api/support/mine?after=${after}`);
-export const apiSupportSend = (text: string) => apiRequest<{ message: SupportMsg }>('/api/support/mine/messages', { method: 'POST', body: JSON.stringify({ text }) });
+export const apiSupportSend = (text: string) => apiRequest<{ message: SupportMsg; reply?: SupportMsg }>('/api/support/mine/messages', { method: 'POST', body: JSON.stringify({ text }) });
 export const apiSupportUnread = () => apiRequest<{ unread: number }>('/api/support/unread');
 export const apiSupportThreads = (status: 'open' | 'closed') => apiRequest<{ threads: SupportThread[] }>(`/api/support/threads?status=${status}`);
 export const apiSupportThread = (id: string, after = 0) => apiRequest<{ thread: SupportThread; messages: SupportMsg[] }>(`/api/support/threads/${id}?after=${after}`);
@@ -397,3 +397,16 @@ export const apiStaffRatings = () => apiRequest<{ ratings: StaffRating[]; courie
 export const apiHideRating = (id: string, hidden: boolean) => apiRequest<{ id: string; hidden: boolean }>(`/api/admin/ratings/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ hidden }) });
 
 export const apiSetPrivacy = (b: { on?: boolean; minutes?: number }) => apiRequest<{ settings: CentralSettings }>('/api/admin/privacy', { method: 'PATCH', body: JSON.stringify(b) });
+
+/* ---------------- discount codes ---------------- */
+export type Coupon = {
+  id: string; code: string; kind: 'amount' | 'percent'; value: number; maxDiscount: number | null; startsAt: number; endsAt: number;
+  providerIds: string[] | null; userId: string | null; userName: string | null; perUser: number | null; maxUses: number | null; uses: number; given: number; active: boolean; source: string;
+};
+export type CouponInput = { code?: string; kind: 'amount' | 'percent'; value: number; maxDiscount?: number; days: number; startDate?: string; providerIds?: string[]; perUser?: number | null; maxUses?: number };
+export const apiCoupons = () => apiRequest<{ coupons: Coupon[] }>('/api/admin/coupons');
+export const apiCouponCreate = (b: CouponInput) => apiRequest<{ coupons: Coupon[] }>('/api/admin/coupons', { method: 'POST', body: JSON.stringify(b) });
+export const apiCouponActive = (id: string, active: boolean) => apiRequest<{ coupons: Coupon[] }>(`/api/admin/coupons/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
+export const apiCouponDelete = (id: string) => apiRequest<{ coupons: Coupon[] }>(`/api/admin/coupons/${id}`, { method: 'DELETE' });
+export const apiCouponCheck = (code: string, lines: { productId: string; qty: number }[]) => apiRequest<{ code: string; discount: number; kind: string; value: number }>('/api/coupons/check', { method: 'POST', body: JSON.stringify({ code, lines }) });
+export const apiMyCoupons = () => apiRequest<{ coupons: Coupon[] }>('/api/coupons/mine');
