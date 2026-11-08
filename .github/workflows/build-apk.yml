@@ -98,7 +98,10 @@ jobs:
         working-directory: android
         env:
           KS_PASS: ${{ secrets.KEYSTORE_PASSPHRASE }}
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          sed -i 's/networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4 5 6; do ./gradlew --version --no-daemon && break; echo "download failed, retry $i"; sleep 30; done
+          ./gradlew assembleRelease --no-daemon
       - name: Name the file
         run: cp android/app/build/outputs/apk/release/*.apk otlob-abis.apk
       - uses: actions/upload-artifact@v4
