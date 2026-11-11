@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Card, Btn, Header, Toggle, Empty, toast } from './ui';
+import { T, Card, Btn, Header, Toggle, Empty, Field, toast } from './ui';
 import { CourierPhotoReview } from './CourierPhoto';
 import { ChatReportsList } from './Chat';
-import { apiDailyReport, apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
+import { apiRxCommission, apiSetRxCommission, apiDailyReport, apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
 
 const HINT: Record<string, string> = {
   menu: 'المنيو بالصورة، ونقل المحل لقسم آخر، وطريقة الطلب لكل محل',
@@ -12,6 +12,7 @@ const HINT: Record<string, string> = {
   voice: 'العميل يسجّل صوته بدل الكتابة',
   clinicSchedule: 'العيادة هي اللي تحدد يوم وساعة الكشف',
   rx: 'العيادة تحوّل الروشتة لصيدلية برقم',
+  rxCommission: 'نسبة للمنصة من سعر الأدوية لما العميل يستلم الروشتة من الصيدلية (بتتسجل في العمولات المستحقة على الصيدلية)',
   pool: 'الجيران يشاركوا رسوم التوصيل',
   adTarget: 'الإعلان يفتح محل أو منتج معين',
   courierPhoto: 'صورة المندوب تظهر للعميل بعد موافقتك',
@@ -28,6 +29,28 @@ const HINT: Record<string, string> = {
   support: 'شات العميل والمحل والمندوب مع الدعم الفني',
 };
 const BASIC = ['coupons', 'ratings', 'support', 'bot'];
+
+function RxCommissionCard() {
+  const [pct, setPct] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { apiRxCommission().then((r) => setPct(String(r.percent))).catch(() => {}); }, []);
+  const save = async () => {
+    const n = Number(pct.replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0 || n > 100) return toast('اكتب نسبة بين 0 و100', 'err');
+    setBusy(true);
+    try { const r = await apiSetRxCommission(n); setPct(String(r.percent)); toast('تم حفظ النسبة ✅'); }
+    catch (e: any) { toast(e?.message || 'تعذر الحفظ', 'err'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Card style={{ gap: 8 }}>
+      <T w="black" size={14.5}>نسبة عمولة الروشتات</T>
+      <Field label="النسبة % من سعر الأدوية" icon="cash" value={pct} onChangeText={setPct} keyboardType="decimal-pad" placeholder="مثال: 5" />
+      <Btn small icon="save" title="حفظ النسبة" loading={busy} onPress={save} />
+      <T size={11.5} color={C.sub}>بتتحسب لما العميل يستلم من الصيدلية بسعر مكتوب. لو طلب توصيل، الطلب نفسه بيتحسب عليه عمولة الصيدلية العادية، فمفيش عمولة مرتين.</T>
+    </Card>
+  );
+}
 
 /** Owner only: every new feature is a switch. Closing one hides it at once; whatever already started finishes normally. */
 export function AdminFeaturesScreen({ navigation }: any) {
@@ -78,6 +101,7 @@ export function AdminFeaturesScreen({ navigation }: any) {
             <T size={11.5} color={C.sub}>بيوصلك التقرير كإشعار كل يوم الساعة 10 مساءً بتوقيت القاهرة.</T>
           </Card>
         )}
+        {(rows || []).some((f) => f.key === 'rxCommission' && f.on) && <RxCommissionCard />}
         {(rows || []).some((f) => f.key === 'chat' && f.on) && <ChatReportsList />}
         {(rows || []).some((f) => f.key === 'courierPhoto' && f.on) && <CourierPhotoReview />}
       </ScrollView>

@@ -9,6 +9,7 @@ const FEATURES = {
   voice: { label: 'الطلب الصوتي', on: false },
   clinicSchedule: { label: 'العيادة تحدد الموعد', on: false },
   rx: { label: 'تحويل الروشتة للصيدلية', on: false },
+  rxCommission: { label: 'عمولة على روشتات الصيدليات', on: false },
   pool: { label: 'الطلب الجماعي', on: false },
   adTarget: { label: 'ربط الإعلان بمحل ومنتج', on: false },
   courierPhoto: { label: 'صورة المندوب', on: false },

@@ -98,6 +98,52 @@ const pushes = [];
   await q("UPDATE prescriptions SET expires_at = NOW() - INTERVAL '1 hour' WHERE id=$1", [id4.id]);
   eq((await call('POST /api/rx/:id/ready', PH1, {}, id4)).status, 409, 'expired: the pharmacy cannot prepare it');
   eq((await call('GET /api/rx', A)).json.list.length >= 4, true, 'the owner sees all');
+  console.log('F) price of the medicines + commission');
+  const toReady = async (price) => {
+    const x = await call('POST /api/rx', CL, { appointmentId: String(a1), meds: 'دواء', pharmacyId: String(ph1) }); const k = { id: x.json.rx.id };
+    await call('POST /api/rx/:id/choose', PAT, {}, k);
+    return { k, r: await call('POST /api/rx/:id/ready', PH1, price === undefined ? {} : { price }, k) };
+  };
+  eq((await toReady(0)).r.status, 400, 'a zero price is refused');
+  eq((await toReady('abc')).r.status, 400, 'a non-number price is refused');
+  eq((await toReady(-5)).r.status, 400, 'a negative price is refused');
+  pushes.length = 0;
+  let f = await toReady(185); eq(f.r.json.rx.price, 185, 'the price is saved'); ok(pushes.some(x => /185/.test(x.p.body)), 'the patient is told the price in the push');
+  eq((await call('GET /api/rx', PAT)).json.list.find(x => x.id === f.k.id).price, 185, 'the patient sees the price');
+  eq((await call('POST /api/rx/:id/price', PAT, { price: 1 }, f.k)).status, 403, 'the patient cannot change the price');
+  pushes.length = 0;
+  eq((await call('POST /api/rx/:id/price', PH1, { price: 200 }, f.k)).json.rx.price, 200, 'the pharmacy can change it while ready');
+  ok(pushes.some(x => /سعر أدوية/.test(x.p.title) && /200/.test(x.p.body)), 'the patient is told it changed');
+  eq((await call('POST /api/rx/:id/price', PH1, { price: 0 }, f.k)).status, 400, 'a zero price refused on change');
+  eq((await call('POST /api/rx/:id/price', PH1, { price: 185 }, f.k)).json.rx.price, 185, 'back to 185');
+  eq((await toReady()).r.json.rx.price, null, 'a prescription without price still works (old behaviour)');
+  // commission: switch OFF -> nothing
+  await q("DELETE FROM commission_entries WHERE rx_id IS NOT NULL");
+  await call('POST /api/rx/:id/pickup', PH1, {}, f.k);
+  eq((await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [f.k.id])).rows[0].n, 0, 'switch OFF: no commission');
+  // switch ON at 10%
+  await call('PATCH /api/admin/features', A, { key: 'rxCommission', on: true });
+  eq((await call('GET /api/admin/rx-commission', A)).json.enabled, true, 'admin sees it enabled');
+  eq((await call('PATCH /api/admin/rx-commission', A, { percent: 150 })).status, 400, 'percent above 100 refused');
+  eq((await call('PATCH /api/admin/rx-commission', A, { percent: 'x' })).status, 400, 'percent must be a number');
+  eq((await call('PATCH /api/admin/rx-commission', A, { percent: 10 })).json.percent, 10, 'percent saved');
+  f = await toReady(185); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
+  let e = (await q("SELECT * FROM commission_entries WHERE rx_id=$1", [f.k.id])).rows;
+  eq(e.length, 1, 'collected: one commission entry'); eq(Number(e[0].amount), 18.5, '10% of 185'); eq(String(e[0].provider_id), String(ph1), 'on the pharmacy'); eq(e[0].status, 'due', 'due');
+  // delivered one: an ordinary order takes the commission, so none here
+  f = await toReady(100); await call('POST /api/rx/:id/delivery', PAT, {}, f.k); await call('POST /api/rx/:id/pickup', PH1, {}, f.k);
+  eq((await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [f.k.id])).rows[0].n, 0, 'delivery path: no second commission');
+  // delivery text carries the price
+  f = await toReady(120); r = await call('POST /api/rx/:id/delivery', PAT, {}, f.k); ok(/120/.test(r.json.orderText), 'the written order text carries the price');
+  // no price -> no commission; 0% -> none
+  f = await toReady(); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
+  eq((await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [f.k.id])).rows[0].n, 0, 'no price: no commission');
+  await call('PATCH /api/admin/rx-commission', A, { percent: 0 });
+  f = await toReady(50); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
+  eq((await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [f.k.id])).rows[0].n, 0, '0%: no commission');
+  eq((await call('GET /api/admin/rx-commission', PAT)).status, 403, 'only the owner reads the setting');
+  await q("DELETE FROM commission_entries WHERE rx_id IS NOT NULL");
+
   console.log(bad ? `FAILED ${bad}` : 'ALL OK', 'pass=' + pass);
   await pool.end(); process.exit(bad ? 1 : 0);
 })().catch(e => { console.error('CRASH', e); process.exit(2); });

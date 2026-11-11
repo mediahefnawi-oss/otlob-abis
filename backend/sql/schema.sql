@@ -635,6 +635,11 @@ CREATE TABLE IF NOT EXISTS prescriptions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS price NUMERIC(10,2);
+-- platform commission on a prescription collected from the pharmacy (switch "rxCommission"): one accrual per prescription in the ordinary ledger
+ALTER TABLE commission_entries ADD COLUMN IF NOT EXISTS rx_id BIGINT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_comm_rx ON commission_entries(rx_id, kind) WHERE entry_type = 'accrual' AND rx_id IS NOT NULL;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS rx_commission_pct NUMERIC(5,2) NOT NULL DEFAULT 5;
 CREATE INDEX IF NOT EXISTS idx_rx_patient ON prescriptions(patient_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rx_pharmacy ON prescriptions(pharmacy_provider_id, status);
 

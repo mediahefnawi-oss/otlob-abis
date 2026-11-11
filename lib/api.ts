@@ -451,12 +451,14 @@ export const apiApptAccept = (id: string) => apiRequest<{ appointment: any }>(`/
 export const apiBookMode = (providerId: string, mode: 'customer' | 'clinic') => apiRequest<{ ok: boolean }>(`/api/providers/${encodeURIComponent(providerId)}/book-mode`, { method: 'PATCH', body: JSON.stringify({ mode }) });
 
 /** Prescription forwarding (clinic -> patient -> pharmacy). */
-export type RxRow = { id: string; number: string; patientName: string; clinicName: string; pharmacyId: string; pharmacyName: string; meds: string; hasImage: boolean; status: 'issued' | 'sent' | 'ready' | 'picked_up' | 'delivery' | 'cancelled' | 'expired'; expiresAt: number; createdAt: number; role: string; needsAction?: boolean };
+export type RxRow = { id: string; number: string; patientName: string; clinicName: string; pharmacyId: string; pharmacyName: string; meds: string; price?: number | null; hasImage: boolean; status: 'issued' | 'sent' | 'ready' | 'picked_up' | 'delivery' | 'cancelled' | 'expired'; expiresAt: number; createdAt: number; role: string; needsAction?: boolean };
 export const apiRxList = () => apiRequest<{ enabled: boolean; list: RxRow[] }>('/api/rx');
 export const apiRxPharmacies = (appointmentId: string) => apiRequest<{ pharmacies: { id: string; name: string; region: string; suggested: boolean }[] }>(`/api/rx/pharmacies/${encodeURIComponent(appointmentId)}`);
 export const apiRxCreate = (input: { appointmentId: string; meds: string; image?: string | null; pharmacyId?: string }) => apiRequest<{ rx: RxRow }>('/api/rx', { method: 'POST', body: JSON.stringify(input) });
 export const apiRxPhoto = (id: string) => apiRequest<{ image: string | null }>(`/api/rx/${encodeURIComponent(id)}/photo`);
-export const apiRxStep = (id: string, step: 'choose' | 'ready' | 'pickup' | 'delivery' | 'cancel', body: any = {}) => apiRequest<{ rx: RxRow; orderText?: string; pharmacyId?: string }>(`/api/rx/${encodeURIComponent(id)}/${step}`, { method: 'POST', body: JSON.stringify(body) });
+export const apiRxStep = (id: string, step: 'choose' | 'ready' | 'pickup' | 'delivery' | 'cancel' | 'price', body: any = {}) => apiRequest<{ rx: RxRow; orderText?: string; pharmacyId?: string }>(`/api/rx/${encodeURIComponent(id)}/${step}`, { method: 'POST', body: JSON.stringify(body) });
+export const apiRxCommission = () => apiRequest<{ enabled: boolean; percent: number }>('/api/admin/rx-commission');
+export const apiSetRxCommission = (percent: number) => apiRequest<{ enabled: boolean; percent: number }>('/api/admin/rx-commission', { method: 'PATCH', body: JSON.stringify({ percent }) });
 
 /** Favorites (hearts on shops and products, kept on the server). */
 export const apiFavorites = () => apiRequest<{ enabled: boolean; providers: string[]; products: string[] }>('/api/favorites');

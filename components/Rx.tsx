@@ -14,6 +14,7 @@ const STATUS: Record<string, { label: string; color: string }> = {
   issued: { label: 'بانتظار اختيارك للصيدلية', color: C.goldDeep }, sent: { label: 'وصلت الصيدلية', color: C.goldDeep }, ready: { label: 'جاهزة للاستلام ✅', color: C.green },
   picked_up: { label: 'تم الاستلام', color: C.sub }, delivery: { label: 'طلبت توصيل', color: C.goldDeep }, cancelled: { label: 'ملغية', color: C.red }, expired: { label: 'انتهت صلاحيتها', color: C.red },
 };
+const priceOf = (r: RxRow) => (r.price ? `${r.price} ج` : '');
 const left = (r: RxRow) => { const d = Math.ceil((r.expiresAt - Date.now()) / 86400000); return d > 0 ? `باقي ${d} يوم` : ''; };
 
 function usePoll<T2>(f: () => Promise<T2>, on: boolean) {
@@ -115,6 +116,7 @@ export function MyRxCard() {
             <T size={12} color={C.sub}>من {r.clinicName}{r.pharmacyName ? ` • ${r.pharmacyName}` : ''} {left(r) ? `• ${left(r)}` : ''}</T>
             {!!r.meds && <T size={13}>{r.meds}</T>}
             {r.hasImage && <RxPhoto id={r.id} />}
+            {!!r.price && <T w="black" size={14} color={C.green}>سعر الأدوية: {priceOf(r)}</T>}
             {r.status === 'issued' && (
               <View style={{ gap: 8 }}>
                 <T w="bold" size={12.5}>اختار الصيدلية اللي تستلم منها</T>
@@ -127,7 +129,7 @@ export function MyRxCard() {
             {r.status === 'ready' && (
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <Btn small variant="green" icon="checkmark-done" title="استلمتها" style={{ flex: 1 }} onPress={() => act(r.id, 'pickup')} />
-                <Btn small variant="soft" icon="bicycle" title="وصّلها لي" style={{ flex: 1 }} onPress={() => act(r.id, 'delivery')} />
+                <Btn small variant="soft" icon="bicycle" title="وصّلها لي (+ رسوم التوصيل)" style={{ flex: 1 }} onPress={() => act(r.id, 'delivery')} />
               </View>
             )}
             {r.status === 'sent' && <Btn small variant="soft" icon="bicycle" title="وصّلها لي" onPress={() => act(r.id, 'delivery')} />}
@@ -147,7 +149,9 @@ export function PharmacyRxInbox({ compact }: { compact?: boolean } = {}) {
   if (!on) return null;
   const mine = (v?.list || []).filter((r) => r.role === 'pharmacy' && (!compact || ['sent', 'ready', 'delivery'].includes(r.status)));
   if (compact && !mine.length) return null;
-  const act = async (id: string, step: any) => { try { await apiRxStep(id, step); load(); toast('تم ✅'); } catch (e: any) { toast(e?.message || 'تعذر التنفيذ', 'err'); } };
+  const [prices, setPrices] = useState<Record<string, string>>({});
+  const act = async (id: string, step: any, body?: any) => { try { await apiRxStep(id, step, body); load(); toast('تم ✅'); } catch (e: any) { toast(e?.message || 'تعذر التنفيذ', 'err'); } };
+  const needPrice = (id: string) => { const n = Number((prices[id] || '').replace(',', '.')); if (!(n > 0)) { toast('اكتب سعر الأدوية الأول', 'err'); return null; } return n; };
   return (
     <Card style={{ gap: 10 }}>
       <T w="black" size={15}>💊 {compact ? `روشتات للتجهيز (${mine.length})` : 'الروشتات'}</T>
@@ -162,7 +166,11 @@ export function PharmacyRxInbox({ compact }: { compact?: boolean } = {}) {
             </View>
             {!!r.meds && <T size={13}>{r.meds}</T>}
             {r.hasImage && <RxPhoto id={r.id} />}
-            {r.status === 'sent' && <Btn small variant="green" icon="checkmark" title="جاهزة للاستلام" onPress={() => act(r.id, 'ready')} />}
+            {['sent', 'ready'].includes(r.status) && (
+              <Field label={r.status === 'sent' ? 'سعر الأدوية (جنيه)' : `سعر الأدوية الحالي ${priceOf(r)} — تعديل`} icon="cash" value={prices[r.id] ?? (r.price ? String(r.price) : '')} onChangeText={(v) => setPrices({ ...prices, [r.id]: v })} keyboardType="decimal-pad" placeholder="مثال: 185" />
+            )}
+            {r.status === 'sent' && <Btn small variant="green" icon="checkmark" title="جاهزة للاستلام" onPress={() => { const n = needPrice(r.id); if (n) act(r.id, 'ready', { price: n }); }} />}
+            {r.status === 'ready' && <Btn small variant="soft" icon="cash" title="حفظ السعر الجديد" onPress={() => { const n = needPrice(r.id); if (n) act(r.id, 'price', { price: n }); }} />}
             {['sent', 'ready', 'delivery'].includes(r.status) && <Btn small variant="soft" icon="checkmark-done" title="تم التسليم" onPress={() => act(r.id, 'pickup')} />}
           </View>
         );
@@ -183,6 +191,7 @@ export function RxAutoOpen() {
   const role = me?.role === 'customer' ? 'patient' : 'pharmacy';
   const [cur, setCur] = useState<RxRow | null>(null);
   const [choice, setChoice] = useState('');
+  const [price, setPrice] = useState('');
   const [busy, setBusy] = useState(false);
   const curRef = useRef<RxRow | null>(null);
   const seen = useRef<Set<string>>(new Set());
@@ -197,7 +206,7 @@ export function RxAutoOpen() {
       await seenReady.current;
       const v = await apiRxList();
       const next = v.list.find((x) => x.needsAction && x.role === role && !seen.current.has(key(x)));
-      if (next && !curRef.current) { curRef.current = next; setChoice(next.pharmacyId || ''); setCur(next); }
+      if (next && !curRef.current) { curRef.current = next; setChoice(next.pharmacyId || ''); setPrice(next.price ? String(next.price) : ''); setCur(next); }
     } catch { /* the next poll tries again */ }
   }, [on, role]);
   useEffect(() => {
@@ -243,7 +252,8 @@ export function RxAutoOpen() {
       )}
       {r.role === 'patient' && r.status === 'ready' && (
         <View style={{ gap: 10 }}>
-          <T w="bold" size={13}>تحب تستلمها بنفسك ولا نوصّلهالك؟</T>
+          {!!r.price && <Card style={{ padding: 12 }}><T w="black" size={15} color={C.green}>سعر الأدوية: {priceOf(r)}</T></Card>}
+          <T w="bold" size={13}>تحب تستلمها بنفسك ولا نوصّلهالك؟ (التوصيل بيزيد رسوم توصيل منطقتك وبتظهر في الفاتورة)</T>
           <Btn variant="green" icon="walk" title="هعدّي أستلمها" loading={busy} onPress={() => { close(r); toast('تمام، الصيدلية مستنياك ✅'); }} />
           <Btn icon="bicycle" title="وصّلها لي" loading={busy} onPress={() => act(r, 'delivery')} />
           <Btn variant="soft" title="لاحقًا" onPress={() => close(r)} />
@@ -251,7 +261,8 @@ export function RxAutoOpen() {
       )}
       {r.role === 'pharmacy' && (
         <View style={{ gap: 10 }}>
-          <Btn variant="green" icon="checkmark" title="جاهزة للاستلام (هنبلّغ العميل)" loading={busy} onPress={() => act(r, 'ready', {}, 'اتبلّغ العميل ✅')} />
+          <Field label="سعر الأدوية (جنيه)" icon="cash" value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="مثال: 185" />
+          <Btn variant="green" icon="checkmark" title="جاهزة للاستلام (هنبلّغ العميل)" loading={busy} onPress={() => { const n = Number(price.replace(',', '.')); if (!(n > 0)) return toast('اكتب سعر الأدوية الأول', 'err'); act(r, 'ready', { price: n }, 'اتبلّغ العميل ✅'); }} />
           <Btn variant="soft" title="لاحقًا" onPress={() => close(r)} />
         </View>
       )}

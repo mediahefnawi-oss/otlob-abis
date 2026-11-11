@@ -175,7 +175,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
-const SCHEMA_VERSION = 20261209;
+const SCHEMA_VERSION = 20261211;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');

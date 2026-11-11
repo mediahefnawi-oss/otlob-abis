@@ -34,11 +34,22 @@ function Bubbles({ msgs, mine }: { msgs: SupportMsg[]; mine: (m: SupportMsg) => 
   const sc = useRef<ScrollView>(null);
   return (
     <ScrollView ref={sc} onContentSizeChange={() => sc.current?.scrollToEnd({ animated: false })} contentContainerStyle={{ padding: 14, gap: 8, flexGrow: 1 }}>
-      {msgs.map((m) => (
-        <View key={m.id} style={{ alignSelf: mine(m) ? 'flex-start' : 'flex-end', maxWidth: '85%', backgroundColor: mine(m) ? C.goldSoft : '#F3F4EE', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 }}>
-          {!mine(m) && <T w="bold" size={10.5} color={C.goldDeep}>{m.senderName} • {ROLE_AR[m.senderRole] || ''}</T>}
+      {msgs.map((m) => mine(m) ? (
+        <View key={m.id} style={{ alignSelf: 'flex-start', maxWidth: '85%', backgroundColor: C.goldSoft, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 7 }}>
           <T size={13.5}>{m.text}</T>
           <T size={9.5} color={C.sub}>{timeOf(m.at)}</T>
+        </View>
+      ) : (
+        // a reply from the support / assistant: its own white bubble with a border and an icon, so it never blends into the screen
+        <View key={m.id} style={{ alignSelf: 'flex-end', maxWidth: '88%', flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+          <View style={{ flexShrink: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8, gap: 2 }}>
+            <T w="bold" size={10.5} color={C.goldDeep}>{m.senderName} • {ROLE_AR[m.senderRole] || ''}</T>
+            <T size={13.5}>{m.text}</T>
+            <T size={9.5} color={C.sub}>{timeOf(m.at)}</T>
+          </View>
+          <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: m.senderRole === 'bot' ? C.goldSoft : C.green, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name={m.senderRole === 'bot' ? 'sparkles' : 'headset'} size={15} color={m.senderRole === 'bot' ? C.goldDeep : '#fff'} />
+          </View>
         </View>
       ))}
     </ScrollView>

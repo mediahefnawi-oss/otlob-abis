@@ -25,7 +25,7 @@ module.exports = function registerRx(app, { pool, auth, roles, asyncRoute, posit
   const json = (r, role) => ({
     id: String(r.id), number: num(r.id), patientName: r.patient_name, clinicName: r.clinic_name,
     pharmacyId: r.pharmacy_provider_id ? String(r.pharmacy_provider_id) : '', pharmacyName: r.pharmacy_name || '',
-    meds: r.meds, hasImage: r.has_image, status: r.expired && !FINAL.includes(r.status) ? 'expired' : r.status,
+    meds: r.meds, price: r.price == null ? null : Number(r.price), hasImage: r.has_image, status: r.expired && !FINAL.includes(r.status) ? 'expired' : r.status,
     expiresAt: new Date(r.expires_at).getTime(), createdAt: new Date(r.created_at).getTime(), role,
     // the app opens the prescription by itself for whoever has to act now: the patient (choose a pharmacy / collect or deliver) or the pharmacy (prepare it)
     needsAction: !r.expired && ((role === 'patient' && ['issued', 'ready'].includes(r.status)) || (role === 'pharmacy' && r.status === 'sent')),
@@ -141,18 +141,56 @@ module.exports = function registerRx(app, { pool, auth, roles, asyncRoute, posit
     notify([ph.rows[0].owner_user_id], { title: 'روشتة جديدة للتجهيز 💊', body: `${num(row.id)} من ${row.patient_name} — جهّزها وبلّغ العميل`, tag: 'rx-' + row.id, url: '/' });
     notify([row.clinic_owner], { title: 'المريض أكّد الصيدلية ✅', body: `${row.patient_name} بعت ${num(row.id)} للصيدلية`, tag: 'rx-c-' + row.id, url: '/' });
   })));
+  // the pharmacy's price for the medicines (optional on the server, the app asks for it); the patient sees it before choosing pickup or delivery
+  const parsePrice = v => {
+    if (v === undefined || v === null || v === '') return null;
+    const n = Math.round(Number(v) * 100) / 100;
+    if (!Number.isFinite(n) || n <= 0 || n > 100000) throw fail(400, 'اكتب سعر الأدوية بشكل صحيح');
+    return n;
+  };
+  const egp = n => `${Number(n)} ج`;
   app.post('/api/rx/:id/ready', auth, roles('provider'), guard((req, res) => step(req, res, ['pharmacy'], ['sent'], async row => {
-    await pool.query("UPDATE prescriptions SET status='ready', updated_at=NOW() WHERE id=$1", [row.id]);
-    notify([row.patient_user_id], { title: `روشتتك جاهزة في ${row.pharmacy_name} 💊`, body: `${num(row.id)} — تحب تستلمها بنفسك ولا نوصّلهالك؟ افتح التطبيق واختار`, tag: 'rx-' + row.id, url: '/' });
+    const price = parsePrice((req.body || {}).price);
+    await pool.query("UPDATE prescriptions SET status='ready', price=COALESCE($2, price), updated_at=NOW() WHERE id=$1", [row.id, price]);
+    notify([row.patient_user_id], { title: `روشتتك جاهزة في ${row.pharmacy_name} 💊`, body: `${num(row.id)}${price ? ` — الأدوية بـ ${egp(price)}` : ''} — تحب تستلمها بنفسك ولا نوصّلهالك؟ افتح التطبيق واختار`, tag: 'rx-' + row.id, url: '/' });
+  })));
+  app.post('/api/rx/:id/price', auth, roles('provider'), guard((req, res) => step(req, res, ['pharmacy'], ['sent', 'ready'], async row => {
+    const price = parsePrice((req.body || {}).price);
+    if (!price) throw fail(400, 'اكتب سعر الأدوية');
+    await pool.query('UPDATE prescriptions SET price=$2, updated_at=NOW() WHERE id=$1', [row.id, price]);
+    if (row.status === 'ready' && Number(row.price) !== price) notify([row.patient_user_id], { title: 'سعر أدوية روشتتك اتغيّر 💊', body: `${num(row.id)} — السعر الجديد ${egp(price)}`, tag: 'rx-p-' + row.id, url: '/' });
   })));
   app.post('/api/rx/:id/pickup', auth, roles('customer', 'provider', 'admin'), guard((req, res) => step(req, res, ['patient', 'pharmacy', 'admin'], ['sent', 'ready', 'delivery'], async row => {
     await pool.query("UPDATE prescriptions SET status='picked_up', updated_at=NOW() WHERE id=$1", [row.id]);
+    // collected from the pharmacy: the platform's commission on the medicines' price (a delivered one is already an ordinary order with its own commission)
+    if (row.status !== 'delivery') await accrue(row);
   })));
+  const accrue = async row => {
+    try {
+      if (!row.pharmacy_provider_id || row.price == null || Number(row.price) <= 0 || !(await extrasLib.featureOn(pool, 'rxCommission'))) return;
+      const pct = Number((await pool.query('SELECT rx_commission_pct FROM app_settings WHERE id=1')).rows[0].rx_commission_pct);
+      const amount = Math.round(Number(row.price) * pct) / 100;
+      if (!(pct > 0) || !(amount > 0)) return;
+      await pool.query(`INSERT INTO commission_entries(entry_type, kind, rx_id, provider_id, base_amount, amount, rule_snapshot, note)
+        VALUES('accrual','provider',$1,$2,$3,$4,$5,$6) ON CONFLICT (rx_id, kind) WHERE entry_type='accrual' AND rx_id IS NOT NULL DO NOTHING`,
+      [row.id, row.pharmacy_provider_id, row.price, amount, JSON.stringify({ scope: 'rx', kind: 'percent', value: pct }), `عمولة روشتة ${num(row.id)}`]);
+    } catch (e) { console.error('rx commission failed:', e.message); }
+  };
+  // the owner sets the percentage here (the on/off switch is "rxCommission" in the features list)
+  app.get('/api/admin/rx-commission', auth, roles('admin'), guard(async (req, res) => {
+    res.json({ enabled: await extrasLib.featureOn(pool, 'rxCommission'), percent: Number((await pool.query('SELECT rx_commission_pct FROM app_settings WHERE id=1')).rows[0].rx_commission_pct) });
+  }));
+  app.patch('/api/admin/rx-commission', auth, roles('admin'), guard(async (req, res) => {
+    const p = Number((req.body || {}).percent);
+    if (!Number.isFinite(p) || p < 0 || p > 100) throw fail(400, 'النسبة بين 0 و100');
+    await pool.query('UPDATE app_settings SET rx_commission_pct=$1 WHERE id=1', [Math.round(p * 100) / 100]);
+    res.json({ enabled: await extrasLib.featureOn(pool, 'rxCommission'), percent: Math.round(p * 100) / 100 });
+  }));
   // "deliver it to me": the patient then sends an ordinary written order to the pharmacy that carries the RX number
   app.post('/api/rx/:id/delivery', auth, roles('customer'), guard((req, res) => step(req, res, ['patient'], ['sent', 'ready'], async row => {
     await pool.query("UPDATE prescriptions SET status='delivery', updated_at=NOW() WHERE id=$1", [row.id]);
     if (row.pharmacy_owner) notify([row.pharmacy_owner], { title: 'العميل عايز توصيل الروشتة 🛵', body: `${num(row.id)} — هيوصلك طلب مكتوب بالتفاصيل`, tag: 'rx-d-' + row.id, url: '/' });
-    return { orderText: `روشتة ${num(row.id)}: ${row.meds || 'بالصورة المرفقة'}`.slice(0, 600), pharmacyId: String(row.pharmacy_provider_id) };
+    return { orderText: `روشتة ${num(row.id)}${row.price != null ? ` (سعر الأدوية ${egp(row.price)})` : ''}: ${row.meds || 'بالصورة المرفقة'}`.slice(0, 600), pharmacyId: String(row.pharmacy_provider_id) };
   })));
   app.post('/api/rx/:id/cancel', auth, roles('customer', 'provider', 'admin'), guard((req, res) => step(req, res, ['patient', 'clinic', 'admin'], ['issued', 'sent'], async row => {
     await pool.query("UPDATE prescriptions SET status='cancelled', updated_at=NOW() WHERE id=$1", [row.id]);
