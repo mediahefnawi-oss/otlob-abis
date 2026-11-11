@@ -9,6 +9,7 @@
  *  - Nothing is deleted. A conversation can be closed and reopens by itself when the user writes again.
  */
 const bot = require('./supportbot');
+const extrasLib = require('./extras');
 const MAX_BODY = 2000;
 const BOT = { name: 'المساعد الآلي', role: 'bot' };
 const STAFF_QUIET_MS = 12 * 3600 * 1000; // after a person from the staff answered, the helper stays silent for 12 hours
@@ -61,7 +62,8 @@ module.exports = function registerSupportRoutes(app, { pool, auth, roles, asyncR
          WHERE t.user_id=$1 AND m.sender_role IN ('bot','admin','supervisor') ORDER BY m.id DESC LIMIT 1`, [me(req)])).rows[0];
       const personRecent = prev && prev.sender_role !== 'bot' && Date.now() - new Date(prev.created_at).getTime() < STAFF_QUIET_MS;
       const handedOver = prev && prev.sender_role === 'bot' && prev.body === bot.HANDOFF;
-      const ans = personRecent || handedOver ? null : bot.answer(text);
+      const botOn = await extrasLib.featureOn(db, 'bot');
+      const ans = personRecent || handedOver || !botOn ? null : bot.answer(text);
       const toStaff = !ans || ans.escalate;
       const t = (await db.query(
         `INSERT INTO support_threads(user_id, status, last_message, last_message_at, unread_staff) VALUES($1,'open',$2,NOW(),$3)

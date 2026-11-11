@@ -1,0 +1,94 @@
+const { Pool } = require('./shim');
+let pass = 0, bad = 0; const ok = (c, m) => { if (c) pass++; else { bad++; console.log('  FAIL:', m); } };
+const eq = (a, b, m) => ok(a === b, `${m}: got ${a}, want ${b}`);
+const routes = {}; const app = {};
+for (const m of ['get', 'post', 'patch', 'put', 'delete']) app[m] = (p, ...c) => { routes[`${m.toUpperCase()} ${p}`] = c; };
+const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const positiveId = v => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : null; };
+const pass1 = (req, res, next) => next();
+// a 1x1 jpeg is enough for the shape checks
+const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
+(async () => {
+  const pool = new Pool(); const q = (t, p) => pool.query(t, p);
+  const services = require('../src/services.js');
+  const deps = { pool, auth: pass1, authAny: pass1, roles: () => pass1, asyncRoute, positiveId, services, maintenanceState: async () => ({ enabled: true }), loadSettings: async () => ({}), cleanUser: x => x, pushToUsers: async () => {}, clearCaches: () => {} };
+  require('../src/orders.js')(app, deps);
+  services.register(app, deps);
+  const extras = require('../src/extras.js');
+  extras.register(app, deps);
+  const call = (key, as, body, params) => new Promise(resolve => {
+    const res = { set() { return this; }, status(c) { this.c = c; return this; }, json(j) { resolve({ status: this.c || 200, json: j }); return this; }, send(x) { resolve({ status: this.c || 200, body: x }); }, end() { resolve({ status: this.c || 200 }); } };
+    const chain = routes[key];
+    chain[chain.length - 1]({ auth: as, params: params || {}, body: body || {}, query: {} }, res, e => resolve({ status: e.status || e.http || 500, json: { error: e.message } }));
+  });
+  await q("UPDATE app_settings SET features='{}'::jsonb WHERE id=1");
+  await q('DELETE FROM service_types');
+  const rg = (await q("INSERT INTO regions(name, delivery_fee) VALUES('منطقة منيو'||random(), 0) RETURNING id")).rows[0].id;
+  await q('INSERT INTO route_prices(from_region_id, to_region_id, price) VALUES($1,$1,10) ON CONFLICT DO NOTHING', [rg]);
+  const mk = async (n, role) => (await q("INSERT INTO users(name, phone, password_hash, role, status, region_id) VALUES($1,$2,'x',$3,'active',$4) RETURNING id", [n, '010' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'), role, rg])).rows[0].id;
+  const adm = await mk('مالك', 'admin'), cust = await mk('عميل', 'customer'), o1 = await mk('صاحب 1', 'provider'), o2 = await mk('صاحب 2', 'provider');
+  const A = { sub: String(adm), role: 'admin' }, C = { sub: String(cust), role: 'customer', status: 'active' }, P1 = { sub: String(o1), role: 'provider', status: 'active' }, P2 = { sub: String(o2), role: 'provider', status: 'active' };
+  const prov = async (o, type, name) => (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,$2,$3,'01000000000','active',TRUE) RETURNING id", [o, type, name])).rows[0].id;
+  const rest = await prov(o1, 'restaurant', 'مطعم'), store = await prov(o2, 'store', 'متجر');
+  const base = { name: 'عميل', phone: '01012345678', address: 'شارع 5 عمارة 3 الدور 2', notes: '' };
+
+  console.log('A) switches');
+  let r = await call('GET /api/admin/features', A);
+  eq(r.status, 200, 'list');
+  const get = k => r.json.features.find(f => f.key === k);
+  eq(get('menu').on, false, 'menu starts OFF'); eq(get('chat').on, false, 'chat starts OFF'); eq(get('pool').on, false, 'pool starts OFF'); eq(get('voice').on, false, 'voice starts OFF');
+  eq(get('bot').on, true, 'the support helper that already runs stays ON');
+  eq((await call('PATCH /api/admin/features', A, { key: 'menu', on: true })).status, 200, 'turn menu on');
+  eq(get('menu').on, false, 'old copy unchanged'); r = await call('GET /api/admin/features', A); eq(get('menu').on, true, 'menu is on now');
+  eq((await call('PATCH /api/admin/features', A, { key: 'nope', on: true })).status, 400, 'unknown switch refused');
+  eq((await call('PATCH /api/admin/features', A, { key: 'menu', on: 'yes' })).status, 400, 'non-boolean refused');
+  await call('PATCH /api/admin/features', A, { key: 'bot', on: false }); r = await call('GET /api/admin/features', A); eq(get('bot').on, false, 'a default-ON switch can be closed');
+  await call('PATCH /api/admin/features', A, { key: 'bot', on: true });
+  eq(extras.mergeFeatures(null).menu, false, 'no stored value = defaults'); eq(extras.mergeFeatures({ menu: true, junk: 1 }).junk, undefined, 'unknown keys ignored');
+
+  console.log('B) moving a shop and its order mode');
+  eq((await call('PATCH /api/admin/providers/:id/type', A, { type: 'supermarket' }, { id: String(rest) })).status, 200, 'move to supermarket');
+  eq((await q('SELECT type FROM providers WHERE id=$1', [rest])).rows[0].type, 'supermarket', 'stored');
+  eq((await call('PATCH /api/admin/providers/:id/type', A, { type: 'errand' }, { id: String(rest) })).status, 400, 'the errand service has no shops');
+  eq((await call('PATCH /api/admin/providers/:id/type', A, { type: 'xx' }, { id: String(rest) })).status, 400, 'unknown section refused');
+  eq((await call('PATCH /api/admin/providers/:id/type', A, { type: 'store' }, { id: '999999' })).status, 404, 'unknown shop');
+  await call('PATCH /api/admin/providers/:id/type', A, { type: 'restaurant' }, { id: String(rest) });
+  eq((await call('PATCH /api/admin/providers/:id/order-mode', A, { mode: 'menu' }, { id: String(rest) })).status, 200, 'menu mode');
+  eq((await call('PATCH /api/admin/providers/:id/order-mode', A, { mode: 'weird' }, { id: String(rest) })).status, 400, 'unknown mode refused');
+  eq((await call('PATCH /api/admin/providers/:id/order-mode', A, { mode: '' }, { id: String(rest) })).status, 200, 'back to default');
+  eq((await q('SELECT order_mode FROM providers WHERE id=$1', [rest])).rows[0].order_mode, null, 'default stored as null');
+  await call('PATCH /api/admin/providers/:id/order-mode', A, { mode: 'menu' }, { id: String(rest) });
+  eq(extras.effectiveMode({ order_mode: 'menu' }, { menu: true }), 'menu', 'effective while on'); eq(extras.effectiveMode({ order_mode: 'menu' }, { menu: false }), '', 'hidden while off');
+
+  console.log('C) written order to a menu shop');
+  r = await call('POST /api/orders/request', C, { ...base, providerId: rest, text: 'شاورما وبطاطس' });
+  eq(r.status, 201, 'a restaurant in menu mode takes a written order'); ok(r.json.order && r.json.order.status === 'pending', 'it waits for the shop price');
+  r = await call('POST /api/orders/request', C, { ...base, providerId: store, text: 'حاجة' });
+  eq(r.status, 400, 'a shop left in basket mode still refuses written orders');
+  await call('PATCH /api/admin/features', A, { key: 'menu', on: false });
+  r = await call('POST /api/orders/request', C, { ...base, providerId: rest, text: 'شاورما وبطاطس' });
+  eq(r.status, 400, 'with the switch OFF the menu mode is ignored');
+  await call('PATCH /api/admin/features', A, { key: 'menu', on: true });
+
+  console.log('D) menu pictures');
+  eq((await call('POST /api/providers/:id/menu', P1, { image: PIC }, { id: String(rest) })).status, 201, 'the shop uploads a page');
+  eq((await call('POST /api/providers/:id/menu', P2, { image: PIC }, { id: String(rest) })).status, 403, 'another shop cannot');
+  eq((await call('POST /api/providers/:id/menu', A, { image: PIC }, { id: String(rest) })).status, 201, 'the owner can');
+  eq((await call('POST /api/providers/:id/menu', P1, { image: 'data:text/html;base64,AAAA' }, { id: String(rest) })).status, 400, 'not a picture refused');
+  eq((await call('POST /api/providers/:id/menu', P1, { image: 'data:image/jpeg;base64,' + 'A'.repeat(1600000) }, { id: String(rest) })).status, 400, 'too big refused');
+  r = await call('GET /api/providers/:id/menu', C, {}, { id: String(rest) }); eq(r.json.images.length, 2, 'two pages listed');
+  const first = r.json.images[0];
+  r = await call('GET /api/menu/:imgId', C, {}, { imgId: first }); eq(r.status, 200, 'a page can be opened'); ok(Buffer.isBuffer(r.body) && r.body.length > 20, 'with its bytes');
+  for (let i = 0; i < 6; i++) await call('POST /api/providers/:id/menu', P1, { image: PIC }, { id: String(rest) });
+  eq((await call('POST /api/providers/:id/menu', P1, { image: PIC }, { id: String(rest) })).status, 409, 'at most 8 pages');
+  eq((await call('DELETE /api/menu/:imgId', P2, {}, { imgId: first })).status, 403, 'another shop cannot delete');
+  eq((await call('DELETE /api/menu/:imgId', P1, {}, { imgId: first })).status, 200, 'the shop deletes a page');
+  eq((await call('DELETE /api/menu/:imgId', P1, {}, { imgId: first })).status, 404, 'already gone');
+  await call('PATCH /api/admin/features', A, { key: 'menu', on: false });
+  r = await call('GET /api/providers/:id/menu', C, {}, { id: String(rest) }); eq(r.json.images.length, 0, 'switch OFF: customers see no menu');
+  eq((await call('POST /api/providers/:id/menu', P1, { image: PIC }, { id: String(rest) })).status, 409, 'switch OFF: no uploads');
+
+  console.log(bad ? `FAILED ${bad}` : 'ALL OK', 'pass=' + pass);
+  await pool.end();
+  process.exit(bad ? 1 : 0);
+})().catch(e => { console.error('CRASH', e); process.exit(2); });

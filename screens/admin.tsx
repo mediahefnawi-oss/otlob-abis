@@ -12,7 +12,7 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
 import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
@@ -26,9 +26,10 @@ import { DeliveryModeCard } from '../components/DeliveryMode';
 import { MapModeCard, CustomerLocationCard } from '../components/Location';
 import { apiSupervisorSupport } from '../lib/api';
 import { AdsManager } from '../components/Ads';
+import { MenuManager } from '../components/Menu';
 import { HoursSettings } from '../components/HoursSettings';
 import { ReplicationCard } from '../components/Replication';
-import { ProviderType, AccountStatus } from '../lib/types';
+import { ProviderType, AccountStatus, Provider } from '../lib/types';
 
 // Runs a server-backed action and only reports success when the server accepted it.
 async function done(action: Promise<{ ok: boolean }>, okMsg: string, okKind: 'ok' | 'info' = 'ok') {
@@ -123,6 +124,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     { label: 'شات الدعم', route: 'AdminSupport', icon: 'chatbubbles', color: C.goldDeep, bg: C.goldSoft, badge: supUnread },
     { label: 'العروض والخصومات', route: 'AdminOffers', icon: 'pricetags', color: C.red, bg: C.redSoft, badge: 0 },
     { label: 'أكواد الخصم', route: 'AdminCoupons', icon: 'ticket', color: C.green, bg: C.greenSoft, badge: 0 },
+    { label: 'تشغيل الميزات', route: 'AdminFeatures', icon: 'options', color: C.green, bg: C.greenSoft, badge: 0 },
     { label: 'التقييمات', route: 'AdminRatings', icon: 'star', color: C.goldDeep, bg: C.goldSoft, badge: 0 },
     { label: 'المشرفون', route: 'AdminSupervisors', icon: 'shield-checkmark', color: C.green, bg: C.greenSoft, badge: 0 },
   ];
@@ -396,6 +398,35 @@ export function AdminOrdersScreen({ navigation }: any) {
 }
 
 /* ---------------- Detail (provider / courier) ---------------- */
+/** Owner: move the place to another section and choose how it takes orders. */
+function ProviderModeCard({ prov }: { prov: Provider }) {
+  const { db } = useStore();
+  const [busy, setBusy] = useState(false);
+  const menuOn = !!db.settings.features?.menu;
+  const run = async (f: Promise<{ ok: boolean; error?: string }>, okMsg: string) => {
+    setBusy(true);
+    const r: any = await f;
+    setBusy(false);
+    toast(r.ok ? okMsg : r.error, r.ok ? 'ok' : 'err');
+  };
+  const modes: ['' | 'request' | 'menu', string][] = [['', 'حسب القسم'], ['request', 'طلب يدوي'], ['menu', 'منيو بصورة']];
+  return (
+    <Card style={{ gap: 12, opacity: busy ? 0.6 : 1 }} pointerEvents={busy ? 'none' : 'auto'}>
+      <T w="black" size={15}>القسم وطريقة الطلب</T>
+      <T size={12} color={C.sub}>القسم الحالي: {TYPES[prov.type]?.label || prov.type}. الطلبات القديمة تفضل زي ما هي.</T>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {typeKeys().map((k) => <Chip key={k} label={TYPES[k as ProviderType].label} active={prov.type === k} onPress={() => { if (k !== prov.type) confirmDialog({ title: 'نقل لقسم آخر؟', message: `سينتقل "${prov.name}" إلى قسم ${TYPES[k as ProviderType].label}`, confirmText: 'نقل', onConfirm: () => { run(adminMoveProvider(prov.id, k), 'تم النقل ✅'); } }); }} />)}
+      </View>
+      <T w="bold" size={12.5}>طريقة الطلب</T>
+      {menuOn ? (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {modes.map(([m, l]) => <Chip key={m || 'def'} label={l} active={(prov.orderMode || '') === m} onPress={() => run(adminSetOrderMode(prov.id, m), 'تم الحفظ ✅')} />)}
+        </View>
+      ) : <T size={12} color={C.sub}>فعّل «المنيو وطرق الطلب» من شاشة «تشغيل الميزات» أولاً.</T>}
+    </Card>
+  );
+}
+
 export function AdminDetailScreen({ navigation, route }: any) {
   const { db } = useStore();
   const { kind, id } = route.params;
@@ -465,6 +496,8 @@ export function AdminDetailScreen({ navigation, route }: any) {
             })} />
           </View>
         </Card>
+        {prov && <ProviderModeCard prov={prov} />}
+        {prov && db.settings.features?.menu && prov.orderMode === 'menu' && <MenuManager providerId={prov.id} />}
         {prov && (
           <Card style={{ gap: 12 }}>
             <T w="black" size={15}>الظهور للعملاء</T>

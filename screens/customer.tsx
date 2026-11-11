@@ -22,6 +22,7 @@ import {
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
+import { MenuGallery } from '../components/Menu';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isLab, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { LabCardActions } from '../components/Lab';
 import { ProviderType, Provider, Product } from '../lib/types';
@@ -358,7 +359,8 @@ export function ProviderScreen({ navigation, route }: any) {
   const noRoute = !deliveryOpen(p);
   const blocked = closed || noRoute;
   const mineArea = !!p.regionId && meUser?.regionId === p.regionId;
-  const requestOnly = isRequestOnly(p.type);
+  const manualMode = p.orderMode === 'request' || p.orderMode === 'menu';
+  const requestOnly = isRequestOnly(p.type) || manualMode;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -390,12 +392,13 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13} style={{ flex: 1 }}>التوصيل من منطقة هذا المكان إلى منطقتك غير متاح حالياً</T>
         </View>
       )}
-      {!blocked && (isRequestOnly(p.type) || isMakerTpl(p.type)) && (
+      {p.orderMode === 'menu' && (p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} />}
+      {!blocked && (requestOnly || isMakerTpl(p.type)) && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.goldSoft, borderWidth: 1.5, borderColor: C.gold }}>
             <Icon name="create" size={28} color={C.goldDeep} />
             <View style={{ flex: 1, gap: 2 }}>
-              <T w="black" size={15}>{isMakerTpl(p.type) ? 'اطلب من الصانع' : 'هتطلب إيه؟ اكتب طلبك'}</T>
+              <T w="black" size={15}>{isMakerTpl(p.type) ? 'اطلب من الصانع' : p.orderMode === 'menu' ? 'اكتب طلبك من المنيو' : 'هتطلب إيه؟ اكتب طلبك'}</T>
               <T size={12} color={C.sub}>{p.type === 'pharmacy' ? 'اكتب الدواء المطلوب أو ارفع صورة الروشتة، والصيدلية تحدد السعر' : isMakerTpl(p.type) ? 'اوصف اللي عايزه (ومعاه صورة لو تحب)، والصانع يقبل ويحدد السعر ويوم وساعة التسليم' : 'اكتب اللي عايزه والمتجر يقبل الطلب ويحدد السعر'}</T>
             </View>
             <Icon name="chevron-back" size={18} color={C.sub} />
@@ -802,7 +805,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={pharmacy ? 'اطلب من الصيدلية' : maker ? 'اطلب من الصانع' : 'اطلب من السوبر ماركت'} subtitle={p.name} onBack={() => navigation.goBack()} />
+      <Header title={pharmacy ? 'اطلب من الصيدلية' : maker ? 'اطلب من الصانع' : p.type === 'supermarket' ? 'اطلب من السوبر ماركت' : 'اطلب من المحل'} subtitle={p.name} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
         <Card style={{ gap: 6, backgroundColor: C.goldSoft }}>
           <T w="black" size={14} color={C.goldDeep}>إزاي بيشتغل؟</T>

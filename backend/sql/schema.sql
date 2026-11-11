@@ -564,3 +564,18 @@ CREATE TABLE IF NOT EXISTS coupon_uses (
   UNIQUE (coupon_id, order_id)
 );
 CREATE INDEX IF NOT EXISTS idx_coupon_uses_user ON coupon_uses(coupon_id, user_id);
+
+-- 20261201: feature switches (owner), per-shop order mode, menu pictures
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS features JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS order_mode TEXT;
+ALTER TABLE providers DROP CONSTRAINT IF EXISTS providers_order_mode_check;
+ALTER TABLE providers ADD CONSTRAINT providers_order_mode_check CHECK (order_mode IS NULL OR order_mode IN ('cart','request','menu'));
+CREATE TABLE IF NOT EXISTS menu_images (
+  id BIGSERIAL PRIMARY KEY,
+  provider_id BIGINT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  image BYTEA NOT NULL,
+  mime TEXT NOT NULL DEFAULT 'image/jpeg',
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_menu_images_provider ON menu_images(provider_id, sort_order, id);

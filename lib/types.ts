@@ -74,6 +74,8 @@ export interface Provider {
   regionName?: string; // the customer's area
   providerRegionName?: string; // the shop's area (courier: from area X to area Y)
   featured?: boolean; // the owner put it in the customers' "الأعلى تقييماً" row
+  orderMode?: '' | 'cart' | 'request' | 'menu'; // how this one place takes orders when the owner overrides its section (empty = by section)
+  menuCount?: number; // pages of its picture menu
   lat?: number; // the shop's spot on the map
   lng?: number;
   createdAt: number;
@@ -262,6 +264,7 @@ export interface Settings {
   delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }; // delivery price by area or by kilometre
   map?: { enabled: boolean; required: boolean }; // owner switch: maps + live location, and whether a delivery pin is required
   theme?: string; // colour theme picked by the owner
+  features?: Record<string, boolean>; // the owner's feature switches
   privacy?: { on: boolean; minutes: number }; // shops/couriers lose the customer's data this long after delivery
   ui?: { phone: number; desktop: number }; // interface size picked by the owner (1 = original)
   tzOffsetMin?: number; // Cairo's offset from UTC when the settings were fetched (120 or 180)

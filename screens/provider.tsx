@@ -5,6 +5,7 @@ import {
   T, Icon, Toggle, Card, Btn, Header, Empty, Segmented, Stat, Appear, EmojiBubble, Sheet, Field, Chip, Pill, IconBubble, toast, confirmDialog, SectionTitle, IconBtn,
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
+import { MenuManager } from '../components/Menu';
 import { LabCardActions } from '../components/Lab';
 import { QuoteButtons, MakerOrderButtons } from '../components/Quote';
 import { ProviderLogo, ProductThumb, ProductPicture, LogoPicker } from '../components/Brand';
@@ -327,6 +328,7 @@ export function ProviderProfileScreen({ navigation }: any) {
   const orders = db.orders.filter((o) => o.providerId === prov.id && o.status === 'delivered');
   const extra = (
     <>
+      {db.settings.features?.menu && prov.orderMode === 'menu' && <MenuManager providerId={prov.id} />}
       <Card style={{ gap: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <ProviderLogo p={prov} size={56} />

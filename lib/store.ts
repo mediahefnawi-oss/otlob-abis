@@ -11,7 +11,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -151,7 +151,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null, x.features || null]);
 
 let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
@@ -175,6 +175,7 @@ function applySettings(c: CentralSettings) {
     theme: c.theme || 'default',
     ui: c.ui,
     privacy: c.privacy,
+    features: c.features,
     delivery: c.delivery,
     map: c.map,
   };
@@ -265,7 +266,7 @@ const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0, ratingCount: Number(x.ratingCount) || 0,
   eta: x.eta ?? (isBooking(x.type) ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
-  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
+  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, orderMode: ['cart', 'request', 'menu'].includes(x.orderMode) ? x.orderMode : '', menuCount: Number(x.menuCount) || 0, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
 });
 const toProduct = (x: any): Product => ({
   id: String(x.id), providerId: String(x.providerId), kind: x.kind === 'doctor' ? 'doctor' : 'item', name: x.name,
@@ -482,35 +483,41 @@ export async function syncRemote(withCatalog = true) {
 }
 
 export async function initStore() {
+  let meCheck: Promise<unknown> = Promise.resolve();
+  let firstRun = false; // nothing saved yet: wait a little longer so the first screen is not empty
   await loadSeen();
   try {
     const raw = await storage.getItem(DB_KEY);
     let db: DB = raw ? JSON.parse(raw) : buildSeed();
     // Owner/admin accounts only exist on the server now; drop any locally-stored admin from older builds.
     db = stripDemo(db);
-    if (!raw) await storage.setItem(DB_KEY, JSON.stringify(db));
+    if (!raw) { firstRun = true; await storage.setItem(DB_KEY, JSON.stringify(db)); }
     const sid = await secure.get(SESSION_KEY);
     const cartRaw = await storage.getItem(CART_KEY);
     const hasToken = await hasApiToken();
     const cached = sid && hasToken ? db.users.find((u) => u.id === sid) : undefined;
     setState({ db, userId: cached ? cached.id : null, cart: cartRaw ? JSON.parse(cartRaw) : [] });
     if (hasToken) {
-      try {
-        const { user } = await apiMe();
-        mirrorUser(user);
-        setState({ userId: user.id });
-        secure.set(SESSION_KEY, user.id);
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 401) {
-          await clearApiToken();
-          setState({ userId: null });
-          secure.del(SESSION_KEY);
+      // asked at the same time as the first sync below (before, one waited for the other)
+      meCheck = (async () => {
+        try {
+          const { user } = await apiMe();
+          mirrorUser(user);
+          setState({ userId: user.id });
+          secure.set(SESSION_KEY, user.id);
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) {
+            await clearApiToken();
+            setState({ userId: null });
+            secure.del(SESSION_KEY);
+          }
         }
-      }
+      })();
     }
   } catch {}
-  // Fetch maintenance state before the first screen, but never hang the splash if the server is slow.
-  if (!closedByHoursNow(state.db.users.find((u) => u.id === state.userId)?.role)) await Promise.race([syncRemote(), new Promise((r) => setTimeout(r, 4000))]);
+  // Fetch maintenance state before the first screen, but never hang the splash if the server is slow: the screen opens from the saved copy after 1.5 s and the news arrives behind it.
+  const first = closedByHoursNow(state.db.users.find((u) => u.id === state.userId)?.role) ? meCheck : Promise.all([meCheck, syncRemote()]);
+  await Promise.race([first.catch(() => {}), new Promise((r) => setTimeout(r, firstRun ? 4000 : 1500))]);
   setState({ ready: true });
 
   // Live sync. Shops and couriers must hear about new orders right away (every ~4s); customers can wait (~8s),
@@ -1133,6 +1140,16 @@ export function setAvailable(userId: string, available: boolean) {
 }
 
 /* ---------- admin ---------- */
+export async function adminMoveProvider(providerId: string, type: string): Promise<Result> {
+  try { await apiMoveProvider(providerId, type); } catch (e) { return { ok: false, error: errMsg(e) }; }
+  mutate((db) => { db.providers = db.providers.map((x) => (x.id === providerId ? { ...x, type: type as ProviderType } : x)); });
+  return { ok: true };
+}
+export async function adminSetOrderMode(providerId: string, mode: '' | 'cart' | 'request' | 'menu'): Promise<Result> {
+  try { await apiProviderMode(providerId, mode); } catch (e) { return { ok: false, error: errMsg(e) }; }
+  mutate((db) => { db.providers = db.providers.map((x) => (x.id === providerId ? { ...x, orderMode: mode } : x)); });
+  return { ok: true };
+}
 export async function setProviderStatus(providerId: string, status: AccountStatus): Promise<Result> {
   const p = state.db.providers.find((x) => x.id === providerId);
   if (!p) return { ok: false, error: 'الخدمة غير موجودة' };

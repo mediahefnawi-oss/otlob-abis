@@ -12,6 +12,7 @@ const kmFee = require('./kmfee');
 const tracking = require('./tracking');
 const mapMode = require('./mapmode');
 const couponsLib = require('./coupons');
+const extrasLib = require('./extras');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
   const num = v => Number(v) || 0;
   const ms = d => new Date(d).getTime();
@@ -583,7 +584,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
     const prov = p.rows[0];
     if (!prov || prov.status !== 'active' || !prov.is_open) throw fail(409, 'المتجر مغلق حالياً');
-    if (!services.acceptsRequests(prov.type)) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
+    if (!services.acceptsRequests(prov.type) && !(['request', 'menu'].includes(prov.order_mode) && await extrasLib.featureOn(pool, 'menu'))) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
     if (!services.isActive(prov.type)) throw fail(409, 'هذه الخدمة متوقفة حالياً');
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);

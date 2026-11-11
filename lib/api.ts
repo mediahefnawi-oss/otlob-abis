@@ -109,6 +109,7 @@ export type CentralSettings = {
   hours?: Hours;
   tzOffsetMin?: number;
   theme?: string;
+  features?: Record<string, boolean>;
   privacy?: { on: boolean; minutes: number };
   ui?: { phone: number; desktop: number };
   map?: { enabled: boolean; required: boolean };
@@ -410,3 +411,14 @@ export const apiCouponActive = (id: string, active: boolean) => apiRequest<{ cou
 export const apiCouponDelete = (id: string) => apiRequest<{ coupons: Coupon[] }>(`/api/admin/coupons/${id}`, { method: 'DELETE' });
 export const apiCouponCheck = (code: string, lines: { productId: string; qty: number }[]) => apiRequest<{ code: string; discount: number; kind: string; value: number }>('/api/coupons/check', { method: 'POST', body: JSON.stringify({ code, lines }) });
 export const apiMyCoupons = () => apiRequest<{ coupons: Coupon[] }>('/api/coupons/mine');
+
+/* ---- feature switches, section / order mode, menu pictures ---- */
+export type FeatureRow = { key: string; label: string; on: boolean };
+export const apiFeatures = () => apiRequest<{ features: FeatureRow[] }>('/api/admin/features');
+export const apiSetFeature = (key: string, on: boolean) => apiRequest<{ features: FeatureRow[] }>('/api/admin/features', { method: 'PATCH', body: JSON.stringify({ key, on }) });
+export const apiMoveProvider = (id: string, type: string) => apiRequest<{ id: string; type: string }>(`/api/admin/providers/${encodeURIComponent(id)}/type`, { method: 'PATCH', body: JSON.stringify({ type }) });
+export const apiProviderMode = (id: string, mode: '' | 'cart' | 'request' | 'menu') => apiRequest<{ id: string; mode: string }>(`/api/admin/providers/${encodeURIComponent(id)}/order-mode`, { method: 'PATCH', body: JSON.stringify({ mode }) });
+export const apiMenuList = (providerId: string) => apiRequest<{ images: string[] }>(`/api/providers/${encodeURIComponent(providerId)}/menu`, {}, true);
+export const apiMenuAdd = (providerId: string, image: string) => apiRequest<{ id: string }>(`/api/providers/${encodeURIComponent(providerId)}/menu`, { method: 'POST', body: JSON.stringify({ image }) });
+export const apiMenuDelete = (imgId: string) => apiRequest<{ ok: boolean }>(`/api/menu/${encodeURIComponent(imgId)}`, { method: 'DELETE' });
+export const menuImageUrl = (imgId: string) => `${API_BASE}/api/menu/${encodeURIComponent(imgId)}`;

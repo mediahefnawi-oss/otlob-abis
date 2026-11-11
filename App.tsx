@@ -37,6 +37,7 @@ import { AdminFinanceScreen } from './components/Finance';
 import { SupportInbox, useSupportUnread } from './components/SupportChat';
 import { AdminOffersScreen } from './components/Offers';
 import { AdminCouponsScreen } from './components/Coupons';
+import { AdminFeaturesScreen } from './components/Features';
 import { AdminRatingsScreen } from './components/Ratings';
 import { CouriersMapScreen, useCourierTracking } from './components/Location';
 import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
@@ -166,6 +167,7 @@ function Root() {
         <Stack.Screen name="CouriersMap" component={CouriersMapScreen} />
         <Stack.Screen name="AdminOffers" component={AdminOffersScreen} />
         <Stack.Screen name="AdminCoupons" component={AdminCouponsScreen} />
+        <Stack.Screen name="AdminFeatures" component={AdminFeaturesScreen} />
         <Stack.Screen name="AdminRatings" component={AdminRatingsScreen} />
       </>
     );
