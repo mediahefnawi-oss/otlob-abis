@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Image, AppState } from 'react-native';
+import { View, Image, AppState, Pressable, Modal } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { C } from '../lib/theme';
 import { T, Card, Btn, Icon, Sheet, Field, Chip, toast, confirmDialog } from './ui';
@@ -14,6 +14,9 @@ const STATUS: Record<string, { label: string; color: string }> = {
   issued: { label: 'بانتظار اختيارك للصيدلية', color: C.goldDeep }, sent: { label: 'وصلت الصيدلية', color: C.goldDeep }, ready: { label: 'جاهزة للاستلام ✅', color: C.green },
   picked_up: { label: 'تم الاستلام', color: C.sub }, delivery: { label: 'طلبت توصيل', color: C.goldDeep }, cancelled: { label: 'ملغية', color: C.red }, expired: { label: 'انتهت صلاحيتها', color: C.red },
 };
+// lets any prescription card re-open the full sheet (RxAutoOpen registers itself here); it is also the way back after "لاحقًا"
+let openRxHandler: ((id: string) => void) | null = null;
+export const openRx = (id: string) => { if (openRxHandler) openRxHandler(id); };
 const priceOf = (r: RxRow) => (r.price ? `${r.price} ج` : '');
 const left = (r: RxRow) => { const d = Math.ceil((r.expiresAt - Date.now()) / 86400000); return d > 0 ? `باقي ${d} يوم` : ''; };
 
@@ -27,7 +30,23 @@ function usePoll<T2>(f: () => Promise<T2>, on: boolean) {
 function RxPhoto({ id }: { id: string }) {
   const [img, setImg] = useState<string | null>(null);
   useEffect(() => { apiRxPhoto(id).then((r) => setImg(r.image)).catch(() => {}); }, [id]);
-  return img ? <Image source={{ uri: img }} style={{ width: '100%', height: 190, borderRadius: 14, backgroundColor: C.line }} resizeMode="contain" /> : null;
+  const [big, setBig] = useState(false);
+  if (!img) return null;
+  // tap the picture to see it full size (the pharmacy has to read the doctor's handwriting)
+  return (
+    <>
+      <Pressable onPress={() => setBig(true)}>
+        <Image source={{ uri: img }} style={{ width: '100%', height: 190, borderRadius: 14, backgroundColor: C.line }} resizeMode="contain" />
+        <T size={11} color={C.sub} align="center">اضغط على الصورة لتكبيرها 🔍</T>
+      </Pressable>
+      <Modal visible={big} transparent animationType="fade" onRequestClose={() => setBig(false)}>
+        <Pressable onPress={() => setBig(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', padding: 12 }}>
+          <Image source={{ uri: img }} style={{ width: '100%', height: '85%' }} resizeMode="contain" />
+          <T w="bold" size={13} color="#fff" align="center" style={{ marginTop: 10 }}>اضغط في أي مكان للإغلاق ✕</T>
+        </Pressable>
+      </Modal>
+    </>
+  );
 }
 
 /** Clinic: write the prescription for a confirmed booking and suggest a pharmacy (the patient's own area first). */
@@ -117,6 +136,7 @@ export function MyRxCard() {
             {!!r.meds && <T size={13}>{r.meds}</T>}
             {r.hasImage && <RxPhoto id={r.id} />}
             {!!r.price && <T w="black" size={14} color={C.green}>سعر الأدوية: {priceOf(r)}</T>}
+            {r.needsAction && <Btn small icon="open" title="فتح الروشتة" onPress={() => openRx(r.id)} />}
             {r.status === 'issued' && (
               <View style={{ gap: 8 }}>
                 <T w="bold" size={12.5}>اختار الصيدلية اللي تستلم منها</T>
@@ -146,10 +166,10 @@ export function PharmacyRxInbox({ compact }: { compact?: boolean } = {}) {
   const { db } = useStore();
   const on = !!db.settings.features?.rx;
   const [v, load] = usePoll(apiRxList, on);
+  const [prices, setPrices] = useState<Record<string, string>>({}); // all hooks come before any early return
   if (!on) return null;
   const mine = (v?.list || []).filter((r) => r.role === 'pharmacy' && (!compact || ['sent', 'ready', 'delivery'].includes(r.status)));
   if (compact && !mine.length) return null;
-  const [prices, setPrices] = useState<Record<string, string>>({});
   const act = async (id: string, step: any, body?: any) => { try { await apiRxStep(id, step, body); load(); toast('تم ✅'); } catch (e: any) { toast(e?.message || 'تعذر التنفيذ', 'err'); } };
   const needPrice = (id: string) => { const n = Number((prices[id] || '').replace(',', '.')); if (!(n > 0)) { toast('اكتب سعر الأدوية الأول', 'err'); return null; } return n; };
   return (
@@ -164,6 +184,8 @@ export function PharmacyRxInbox({ compact }: { compact?: boolean } = {}) {
               <T w="black" size={14.5} style={{ flex: 1 }}>{r.number} • {r.patientName}</T>
               <T w="bold" size={12} color={st.color}>{st.label}</T>
             </View>
+            <T w="bold" size={12.5} color={C.goldDeep}>🩺 محوّلة من {r.clinicName}</T>
+            <Btn small variant="soft" icon="open" title="فتح الروشتة" onPress={() => openRx(r.id)} />
             {!!r.meds && <T size={13}>{r.meds}</T>}
             {r.hasImage && <RxPhoto id={r.id} />}
             {['sent', 'ready'].includes(r.status) && (
@@ -216,6 +238,15 @@ export function RxAutoOpen() {
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') check(); });
     return () => { clearInterval(t); sub.remove(); };
   }, [on, check]);
+  useEffect(() => {
+    openRxHandler = async (id: string) => {
+      try {
+        const x = (await apiRxList()).list.find((q) => q.id === id);
+        if (x && !curRef.current) { curRef.current = x; setChoice(x.pharmacyId || ''); setPrice(x.price ? String(x.price) : ''); setCur(x); }
+      } catch { toast('تعذر فتح الروشتة', 'err'); }
+    };
+    return () => { openRxHandler = null; };
+  }, []);
   const close = (r: RxRow) => {
     seen.current.add(key(r));
     storage.setItem('rx_seen', JSON.stringify([...seen.current].slice(-100))).catch(() => {});
@@ -238,6 +269,7 @@ export function RxAutoOpen() {
   return (
     <Sheet visible onClose={() => close(r)} title={r.role === 'patient' ? (r.status === 'ready' ? `💊 روشتتك جاهزة في ${r.pharmacyName}` : `💊 روشتة جديدة من ${r.clinicName}`) : '💊 روشتة جديدة للتجهيز'}>
       <T size={12.5} color={C.sub}>{r.number}{r.role === 'pharmacy' ? ` • ${r.patientName}` : ''} {left(r) ? `• ${left(r)}` : ''}</T>
+      {r.role === 'pharmacy' && <T w="bold" size={13} color={C.goldDeep}>🩺 محوّلة من {r.clinicName}</T>}
       {!!r.meds && <Card style={{ padding: 12 }}><T size={14}>{r.meds}</T></Card>}
       {r.hasImage && <RxPhoto id={r.id} />}
       {r.role === 'patient' && r.status === 'issued' && (
@@ -259,7 +291,9 @@ export function RxAutoOpen() {
           <Btn variant="soft" title="لاحقًا" onPress={() => close(r)} />
         </View>
       )}
-      {r.role === 'pharmacy' && (
+      {r.role === 'patient' && !['issued', 'ready'].includes(r.status) && <Btn variant="soft" title="إغلاق" onPress={() => close(r)} />}
+      {r.role === 'pharmacy' && r.status !== 'sent' && <Btn variant="soft" title="إغلاق" onPress={() => close(r)} />}
+      {r.role === 'pharmacy' && r.status === 'sent' && (
         <View style={{ gap: 10 }}>
           <Field label="سعر الأدوية (جنيه)" icon="cash" value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="مثال: 185" />
           <Btn variant="green" icon="checkmark" title="جاهزة للاستلام (هنبلّغ العميل)" loading={busy} onPress={() => { const n = Number(price.replace(',', '.')); if (!(n > 0)) return toast('اكتب سعر الأدوية الأول', 'err'); act(r, 'ready', { price: n }, 'اتبلّغ العميل ✅'); }} />
