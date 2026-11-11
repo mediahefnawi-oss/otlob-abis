@@ -1,6 +1,7 @@
 import { feeFor, deliveryOpen, useStore } from '../lib/store';
 import { ProviderLogo } from './Brand';
 import { CourierAvatar } from './CourierPhoto';
+import { schedLabel } from './Schedule';
 import React from 'react';
 import { View } from 'react-native';
 import { Provider, Order, Appointment, Invoice } from '../lib/types';
@@ -84,6 +85,12 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
         </View>
         <OrderPill s={o.status} />
       </View>
+      {!!o.scheduledFor && !['delivered', 'cancelled', 'rejected'].includes(o.status) && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.goldSoft, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 }}>
+          <Icon name="alarm" size={15} color={C.goldDeep} />
+          <T w="bold" size={12.5} color={C.goldDeep}>طلب مجدول: {schedLabel(o.scheduledFor)}</T>
+        </View>
+      )}
       <T size={12.5} color={C.sub} numberOfLines={2}>
         {o.customText ? `🎁 ${o.customText}` : o.request ? `📝 ${o.request.text || 'طلب بصورة الروشتة'}${o.request.hasImage ? ' 📷' : ''}` : o.items.map((i) => `${i.qty}× ${i.name}`).join('، ')}
       </T>

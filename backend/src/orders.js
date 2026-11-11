@@ -25,7 +25,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   const orderJson = r => {
     const d = r.data || {};
     return {
-      id: String(r.id), number: Number(r.order_number), groupId: String(d.groupId || ''), invoiceId: String(d.invoiceId || ''),
+      id: String(r.id), number: Number(r.order_number), groupId: String(d.groupId || ''), invoiceId: String(d.invoiceId || ''), ...(d.scheduledFor ? { scheduledFor: Number(d.scheduledFor) } : {}),
       customerId: String(r.customer_user_id), customerName: d.customerName || '', phone: d.phone || '', phone2: d.phone2 || '', address: d.address || '', notes: d.notes || '',
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
@@ -173,8 +173,23 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
    */
   const ACK_MS = 2 * 60 * 1000;
   const NEAR_FRESH = "INTERVAL '3 minutes'";
+  /* ---------- scheduled orders (switch "schedule"): the customer asks for a later delivery time (30 minutes to 2 days ahead) ---------- */
+  const SCHED_MIN = 30 * 60 * 1000, SCHED_MAX = 48 * 3600 * 1000, SCHED_HOLD = 60 * 60 * 1000;
+  async function scheduleOf(b) {
+    if (b.scheduledFor === undefined || b.scheduledFor === null || b.scheduledFor === '') return 0;
+    if (!(await extrasLib.featureOn(pool, 'schedule'))) throw fail(409, 'الطلب المجدول غير متاح حاليًا');
+    const t = Number(b.scheduledFor);
+    if (!Number.isFinite(t)) throw fail(400, 'وقت التوصيل غير صالح');
+    if (t < Date.now() + SCHED_MIN) throw fail(400, 'اختر وقتًا بعد نصف ساعة على الأقل');
+    if (t > Date.now() + SCHED_MAX) throw fail(400, 'الطلب المجدول لحد يومين قدام بس');
+    return Math.round(t);
+  }
+  const schedText = t => new Date(Number(t)).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', weekday: 'long', hour: 'numeric', minute: '2-digit' });
+  /** A scheduled order stays out of the automatic courier hand-out until its time is within the hour. */
+  const holdsCouriers = row => { const t = Number((row.data || {}).scheduledFor) || 0; return t > Date.now() + SCHED_HOLD; };
   async function tryAutoAssign(db, row) {
     if (row.courier_user_id) return row;
+    if (holdsCouriers(row)) return row;
     const s = await db.query('SELECT auto_assign FROM app_settings WHERE id=1');
     if (!s.rowCount || !s.rows[0].auto_assign) return row;
     if (row.region_id == null) return row;
@@ -275,8 +290,9 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     return (await pool.query("SELECT id FROM users WHERE role='courier' AND status='active' AND available=TRUE")).rows.map(r => r.id);
   }
   /** New jobs: the courier they were auto-assigned to, or every courier who is switched on. */
-  async function notifyCouriers(rows) {
+  async function notifyCouriers(all) {
     try {
+      const rows = all.filter(x => !holdsCouriers(x));
       const jobs = [];
       for (const r of rows.filter(x => x.courier_user_id)) jobs.push(notify([r.courier_user_id], 'تم تعيين طلب لك 🛵', `${(r.data || {}).providerName || ''} — ${(r.data || {}).regionName || (r.data || {}).address || ''}`, `order-${r.id}`));
       const open = rows.filter(x => !x.courier_user_id);
@@ -483,6 +499,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     if (name.length < 3) throw fail(400, 'اكتب الاسم بالكامل');
     const { address, phone } = checkContact(b);
     const lines = cleanLines(b.lines);
+    const scheduledFor = await scheduleOf(b);
     const groups = await buildGroups(lines);
     const out = await withTx(async db => {
       const region = await regionOf(db, Number(req.auth.sub));
@@ -497,6 +514,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         const fee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee, Number(req.auth.sub), dest);
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
+          ...(scheduledFor ? { scheduledFor } : {}),
           providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, ...(disc > 0 ? { discount: disc, couponCode: ev.coupon.code } : {}), deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
           // every shop decides first: it must press accept or reject (a maker also picks the ready day and hour); nothing starts by itself
           history: [{ status: 'pending', at: Date.now() }],
@@ -527,7 +545,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return { invoice: inv.rows[0], orders: finalOrders, user: u.rows[0] };
     });
     await Promise.allSettled([
-      ...out.orders.map(r => notify([(r.data || {}).providerOwnerId], 'طلب جديد 🔔', `${name} — ${Number(r.total)} ج.م`, `order-${r.id}`)),
+      ...out.orders.map(r => notify([(r.data || {}).providerOwnerId], (r.data || {}).scheduledFor ? 'طلب مجدول جديد ⏰' : 'طلب جديد 🔔', `${name} — ${Number(r.total)} ج.م${(r.data || {}).scheduledFor ? ' — ' + schedText(r.data.scheduledFor) : ''}`, `order-${r.id}`)),
       notifyCouriers(out.orders.filter(r => r.status !== 'pending')),
     ]);
     res.status(201).json({ invoice: invoiceJson(out.invoice), orders: out.orders.map(orderJson), address: out.user.address });

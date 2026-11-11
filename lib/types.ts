@@ -121,6 +121,7 @@ export interface OrderItem {
 }
 
 export interface Order {
+  scheduledFor?: number; // delivery time the customer asked for (ms), when it is a scheduled order
   staffHandled?: boolean; // a supervisor took the order over (the shop left it stuck)
   cancelledBy?: string; // who cancelled it: customer / provider / admin / supervisor
   staffDismissed?: boolean; // the owner marked this refused/stuck order as handled

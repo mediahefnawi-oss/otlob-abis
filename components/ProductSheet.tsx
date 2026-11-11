@@ -3,6 +3,7 @@ import { View, Image, ScrollView, Pressable } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Btn, Sheet, Icon } from './ui';
 import { OfferBadge } from './Offers';
+import { HeartButton } from './Favorites';
 import { productImageUrl } from '../lib/api';
 import { cartAdd } from '../lib/store';
 import { money } from '../lib/format';
@@ -23,6 +24,7 @@ export function ProductSheet({ p, inCart, canOrder, bg, onClose }: { p: Product 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <T w="black" size={20} color={p.oldPrice ? C.red : C.goldDeep}>{money(p.price)}</T>
           {!!p.oldPrice && <T size={13} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{money(p.oldPrice)}</T>}
+          <View style={{ flex: 1 }} /><HeartButton kind="product" id={p.id} />
         </View>
         <OfferBadge p={p} />
         {!!p.desc && <T size={14} color={C.dark3} style={{ lineHeight: 24 }}>{p.desc}</T>}

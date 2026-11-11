@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Card, Header, Toggle, Empty, toast } from './ui';
+import { T, Card, Btn, Header, Toggle, Empty, toast } from './ui';
 import { CourierPhotoReview } from './CourierPhoto';
 import { ChatReportsList } from './Chat';
-import { apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
+import { apiDailyReport, apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
 
 const HINT: Record<string, string> = {
   menu: 'المنيو بالصورة، ونقل المحل لقسم آخر، وطريقة الطلب لكل محل',
@@ -15,6 +15,11 @@ const HINT: Record<string, string> = {
   pool: 'الجيران يشاركوا رسوم التوصيل',
   adTarget: 'الإعلان يفتح محل أو منتج معين',
   courierPhoto: 'صورة المندوب تظهر للعميل بعد موافقتك',
+  favorites: 'قلب على المحل أو المنتج وقسم «أماكني المفضلة» في الرئيسية',
+  addresses: 'العميل يحفظ أكثر من عنوان (البيت والشغل) ويختار وقت الطلب',
+  schedule: 'العميل يطلب لوقت لاحق (مثلًا الساعة 8 مساءً)',
+  dailyReport: 'إشعار يومي لك بعدد الطلبات والإيرادات وأكتر محل',
+  lateAlert: 'تنبيه ليك وللمحل لو طلب اتأخر من غير ما يتحرك',
   bot: 'المساعد الآلي يرد على الأسئلة الشائعة في الدعم',
 };
 
@@ -22,6 +27,7 @@ const HINT: Record<string, string> = {
 export function AdminFeaturesScreen({ navigation }: any) {
   const [rows, setRows] = useState<FeatureRow[] | null>(null);
   const [busy, setBusy] = useState('');
+  const [report, setReport] = useState('');
   useEffect(() => { apiFeatures().then((r) => setRows(r.features)).catch((e) => { setRows([]); toast(e?.message || 'تعذر التحميل', 'err'); }); }, []);
   const flip = async (k: string, on: boolean) => {
     setBusy(k);
@@ -45,6 +51,14 @@ export function AdminFeaturesScreen({ navigation }: any) {
             </View>
           </Card>
         ))}
+        {(rows || []).some((f) => f.key === 'dailyReport' && f.on) && (
+          <Card style={{ gap: 8 }}>
+            <T w="black" size={14.5}>تقرير النهارده</T>
+            {!!report && <T size={13}>{report}</T>}
+            <Btn small variant="soft" icon="stats-chart" title="اعرض أرقام النهارده دلوقتي" onPress={() => apiDailyReport().then((r) => setReport(r.text)).catch((e) => toast(e?.message || 'تعذر التحميل', 'err'))} />
+            <T size={11.5} color={C.sub}>بيوصلك التقرير كإشعار كل يوم الساعة 10 مساءً بتوقيت القاهرة.</T>
+          </Card>
+        )}
         {(rows || []).some((f) => f.key === 'chat' && f.on) && <ChatReportsList />}
         {(rows || []).some((f) => f.key === 'courierPhoto' && f.on) && <CourierPhotoReview />}
       </ScrollView>

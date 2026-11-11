@@ -22,10 +22,13 @@ import {
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
+import { FavoritesRow, HeartButton } from '../components/Favorites';
 import { MenuGallery } from '../components/Menu';
 import { ClinicSetActions } from '../components/ClinicSchedule';
 import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
+import { AddressPicker } from '../components/AddressBook';
+import { SchedulePicker } from '../components/Schedule';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isLab, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { LabCardActions } from '../components/Lab';
 import { ProviderType, Provider, Product } from '../lib/types';
@@ -110,6 +113,7 @@ export function HomeScreen({ navigation }: any) {
       ) : (
         <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
           <View style={{ marginHorizontal: -16, marginTop: -14, marginBottom: 12 }}><AdsCarousel /></View>
+          <FavoritesRow />
           {!!db.settings.announcement && (
             <Appear>
               <View style={{ flexDirection: 'row', gap: 10, backgroundColor: C.goldSoft, borderRadius: 16, padding: 12, alignItems: 'center', marginBottom: 14 }}>
@@ -369,7 +373,7 @@ export function ProviderScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={p.name} onBack={() => navigation.goBack()} subtitle={t.single}>
+      <Header title={p.name} onBack={() => navigation.goBack()} subtitle={t.single} right={<HeartButton kind="provider" id={p.id} light />}>
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 14, alignItems: 'center' }}>
           <ProviderLogo p={p} size={66} zoomable />
           <View style={{ flex: 1, gap: 4 }}>
@@ -500,6 +504,7 @@ export function CartScreen({ navigation }: any) {
   const [busy, setBusy] = useState(false);
   const [sel, setSel] = useState<Product | null>(null);
   const [cp, setCp] = useState<{ code: string; discount: number } | null>(null);
+  const [sched, setSched] = useState(0);
   const cpLines = cart.map((l) => ({ productId: l.productId, qty: l.qty }));
   const off = cp ? Math.min(cp.discount, det.subtotal) : 0;
   const qty = (id: string) => cart.find((l) => l.productId === id)?.qty || 0;
@@ -507,7 +512,7 @@ export function CartScreen({ navigation }: any) {
 
   const submit = async () => {
     setBusy(true);
-    const r = await placeOrder(me, { name, phone, address, notes, coupon: cp?.code });
+    const r = await placeOrder(me, { name, phone, address, notes, coupon: cp?.code, scheduledFor: sched || undefined });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     toast('تم إرسال طلبك بنجاح ✅');
@@ -560,11 +565,13 @@ export function CartScreen({ navigation }: any) {
               <T w="black" size={16}>بيانات التوصيل</T>
               <Field label="اسم العميل" icon="person" value={name} onChangeText={setName} />
               <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+              <AddressPicker address={address} onPick={setAddress} />
               <Field label="العنوان بالتفصيل" icon="location" value={address} onChangeText={setAddress} multiline />
               <DeliveryPin />
               <Field label="ملاحظات (اختياري)" icon="create" value={notes} onChangeText={setNotes} placeholder="مثال: الدور الثالث، الجرس لا يعمل" />
             </Card>
 
+            <SchedulePicker onChange={setSched} />
             <ProductSheet p={sel} inCart={sel ? qty(sel.id) : 0} canOrder bg={C.goldSoft} onClose={() => setSel(null)} />
             <CouponBox lines={cpLines} applied={cp} onApplied={setCp} />
 

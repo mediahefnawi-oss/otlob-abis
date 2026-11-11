@@ -12,6 +12,11 @@ const FEATURES = {
   pool: { label: 'الطلب الجماعي', on: false },
   adTarget: { label: 'ربط الإعلان بمحل ومنتج', on: false },
   courierPhoto: { label: 'صورة المندوب', on: false },
+  favorites: { label: 'المفضلة', on: false },
+  addresses: { label: 'عناوين محفوظة متعددة', on: false },
+  schedule: { label: 'طلب مجدول لوقت لاحق', on: false },
+  dailyReport: { label: 'تقرير يومي للمالك', on: false },
+  lateAlert: { label: 'تنبيه تأخر الطلب', on: false },
   bot: { label: 'بوت الدعم', on: true },
 };
 const MODES = ['cart', 'request', 'menu'];
@@ -201,6 +206,69 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
     res.set('Cache-Control', 'public, max-age=300');
     res.set('Cross-Origin-Resource-Policy', 'cross-origin');
     res.send(r.rows[0].image);
+  }));
+
+  /* ---------- the owner's own look at the day's numbers (same figures as the nightly report) ---------- */
+  app.get('/api/admin/daily-report', ...admin, guard(async (_req, res) => {
+    const w = require('./watch');
+    const s = await w.dayStats(pool);
+    res.set('Cache-Control', 'no-store');
+    res.json({ stats: s, text: w.reportText(s) });
+  }));
+
+  /* ---------- favorites (a customer's hearts on shops and products, kept on the server so they follow him to any phone) ---------- */
+  const MAX_FAV = 100;
+  app.get('/api/favorites', auth, roles('customer'), guard(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!(await featureOn(pool, 'favorites'))) return res.json({ enabled: false, providers: [], products: [] });
+    const r = await pool.query('SELECT kind, ref_id FROM favorites WHERE user_id=$1 ORDER BY created_at DESC', [Number(req.auth.sub)]);
+    res.json({ enabled: true, providers: r.rows.filter(x => x.kind === 'provider').map(x => String(x.ref_id)), products: r.rows.filter(x => x.kind === 'product').map(x => String(x.ref_id)) });
+  }));
+  const favKind = req => { const k = String(req.params.kind); if (!['provider', 'product'].includes(k)) throw fail(400, 'نوع غير صالح'); return k; };
+  app.put('/api/favorites/:kind/:id', auth, roles('customer'), guard(async (req, res) => {
+    const kind = favKind(req), id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف غير صالح');
+    if (!(await featureOn(pool, 'favorites'))) throw fail(409, 'المفضلة غير متاحة حاليًا');
+    const exists = await pool.query(kind === 'provider' ? 'SELECT 1 FROM providers WHERE id=$1 AND deleted_at IS NULL' : 'SELECT 1 FROM products WHERE id=$1', [id]);
+    if (!exists.rowCount) throw fail(404, 'غير موجود');
+    const n = await pool.query('SELECT COUNT(*)::int AS c FROM favorites WHERE user_id=$1', [Number(req.auth.sub)]);
+    if (n.rows[0].c >= MAX_FAV) throw fail(409, `الحد الأقصى ${MAX_FAV} في المفضلة`);
+    await pool.query('INSERT INTO favorites(user_id, kind, ref_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [Number(req.auth.sub), kind, id]);
+    res.status(201).json({ ok: true });
+  }));
+  app.delete('/api/favorites/:kind/:id', auth, roles('customer'), guard(async (req, res) => {
+    const kind = favKind(req), id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف غير صالح');
+    await pool.query('DELETE FROM favorites WHERE user_id=$1 AND kind=$2 AND ref_id=$3', [Number(req.auth.sub), kind, id]);
+    res.json({ ok: true });
+  }));
+
+  /* ---------- saved addresses (home, work, ...): the customer picks one at checkout instead of typing it again ---------- */
+  const MAX_ADDR = 5;
+  const addrJson = x => ({ id: String(x.id), label: x.label, address: x.address });
+  app.get('/api/addresses', auth, roles('customer'), guard(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!(await featureOn(pool, 'addresses'))) return res.json({ enabled: false, addresses: [] });
+    const r = await pool.query('SELECT * FROM saved_addresses WHERE user_id=$1 ORDER BY id', [Number(req.auth.sub)]);
+    res.json({ enabled: true, addresses: r.rows.map(addrJson) });
+  }));
+  app.post('/api/addresses', auth, roles('customer'), guard(async (req, res) => {
+    if (!(await featureOn(pool, 'addresses'))) throw fail(409, 'العناوين المحفوظة غير متاحة حاليًا');
+    const label = String((req.body || {}).label || '').trim().slice(0, 30);
+    const address = String((req.body || {}).address || '').trim().slice(0, 300);
+    if (label.length < 2) throw fail(400, 'اكتب اسمًا للعنوان (البيت، الشغل...)');
+    if (address.length < 6) throw fail(400, 'اكتب العنوان بالتفصيل');
+    const n = await pool.query('SELECT COUNT(*)::int AS c FROM saved_addresses WHERE user_id=$1', [Number(req.auth.sub)]);
+    if (n.rows[0].c >= MAX_ADDR) throw fail(409, `الحد الأقصى ${MAX_ADDR} عناوين`);
+    const r = await pool.query('INSERT INTO saved_addresses(user_id, label, address) VALUES($1,$2,$3) RETURNING *', [Number(req.auth.sub), label, address]);
+    res.status(201).json({ address: addrJson(r.rows[0]) });
+  }));
+  app.delete('/api/addresses/:id', auth, roles('customer'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف غير صالح');
+    const r = await pool.query('DELETE FROM saved_addresses WHERE id=$1 AND user_id=$2 RETURNING id', [id, Number(req.auth.sub)]);
+    if (!r.rowCount) throw fail(404, 'العنوان غير موجود');
+    res.json({ ok: true });
   }));
 }
 

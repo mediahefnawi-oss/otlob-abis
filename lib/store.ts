@@ -691,7 +691,7 @@ export function cartDetails(db: DB, cart: CartLine[]) {
   return { groups: list, delivery, subtotal, total: subtotal + delivery };
 }
 
-export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string; coupon?: string }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
+export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string; coupon?: string; scheduledFor?: number }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
@@ -706,7 +706,7 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   try {
     const r = await apiCheckout({
       name: info.name.trim(), phone: normPhone(info.phone), address: info.address.trim(), notes: info.notes.trim(),
-      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })), ...(info.coupon ? { coupon: info.coupon } : {}), ...destBody(),
+      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })), ...(info.coupon ? { coupon: info.coupon } : {}), ...(info.scheduledFor ? { scheduledFor: info.scheduledFor } : {}), ...destBody(),
     });
     mutate((db) => {
       db.orders = upsertById(db.orders, r.orders as Order[]);

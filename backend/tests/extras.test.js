@@ -126,6 +126,39 @@ const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////
   await call('PATCH /api/admin/features', A, { key: 'courierPhoto', on: false });
   r = await call('GET /api/courier-photo/:uid', C, {}, { uid: String(cour) }); eq(r.status, 404, 'switch OFF hides it');
 
+  console.log('G) favorites');
+  await call('PATCH /api/admin/features', A, { key: 'favorites', on: false });
+  r = await call('GET /api/favorites', C); eq(r.json.enabled, false, 'OFF by default');
+  eq((await call('PUT /api/favorites/:kind/:id', C, {}, { kind: 'provider', id: String(rest) })).status, 409, 'OFF: cannot add');
+  await call('PATCH /api/admin/features', A, { key: 'favorites', on: true });
+  eq((await call('PUT /api/favorites/:kind/:id', C, {}, { kind: 'provider', id: String(rest) })).status, 201, 'add a shop');
+  eq((await call('PUT /api/favorites/:kind/:id', C, {}, { kind: 'provider', id: String(rest) })).status, 201, 'adding twice is harmless');
+  eq((await call('PUT /api/favorites/:kind/:id', C, {}, { kind: 'x', id: '1' })).status, 400, 'bad kind refused');
+  eq((await call('PUT /api/favorites/:kind/:id', C, {}, { kind: 'provider', id: '999999' })).status, 404, 'unknown shop refused');
+  r = await call('GET /api/favorites', C); eq(r.json.providers.length, 1, 'listed once'); eq(r.json.providers[0], String(rest), 'the right shop');
+  const C3 = { sub: String(await mk('عميل3', 'customer')), role: 'customer', status: 'active' };
+  eq((await call('GET /api/favorites', C3)).json.providers.length, 0, 'another customer has his own list');
+  eq((await call('DELETE /api/favorites/:kind/:id', C, {}, { kind: 'provider', id: String(rest) })).status, 200, 'remove');
+  eq((await call('GET /api/favorites', C)).json.providers.length, 0, 'gone');
+
+  console.log('H) saved addresses');
+  await call('PATCH /api/admin/features', A, { key: 'addresses', on: false });
+  eq((await call('GET /api/addresses', C)).json.enabled, false, 'OFF by default');
+  eq((await call('POST /api/addresses', C, { label: 'البيت', address: 'شارع 5 عمارة 3 الدور 2' })).status, 409, 'OFF: cannot save');
+  await call('PATCH /api/admin/features', A, { key: 'addresses', on: true });
+  eq((await call('POST /api/addresses', C, { label: 'ب', address: 'شارع 5 عمارة 3 الدور 2' })).status, 400, 'short label refused');
+  eq((await call('POST /api/addresses', C, { label: 'البيت', address: 'شارع' })).status, 400, 'short address refused');
+  r = await call('POST /api/addresses', C, { label: 'البيت', address: 'شارع 5 عمارة 3 الدور 2' }); eq(r.status, 201, 'saved');
+  const adr = r.json.address.id;
+  for (let i = 0; i < 4; i++) await call('POST /api/addresses', C, { label: 'عنوان ' + i, address: 'شارع طويل رقم ' + i });
+  eq((await call('POST /api/addresses', C, { label: 'زيادة', address: 'شارع زيادة رقم 9' })).status, 409, 'at most 5');
+  eq((await call('GET /api/addresses', C)).json.addresses.length, 5, 'five listed');
+  const C4 = { sub: String(await mk('عميل4', 'customer')), role: 'customer', status: 'active' };
+  eq((await call('GET /api/addresses', C4)).json.addresses.length, 0, 'private to its owner');
+  eq((await call('DELETE /api/addresses/:id', C4, {}, { id: adr })).status, 404, 'another customer cannot delete it');
+  eq((await call('DELETE /api/addresses/:id', C, {}, { id: adr })).status, 200, 'owner deletes it');
+  eq((await call('GET /api/addresses', C)).json.addresses.length, 4, 'four left');
+
   console.log(bad ? `FAILED ${bad}` : 'ALL OK', 'pass=' + pass);
   await pool.end();
   process.exit(bad ? 1 : 0);

@@ -257,7 +257,7 @@ export type SyncPayload = { unchanged?: boolean; tag?: string; warnings?: string
 export async function apiSync(tag?: string | null) {
   return apiRequest<SyncPayload>(tag ? `/api/sync?tag=${encodeURIComponent(tag)}` : '/api/sync');
 }
-export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[]; coupon?: string; destMode?: string; destLat?: number; destLng?: number }) {
+export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[]; coupon?: string; scheduledFor?: number; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ invoice: any; orders: any[]; address: string }>('/api/orders/checkout', { method: 'POST', body: JSON.stringify(input) });
 }
 export async function apiCustomOrder(input: { text: string; phone: string; address: string; destMode?: string; destLat?: number; destLng?: number }) {
@@ -454,3 +454,14 @@ export const apiRxPharmacies = (appointmentId: string) => apiRequest<{ pharmacie
 export const apiRxCreate = (input: { appointmentId: string; meds: string; image?: string | null; pharmacyId?: string }) => apiRequest<{ rx: RxRow }>('/api/rx', { method: 'POST', body: JSON.stringify(input) });
 export const apiRxPhoto = (id: string) => apiRequest<{ image: string | null }>(`/api/rx/${encodeURIComponent(id)}/photo`);
 export const apiRxStep = (id: string, step: 'choose' | 'ready' | 'pickup' | 'delivery' | 'cancel', body: any = {}) => apiRequest<{ rx: RxRow; orderText?: string; pharmacyId?: string }>(`/api/rx/${encodeURIComponent(id)}/${step}`, { method: 'POST', body: JSON.stringify(body) });
+
+/** Favorites (hearts on shops and products, kept on the server). */
+export const apiFavorites = () => apiRequest<{ enabled: boolean; providers: string[]; products: string[] }>('/api/favorites');
+export const apiFavoriteSet = (kind: 'provider' | 'product', id: string, on: boolean) => apiRequest<{ ok: boolean }>(`/api/favorites/${kind}/${encodeURIComponent(id)}`, { method: on ? 'PUT' : 'DELETE' });
+export const apiDailyReport = () => apiRequest<{ stats: any; text: string }>('/api/admin/daily-report');
+
+/** Saved delivery addresses. */
+export type SavedAddress = { id: string; label: string; address: string };
+export const apiAddresses = () => apiRequest<{ enabled: boolean; addresses: SavedAddress[] }>('/api/addresses');
+export const apiAddressAdd = (label: string, address: string) => apiRequest<{ address: SavedAddress }>('/api/addresses', { method: 'POST', body: JSON.stringify({ label, address }) });
+export const apiAddressDelete = (id: string) => apiRequest<{ ok: boolean }>(`/api/addresses/${encodeURIComponent(id)}`, { method: 'DELETE' });

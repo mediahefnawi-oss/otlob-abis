@@ -637,3 +637,34 @@ CREATE TABLE IF NOT EXISTS prescriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_rx_patient ON prescriptions(patient_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rx_pharmacy ON prescriptions(pharmacy_provider_id, status);
+
+-- A customer's favorite shops and products
+CREATE TABLE IF NOT EXISTS favorites (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('provider','product')),
+  ref_id BIGINT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, kind, ref_id)
+);
+
+-- One alert per order and stage when an order sits too long, and one daily report per day
+CREATE TABLE IF NOT EXISTS late_alerts (
+  order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  stage TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (order_id, stage)
+);
+CREATE TABLE IF NOT EXISTS report_log (
+  day DATE PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- A customer's saved delivery addresses (home, work, ...)
+CREATE TABLE IF NOT EXISTS saved_addresses (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  address TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_saved_addresses_user ON saved_addresses(user_id);

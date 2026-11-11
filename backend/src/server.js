@@ -174,7 +174,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
-const SCHEMA_VERSION = 20261203;
+const SCHEMA_VERSION = 20261205;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -1131,6 +1131,7 @@ if (require.main === module) {
   ensureSchema().then(() => {
     server = app.listen(port, () => console.log(`Otlob Abis API listening on ${port}`));
     if (!process.env.VERCEL) require('./releaseWatch').startReleaseWatch({ pool, onChange: () => settingsMemo.clear() });
+    if (!process.env.VERCEL) require('./watch').start({ pool, pushToUsers });
   }).catch(err => { console.error('API startup failed:', err.message); process.exit(1); });
   async function shutdown(signal) {
     console.log(`${signal} received; shutting down API`);
