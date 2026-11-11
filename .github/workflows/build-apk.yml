@@ -38,6 +38,7 @@ jobs:
       - name: Install packages
         run: |
           npm install --no-audit --no-fund
+          npx expo install expo-audio
           npx expo install expo-image-picker expo-image-manipulator expo-notifications expo-location expo-task-manager react-native-webview
       - name: Phone-only settings (kept out of the web build)
         run: |
