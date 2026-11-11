@@ -12,6 +12,7 @@ const FEATURES = {
   pool: { label: 'الطلب الجماعي', on: false },
   adTarget: { label: 'ربط الإعلان بمحل ومنتج', on: false },
   courierPhoto: { label: 'صورة المندوب', on: false },
+  ordering: { label: 'ترتيب المحلات (تثبيت وترتيب تلقائي)', on: false },
   favorites: { label: 'المفضلة', on: false },
   addresses: { label: 'عناوين محفوظة متعددة', on: false },
   schedule: { label: 'طلب مجدول لوقت لاحق', on: false },
@@ -46,6 +47,19 @@ async function checkAppLink(db, link) {
   const r = await db.query(q, [Number(m[2])]);
   if (!r.rowCount) return { error: m[1] === 'provider' ? 'المحل غير موجود' : 'المنتج غير موجود' };
   return { ok: true };
+}
+
+/** Order of the shops in a list when the switch is on: pinned (by rank), then open ones by rating and by orders in the last 30 days, closed ones last. */
+function orderShops(list) {
+  const pinned = p => (p.pinRank == null ? 0 : 1);
+  const live = p => (p.open && p.status === 'active' ? 1 : 0);
+  return [...list].sort((a, b) =>
+    pinned(b) - pinned(a)
+    || (pinned(a) && pinned(b) ? a.pinRank - b.pinRank : 0)
+    || live(b) - live(a)
+    || (Number(b.rating) || 0) - (Number(a.rating) || 0)
+    || (Number(b.orders30) || 0) - (Number(a.orders30) || 0)
+    || (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 }
 
 const effectiveMode = (row, feats) => (feats.menu && MODES.includes(row.order_mode) ? row.order_mode : '');
@@ -216,6 +230,19 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
     res.json({ stats: s, text: w.reportText(s) });
   }));
 
+  /* ---------- pin a shop to the top of its list (rank 1 = first); null removes the pin ---------- */
+  app.patch('/api/admin/providers/:id/pin', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف غير صالح');
+    const raw = (req.body || {}).rank;
+    const rank = raw === null || raw === undefined || raw === '' ? null : Math.floor(Number(raw));
+    if (rank !== null && !(rank >= 1 && rank <= 999)) throw fail(400, 'الرقم من 1 إلى 999');
+    const r = await pool.query('UPDATE providers SET pin_rank=$1 WHERE id=$2 AND deleted_at IS NULL RETURNING id', [rank, id]);
+    if (!r.rowCount) throw fail(404, 'المحل غير موجود');
+    clearCaches();
+    res.json({ ok: true, rank });
+  }));
+
   /* ---------- favorites (a customer's hearts on shops and products, kept on the server so they follow him to any phone) ---------- */
   const MAX_FAV = 100;
   app.get('/api/favorites', auth, roles('customer'), guard(async (req, res) => {
@@ -272,4 +299,4 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
   }));
 }
 
-module.exports = { register, FEATURES, mergeFeatures, featuresOf, featureOn, effectiveMode, MODES, checkAppLink };
+module.exports = { orderShops, register, FEATURES, mergeFeatures, featuresOf, featureOn, effectiveMode, MODES, checkAppLink };

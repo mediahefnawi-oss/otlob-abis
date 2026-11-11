@@ -166,7 +166,7 @@ function providerVisibility(viewer, values) {
 }
 const services = require('./services');
 const hours = require('./hours');
-const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), ...(p.lat != null && p.lng != null ? { lat: Number(p.lat), lng: Number(p.lng) } : {}), status: p.status, open: p.is_open, orderMode: p.order_mode || '', chatOff: !!p.chat_disabled, menuCount: Number(p.menu_count) || 0, createdAt: new Date(p.created_at).getTime() });
+const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), ...(p.lat != null && p.lng != null ? { lat: Number(p.lat), lng: Number(p.lng) } : {}), status: p.status, open: p.is_open, orderMode: p.order_mode || '', chatOff: !!p.chat_disabled, pinRank: p.pin_rank == null ? null : Number(p.pin_rank), orders30: Number(p.orders30) || 0, menuCount: Number(p.menu_count) || 0, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
@@ -174,7 +174,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
-const SCHEMA_VERSION = 20261205;
+const SCHEMA_VERSION = 20261206;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -833,16 +833,17 @@ app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(
 async function listProviders(viewer, type) {
   await services.ensure(pool);
   const values = [];
-  let sql = `SELECT p.*, u.region_id AS owner_region_id, g.name AS region_name, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v, (SELECT COUNT(*) FROM menu_images mi WHERE mi.provider_id=p.id) AS menu_count FROM providers p LEFT JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE ${providerVisibility(viewer, values)}`;
+  let sql = `SELECT p.*, u.region_id AS owner_region_id, g.name AS region_name, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v, (SELECT COUNT(*) FROM menu_images mi WHERE mi.provider_id=p.id) AS menu_count, (SELECT COUNT(*) FROM orders od WHERE od.provider_id=p.id AND od.status='delivered' AND od.created_at > NOW() - INTERVAL '30 days') AS orders30 FROM providers p LEFT JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE ${providerVisibility(viewer, values)}`;
   if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
-  sql += ' ORDER BY p.created_at DESC LIMIT 500';
+  sql += ' ORDER BY p.created_at DESC LIMIT 500';  // (re-sorted below when the "ordering" switch is on)
   const hide = !viewer || viewer.role === 'customer'; // a maker's address is for couriers and staff only; customers see the area
   const stats = await ratingsLib.providerStats(pool);
   const feats = await extrasLib.featuresOf(pool);
   const rows = (await pool.query(sql, values)).rows.map(providerJson).map(p => (feats.menu ? p : { ...p, orderMode: '', menuCount: 0 })).map(p => ratingsLib.withStats(p, stats));
   // a stopped service disappears for customers and couriers (the owner and the provider still see it)
-  const visible = viewer && (viewer.role === 'admin' || viewer.role === 'provider') ? rows : rows.filter(p => services.isActive(p.type));
-  return visible.map(p => (hide && services.tplOf(p.type) === 'maker' ? { ...p, address: '' } : p));
+  const visible0 = viewer && (viewer.role === 'admin' || viewer.role === 'provider') ? rows : rows.filter(p => services.isActive(p.type));
+  const visible = feats.ordering ? extrasLib.orderShops(visible0) : visible0.map(p => ({ ...p, pinRank: null }));
+  return visible.map(({ orders30, ...p }) => (hide && services.tplOf(p.type) === 'maker' ? { ...p, address: '' } : p));
 }
 async function listProducts(viewer, providerId) {
   await services.ensure(pool);

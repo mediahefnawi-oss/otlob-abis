@@ -77,6 +77,7 @@ export interface Provider {
   orderMode?: '' | 'cart' | 'request' | 'menu'; // how this one place takes orders when the owner overrides its section (empty = by section)
   menuCount?: number;
   chatOff?: boolean;
+  pinRank?: number | null; // 1 = first in its list (the owner pinned it)
   bookMode?: 'customer' | 'clinic'; // pages of its picture menu
   lat?: number; // the shop's spot on the map
   lng?: number;

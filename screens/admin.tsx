@@ -12,7 +12,7 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminPinProvider, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
 import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
@@ -399,6 +399,36 @@ export function AdminOrdersScreen({ navigation }: any) {
 }
 
 /* ---------------- Detail (provider / courier) ---------------- */
+/** Owner: pin a place to the top of its list (1 = first). Not pinned places are ordered by themselves. */
+function PinCard({ prov }: { prov: Provider }) {
+  const { db } = useStore();
+  const [busy, setBusy] = useState(false);
+  if (!db.settings.features?.ordering) return null;
+  const pinned = prov.pinRank != null;
+  const set = async (r: number | null) => { setBusy(true); const x = await adminPinProvider(prov.id, r); setBusy(false); if (!x.ok) toast(x.error, 'err'); };
+  return (
+    <Card style={{ gap: 10, opacity: busy ? 0.6 : 1 }} pointerEvents={busy ? 'none' : 'auto'}>
+      <T w="black" size={15}>ترتيب الظهور للعملاء</T>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <T w="bold" size={13.5}>ثبّت في الأول</T>
+          <T size={12} color={C.sub}>يظهر قبل باقي المحلات في قسمه</T>
+        </View>
+        <Toggle value={pinned} onValueChange={(v) => set(v ? 1 : null)} />
+      </View>
+      {pinned && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ flex: 1 }}><T w="bold" size={13.5}>رقمه بين المثبّتين</T><T size={12} color={C.sub}>1 = الأول، 2 = اللي بعده</T></View>
+          <Btn small variant="soft" title="−" onPress={() => set(Math.max(1, (prov.pinRank || 1) - 1))} />
+          <T w="black" size={18}>{prov.pinRank}</T>
+          <Btn small variant="soft" title="+" onPress={() => set(Math.min(999, (prov.pinRank || 1) + 1))} />
+        </View>
+      )}
+      <T size={11.5} color={C.sub}>لو مش مثبّت بيترتب تلقائيًا: المفتوح، ثم الأعلى تقييمًا، ثم الأكثر طلبات في آخر 30 يوم، والمقفول في الآخر.</T>
+    </Card>
+  );
+}
+
 /** Owner: move the place to another section and choose how it takes orders. */
 function ProviderModeCard({ prov }: { prov: Provider }) {
   const { db } = useStore();
@@ -505,6 +535,7 @@ export function AdminDetailScreen({ navigation, route }: any) {
         </Card>
         {prov && <ProviderModeCard prov={prov} />}
         {prov && <ClinicModeCard prov={prov} />}
+        {prov && <PinCard prov={prov} />}
         {prov && db.settings.features?.menu && <MenuManager providerId={prov.id} />}
         {prov && (
           <Card style={{ gap: 12 }}>

@@ -30,7 +30,10 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
     <Card onPress={onPress} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: closed ? 0.75 : 1 }}>
       <ProviderLogo p={p} size={62} />
       <View style={{ flex: 1, gap: 3 }}>
-        <T w="bold" size={15.5} numberOfLines={1}>{p.name}</T>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <T w="bold" size={15.5} numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</T>
+          {p.pinRank != null && <T size={11}>📌</T>}
+        </View>
         <T size={12} color={C.sub} numberOfLines={1}>{p.desc}</T>
         {!!p.regionName && <AreaTag p={p} />}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 }}>

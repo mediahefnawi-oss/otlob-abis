@@ -11,7 +11,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiPinProvider, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -266,7 +266,7 @@ const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0, ratingCount: Number(x.ratingCount) || 0,
   eta: x.eta ?? (isBooking(x.type) ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
-  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, orderMode: ['cart', 'request', 'menu'].includes(x.orderMode) ? x.orderMode : '', chatOff: !!x.chatOff, bookMode: x.bookMode === 'clinic' ? 'clinic' : undefined, menuCount: Number(x.menuCount) || 0, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
+  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, orderMode: ['cart', 'request', 'menu'].includes(x.orderMode) ? x.orderMode : '', chatOff: !!x.chatOff, pinRank: x.pinRank == null ? null : Number(x.pinRank), bookMode: x.bookMode === 'clinic' ? 'clinic' : undefined, menuCount: Number(x.menuCount) || 0, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
 });
 const toProduct = (x: any): Product => ({
   id: String(x.id), providerId: String(x.providerId), kind: x.kind === 'doctor' ? 'doctor' : 'item', name: x.name,
@@ -1177,6 +1177,11 @@ export async function adminMoveProvider(providerId: string, type: string): Promi
 export async function adminSetOrderMode(providerId: string, mode: '' | 'cart' | 'request' | 'menu'): Promise<Result> {
   try { await apiProviderMode(providerId, mode); } catch (e) { return { ok: false, error: errMsg(e) }; }
   mutate((db) => { db.providers = db.providers.map((x) => (x.id === providerId ? { ...x, orderMode: mode } : x)); });
+  return { ok: true };
+}
+export async function adminPinProvider(providerId: string, rank: number | null): Promise<Result> {
+  try { await apiPinProvider(providerId, rank); } catch (e) { return { ok: false, error: errMsg(e) }; }
+  mutate((db) => { db.providers = db.providers.map((x) => (x.id === providerId ? { ...x, pinRank: rank } : x)); });
   return { ok: true };
 }
 export async function adminSetChatOff(providerId: string, off: boolean): Promise<Result> {

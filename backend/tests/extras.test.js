@@ -159,6 +159,19 @@ const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////
   eq((await call('DELETE /api/addresses/:id', C, {}, { id: adr })).status, 200, 'owner deletes it');
   eq((await call('GET /api/addresses', C)).json.addresses.length, 4, 'four left');
 
+  console.log('I) shop ordering');
+  const X2 = require('../src/extras');
+  const sh = [{ id: 'a', name: 'قديم شاطر', open: true, status: 'active', rating: 4.8, orders30: 100, createdAt: 1, pinRank: null }, { id: 'b', name: 'جديد', open: true, status: 'active', rating: 0, orders30: 0, createdAt: 9, pinRank: null },
+    { id: 'c', name: 'مغلق', open: false, status: 'active', rating: 5, orders30: 500, createdAt: 2, pinRank: null }, { id: 'd', name: 'مثبّت 2', open: true, status: 'active', rating: 1, orders30: 0, createdAt: 3, pinRank: 2 },
+    { id: 'e', name: 'مثبّت 1', open: false, status: 'active', rating: 1, orders30: 0, createdAt: 4, pinRank: 1 }, { id: 'f', name: 'متوسط', open: true, status: 'active', rating: 4.8, orders30: 50, createdAt: 5, pinRank: null }];
+  eq(X2.orderShops(sh).map(x => x.id).join(''), 'edafbc', 'pinned by rank, then open by rating then orders, closed last');
+  eq((await call('PATCH /api/admin/providers/:id/pin', A, { rank: 0 }, { id: String(rest) })).status, 400, 'rank 0 refused');
+  eq((await call('PATCH /api/admin/providers/:id/pin', A, { rank: 5 }, { id: String(rest) })).status, 200, 'pin');
+  eq((await q('SELECT pin_rank FROM providers WHERE id=$1', [rest])).rows[0].pin_rank, 5, 'stored');
+  eq((await call('PATCH /api/admin/providers/:id/pin', A, { rank: null }, { id: String(rest) })).status, 200, 'unpin');
+  eq((await q('SELECT pin_rank FROM providers WHERE id=$1', [rest])).rows[0].pin_rank, null, 'cleared');
+  eq((await call('PATCH /api/admin/providers/:id/pin', A, { rank: 3 }, { id: '999999' })).status, 404, 'unknown shop');
+
   console.log(bad ? `FAILED ${bad}` : 'ALL OK', 'pass=' + pass);
   await pool.end();
   process.exit(bad ? 1 : 0);

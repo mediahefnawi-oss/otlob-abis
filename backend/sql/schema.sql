@@ -668,3 +668,6 @@ CREATE TABLE IF NOT EXISTS saved_addresses (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_saved_addresses_user ON saved_addresses(user_id);
+
+-- The owner can pin a shop to the top of its list (1 = first); NULL = not pinned
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS pin_rank INT;

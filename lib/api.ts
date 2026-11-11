@@ -465,3 +465,5 @@ export type SavedAddress = { id: string; label: string; address: string };
 export const apiAddresses = () => apiRequest<{ enabled: boolean; addresses: SavedAddress[] }>('/api/addresses');
 export const apiAddressAdd = (label: string, address: string) => apiRequest<{ address: SavedAddress }>('/api/addresses', { method: 'POST', body: JSON.stringify({ label, address }) });
 export const apiAddressDelete = (id: string) => apiRequest<{ ok: boolean }>(`/api/addresses/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+export const apiPinProvider = (providerId: string, rank: number | null) => apiRequest<{ ok: boolean }>(`/api/admin/providers/${encodeURIComponent(providerId)}/pin`, { method: 'PATCH', body: JSON.stringify({ rank }) });
