@@ -25,6 +25,7 @@
         "VIBRATE",
         "CAMERA",
         "READ_MEDIA_IMAGES",
+        "RECORD_AUDIO",
         "POST_NOTIFICATIONS"
       ]
     },

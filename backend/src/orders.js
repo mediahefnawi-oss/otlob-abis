@@ -13,6 +13,8 @@ const tracking = require('./tracking');
 const mapMode = require('./mapmode');
 const couponsLib = require('./coupons');
 const extrasLib = require('./extras');
+const poolLib = require('./pool');
+const voiceLib = require('./voice');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
   const num = v => Number(v) || 0;
   const ms = d => new Date(d).getTime();
@@ -25,7 +27,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   const orderJson = r => {
     const d = r.data || {};
     return {
-      id: String(r.id), number: Number(r.order_number), groupId: String(d.groupId || ''), invoiceId: String(d.invoiceId || ''), ...(d.scheduledFor ? { scheduledFor: Number(d.scheduledFor) } : {}),
+      id: String(r.id), number: Number(r.order_number), groupId: String(d.groupId || ''), invoiceId: String(d.invoiceId || ''), ...(d.scheduledFor ? { scheduledFor: Number(d.scheduledFor) } : {}), ...(d.hasVoice ? { hasVoice: true, voiceSecs: Number(d.voiceSecs) || 0 } : {}), ...(d.pool && d.pool.groupId && d.pool.size > 1 ? { pool: { size: d.pool.size, fullFee: num(d.pool.fullFee), share: num(d.pool.share) } } : d.pool && d.pool.want ? { pool: { size: 1, fullFee: num(d.pool.fullFee), share: num(d.pool.fullFee) } } : {}),
       customerId: String(r.customer_user_id), customerName: d.customerName || '', phone: d.phone || '', phone2: d.phone2 || '', address: d.address || '', notes: d.notes || '',
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
@@ -152,6 +154,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     await db.query('UPDATE invoices SET total=0, data=$1 WHERE id=$2', [JSON.stringify({ ...idata, parts }), iv.rows[0].id]);
   }
   async function moveOrder(db, row, status, dataPatch = {}, courier) {
+    // "شير اللقمة": a member whose shop accepts late gets the courier already working on its group
+    if (courier === undefined && !row.courier_user_id && status === 'accepted' && ((row.data || {}).pool || {}).groupId) {
+      try { const gc = await poolLib.groupCourier(db, row); if (gc) courier = gc; } catch (e) { console.error('pool groupCourier:', e.message); }
+    }
     const d = { ...(row.data || {}), ...dataPatch };
     if (status !== row.status) d.history = [...(d.history || []), { status, at: Date.now() }];
     const cid = courier === undefined ? row.courier_user_id : courier ? courier.id : null;
@@ -162,6 +168,13 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     }
     const r = await db.query('UPDATE orders SET status=$1, data=$2, courier_user_id=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [status, JSON.stringify(d), cid, row.id]);
     if (status === 'cancelled' && status !== row.status && d.couponCode) await couponsLib.release(db, row.id); // a cancelled order gives its discount code back
+    // "شير اللقمة": the same courier on the whole group; a member leaving re-prices the rest (only while no courier is on the group)
+    if (d.pool && d.pool.groupId) {
+      try {
+        if (courier) await poolLib.syncCourier(db, r.rows[0], { id: cid, name: d.courierName, phone: d.courierPhone, vehicle: d.courierVehicle });
+        if (['cancelled', 'rejected', 'unavailable'].includes(status) && status !== row.status) await poolLib.recalc(db, d.pool.groupId);
+      } catch (e) { console.error('pool sync:', e.message); }
+    }
     return r.rows[0];
   }
   /**
@@ -500,6 +513,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const { address, phone } = checkContact(b);
     const lines = cleanLines(b.lines);
     const scheduledFor = await scheduleOf(b);
+    const wantPool = b.pool === true && !scheduledFor && (await poolLib.on(pool));
     const groups = await buildGroups(lines);
     const out = await withTx(async db => {
       const region = await regionOf(db, Number(req.auth.sub));
@@ -515,6 +529,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
           ...(scheduledFor ? { scheduledFor } : {}),
+          ...(wantPool && fee > 0 && region && services.tplOf(g.p.ptype) !== 'booking' ? { pool: { want: true, fullFee: fee } } : {}),
           providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, ...(disc > 0 ? { discount: disc, couponCode: ev.coupon.code } : {}), deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
           // every shop decides first: it must press accept or reject (a maker also picks the ready day and hour); nothing starts by itself
           history: [{ status: 'pending', at: Date.now() }],
@@ -542,13 +557,34 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       }
       if (ev) await couponsLib.record(db, { coupon: ev.coupon, userId: Number(req.auth.sub), groupRef: inv.rows[0].id, orders: finalOrders.map((o, i) => ({ id: o.id, discount: discounts[i] })) });
       const u = await db.query('UPDATE users SET address=$1 WHERE id=$2 RETURNING *', [address, Number(req.auth.sub)]);
-      return { invoice: inv.rows[0], orders: finalOrders, user: u.rows[0] };
+      // "شير اللقمة": join an open group of neighbours (price changes are told to the earlier members, anonymously)
+      const poolChanges = [];
+      if (wantPool) {
+        for (const o of finalOrders) {
+          if (!(o.data || {}).pool) continue;
+          const ch = await poolLib.join(db, o);
+          poolChanges.push(...ch.filter(c => Number(c.row.customer_user_id) !== Number(req.auth.sub)));
+        }
+        for (let i = 0; i < finalOrders.length; i++) finalOrders[i] = (await db.query('SELECT * FROM orders WHERE id=$1', [finalOrders[i].id])).rows[0];
+        inv.rows[0] = (await db.query('SELECT * FROM invoices WHERE id=$1', [inv.rows[0].id])).rows[0];
+      }
+      return { invoice: inv.rows[0], orders: finalOrders, user: u.rows[0], poolChanges };
     });
     await Promise.allSettled([
+      ...out.poolChanges.map(c => notify([c.row.customer_user_id], 'جار قرّب طلب من نفس المحل 🤝', `رسوم توصيلك بقت ${c.to} ج.م بدل ${c.from} ج.م`, `order-${c.row.id}`)),
       ...out.orders.map(r => notify([(r.data || {}).providerOwnerId], (r.data || {}).scheduledFor ? 'طلب مجدول جديد ⏰' : 'طلب جديد 🔔', `${name} — ${Number(r.total)} ج.م${(r.data || {}).scheduledFor ? ' — ' + schedText(r.data.scheduledFor) : ''}`, `order-${r.id}`)),
       notifyCouriers(out.orders.filter(r => r.status !== 'pending')),
     ]);
     res.status(201).json({ invoice: invoiceJson(out.invoice), orders: out.orders.map(orderJson), address: out.user.address });
+  }));
+
+  /** "شير اللقمة" hint: how many neighbours already wait for the same shop (no names, nothing else). */
+  app.get('/api/pool/suggest', auth, roles('customer'), guard(async (req, res) => {
+    if (!(await poolLib.on(pool))) return res.json({ on: false, waiting: 0 });
+    const pid = positiveId(req.query.providerId);
+    if (!pid) return res.json({ on: true, waiting: 0 });
+    const region = await regionOf(pool, Number(req.auth.sub));
+    res.json({ on: true, waiting: region ? await poolLib.suggest(pool, { providerId: pid, regionId: region.id, customerId: Number(req.auth.sub) }) : 0, max: poolLib.POOL_MAX, minutes: poolLib.POOL_WINDOW_MIN });
   }));
 
   /** "اطلب أي حاجة": a free errand for the couriers (no shop involved). */
@@ -558,7 +594,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const b = req.body || {};
     const dest = await destRule(b);
     await rememberSpot(Number(req.auth.sub), dest);
-    const text = String(b.text || '').trim();
+    const voice = await voiceLib.check(pool, b.voice);
+    const text = String(b.text || '').trim() || (voice ? '🎤 رسالة صوتية' : '');
     if (text.length < 3) throw fail(400, 'اكتب ما تريد طلبه');
     const { address, phone } = checkContact(b);
     const out = await withTx(async db => {
@@ -567,11 +604,12 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const fee = 0; // the courier who takes the errand sets the price of the goods and his delivery fee
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: CUSTOM_NAME, providerType: 'custom', providerOwnerId: '', items: [],
-        customText: text.slice(0, 1000), subtotal: 0, deliveryFee: fee, errandQuote: 'open', regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub), dest)),
+        customText: text.slice(0, 1000), ...(voice ? { hasVoice: true, voiceSecs: voice.seconds } : {}), subtotal: 0, deliveryFee: fee, errandQuote: 'open', regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub), dest)),
         history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
       };
       let o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,NULL,\'accepted\',$2,$3,$4) RETURNING *',
         [Number(req.auth.sub), fee, region ? region.id : null, JSON.stringify(d)])).rows[0];
+      if (voice) await voiceLib.save(db, o.id, voice);
       const inv = (await db.query('INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,\'delivery\',$3,$4) RETURNING *', [
         Number(req.auth.sub), o.id, fee,
         JSON.stringify({ number: `INV-${o.order_number}`, customerName: d.customerName, phone, address, parts: [
@@ -596,8 +634,9 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const providerId = positiveId(b.providerId);
     const text = String(b.text || '').trim().slice(0, 1500);
     const image = typeof b.image === 'string' && b.image ? b.image : null;
+    const voice = await voiceLib.check(pool, b.voice);
     if (!providerId) throw fail(400, 'اختر المتجر');
-    if (text.length < 3 && !image) throw fail(400, 'اكتب طلبك أو ارفع صورة');
+    if (text.length < 3 && !image && !voice) throw fail(400, 'اكتب طلبك أو ارفع صورة أو سجّل رسالة صوتية');
     if (image && (!/^data:image\/(jpeg|png|webp);base64,/.test(image) || image.length > MAX_IMAGE)) throw fail(400, 'الصورة غير صالحة أو كبيرة جداً');
     const { address, phone } = checkContact(b);
     const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
@@ -612,11 +651,12 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
         items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub), dest)),
-        request: { text, hasImage: !!image }, history: [{ status: 'pending', at: Date.now() }],
+        request: { text, hasImage: !!image }, ...(voice ? { hasVoice: true, voiceSecs: voice.seconds } : {}), history: [{ status: 'pending', at: Date.now() }],
       };
       const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',
         [Number(req.auth.sub), prov.id, region ? region.id : null, JSON.stringify(d)])).rows[0];
       if (image) await db.query('INSERT INTO order_images(order_id, image) VALUES($1,$2)', [o.id, image]);
+      if (voice) await voiceLib.save(db, o.id, voice);
       await sysMsg(db, o.id, services.tplOf(prov.type) === 'maker' ? 'تم إرسال طلبك للصانع، وسيقبله أو يعتذر عنه ويحدد السعر وموعد التسليم 🧵' : 'تم إرسال طلبك للمتجر، وسيقوم بتسعيره وإرسال الفاتورة إليك 📝');
       return o;
     });

@@ -29,6 +29,8 @@ import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
 import { AddressPicker } from '../components/AddressBook';
 import { SchedulePicker } from '../components/Schedule';
+import { PoolCard } from '../components/Pool';
+import { VoiceRecorder } from '../components/Voice';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isLab, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { LabCardActions } from '../components/Lab';
 import { ProviderType, Provider, Product } from '../lib/types';
@@ -505,6 +507,7 @@ export function CartScreen({ navigation }: any) {
   const [sel, setSel] = useState<Product | null>(null);
   const [cp, setCp] = useState<{ code: string; discount: number } | null>(null);
   const [sched, setSched] = useState(0);
+  const [pool, setPool] = useState(false);
   const cpLines = cart.map((l) => ({ productId: l.productId, qty: l.qty }));
   const off = cp ? Math.min(cp.discount, det.subtotal) : 0;
   const qty = (id: string) => cart.find((l) => l.productId === id)?.qty || 0;
@@ -512,7 +515,7 @@ export function CartScreen({ navigation }: any) {
 
   const submit = async () => {
     setBusy(true);
-    const r = await placeOrder(me, { name, phone, address, notes, coupon: cp?.code, scheduledFor: sched || undefined });
+    const r = await placeOrder(me, { name, phone, address, notes, coupon: cp?.code, scheduledFor: sched || undefined, pool: pool && !sched && det.groups.length === 1 && det.delivery > 0 });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     toast('تم إرسال طلبك بنجاح ✅');
@@ -572,6 +575,7 @@ export function CartScreen({ navigation }: any) {
             </Card>
 
             <SchedulePicker onChange={setSched} />
+            {det.groups.length === 1 && <PoolCard providerId={String(det.groups[0].provider.id)} fee={det.delivery} disabled={!!sched} value={pool} onChange={setPool} />}
             <ProductSheet p={sel} inCart={sel ? qty(sel.id) : 0} canOrder bg={C.goldSoft} onClose={() => setSel(null)} />
             <CouponBox lines={cpLines} applied={cp} onApplied={setCp} />
 
@@ -598,11 +602,12 @@ export function CartScreen({ navigation }: any) {
 export function CustomOrderScreen({ navigation }: any) {
   const me = useMe()!;
   const [text, setText] = useState('');
+  const [voice, setVoice] = useState<{ audio: string; seconds: number } | null>(null);
   const [phone, setPhone] = useState(me.phone);
   const [address, setAddress] = useState(me.address);
   const sug = ['علبة شاي وسكر', 'أدوية من صيدلية معينة', 'وجبة من مطعم غير مسجل', 'هدية وورد', 'خبز وفطير'];
   const submit = async () => {
-    const r = await placeCustomOrder(me, { text, phone, address });
+    const r = await placeCustomOrder(me, { text, phone, address, voice });
     if (!r.ok) return toast(r.error, 'err');
     toast('تم إرسال طلبك للمناديب 🛵');
     navigation.replace('OrderDetail', { id: r.orderId });
@@ -613,6 +618,7 @@ export function CustomOrderScreen({ navigation }: any) {
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: 'center' }}><Text style={{ fontSize: 70 }}>🎁</Text></View>
+          <VoiceRecorder value={voice} onChange={setVoice} />
           <Card style={{ gap: 12 }}>
             <Field label="اكتب طلبك" value={text} onChangeText={setText} multiline placeholder="مثال: أريد علبة شاي ٥٠ كيس وكيلو سكر من أقرب سوبر ماركت..." />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -806,6 +812,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
   const p = db.providers.find((x) => x.id === route.params.id);
   const [text, setText] = useState(route.params?.prefill || '');
   const [image, setImage] = useState<string | null>(null);
+  const [voice, setVoice] = useState<{ audio: string; seconds: number } | null>(null);
   const [phone, setPhone] = useState(me.phone);
   const [address, setAddress] = useState(me.address);
   const [busy, setBusy] = useState(false);
@@ -821,7 +828,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
   };
   const submit = async () => {
     setBusy(true);
-    const r = await placeRequestOrder(me, { provider: p, text, image, phone, address });
+    const r = await placeRequestOrder(me, { provider: p, text, image, voice, phone, address });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     toast(maker ? 'تم إرسال طلبك للصانع ✅' : 'تم إرسال طلبك للمتجر ✅');
@@ -846,6 +853,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
           multiline
           placeholder={maker ? 'مثال: تورتة عيد ميلاد ٢ كيلو بالشوكولاتة، أو شنطة كروشيه لونها بيج' : pharmacy ? 'اكتب أسماء الأدوية وكمياتها' : 'اكتب الأصناف اللي عايزها وكمياتها، مثال: 2 كيلو سكر، علبة شاي'}
         />
+        <VoiceRecorder value={voice} onChange={setVoice} />
         {(pharmacy || maker) && (
           <View style={{ gap: 8 }}>
             <T w="semi" size={13} color={C.dark3}>{maker ? 'صورة توضيحية (اختياري)' : 'صورة الروشتة (اختياري)'}</T>

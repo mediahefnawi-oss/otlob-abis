@@ -62,10 +62,11 @@ async function dailyReport(pool, notify, { force = false } = {}) {
   return true;
 }
 
+let lastPurge = 0;
 function start({ pool, pushToUsers, everyMs = 60 * 1000 }) {
   const notify = async (ids, payload) => { try { await pushToUsers(ids, payload); } catch { /* a failed push is not an error here */ } };
   const run = async () => {
-    try { await lateSweep(pool, notify); await dailyReport(pool, notify); }
+    try { await lateSweep(pool, notify); await dailyReport(pool, notify); if (Date.now() - lastPurge > 6 * 3600 * 1000) { lastPurge = Date.now(); await require('./voice').purge(pool); } }
     catch (e) { if (e && e.code !== '42P01') console.warn('watch:', e.message); }
   };
   setTimeout(run, 30 * 1000).unref();

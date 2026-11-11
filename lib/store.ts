@@ -691,7 +691,7 @@ export function cartDetails(db: DB, cart: CartLine[]) {
   return { groups: list, delivery, subtotal, total: subtotal + delivery };
 }
 
-export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string; coupon?: string; scheduledFor?: number }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
+export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string; coupon?: string; scheduledFor?: number; pool?: boolean }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
@@ -706,7 +706,7 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   try {
     const r = await apiCheckout({
       name: info.name.trim(), phone: normPhone(info.phone), address: info.address.trim(), notes: info.notes.trim(),
-      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })), ...(info.coupon ? { coupon: info.coupon } : {}), ...(info.scheduledFor ? { scheduledFor: info.scheduledFor } : {}), ...destBody(),
+      lines: state.cart.map((l) => ({ productId: l.productId, qty: l.qty })), ...(info.coupon ? { coupon: info.coupon } : {}), ...(info.scheduledFor ? { scheduledFor: info.scheduledFor } : {}), ...(info.pool ? { pool: true } : {}), ...destBody(),
     });
     mutate((db) => {
       db.orders = upsertById(db.orders, r.orders as Order[]);
@@ -738,15 +738,15 @@ export async function courierQuote(orderId: string, subtotal: number, fee: numbe
     pendingWrites--;
   }
 }
-export async function placeCustomOrder(me: User, info: { text: string; phone: string; address: string }): Promise<Result<{ orderId: string }>> {
+export async function placeCustomOrder(me: User, info: { text: string; phone: string; address: string; voice?: { audio: string; seconds: number } | null }): Promise<Result<{ orderId: string }>> {
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
-  if (info.text.trim().length < 3) return { ok: false, error: 'اكتب ما تريد طلبه' };
+  if (info.text.trim().length < 3 && !info.voice) return { ok: false, error: 'اكتب ما تريد طلبه' };
   { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
   pendingWrites++;
   try {
-    const r = await apiCustomOrder({ text: info.text.trim(), phone: normPhone(info.phone), address: info.address.trim(), ...destBody() });
+    const r = await apiCustomOrder({ text: info.text.trim(), ...(info.voice ? { voice: info.voice } : {}), phone: normPhone(info.phone), address: info.address.trim(), ...destBody() });
     mutate((db) => {
       db.orders = upsertById(db.orders, r.orders as Order[]);
       db.invoices = upsertById(db.invoices, [r.invoice as Invoice]);
@@ -1464,19 +1464,19 @@ export async function deleteRegion(id: string): Promise<Result> {
 /* ---------- free-text requests (supermarket / pharmacy) ---------- */
 export async function placeRequestOrder(
   me: User,
-  info: { provider: Provider; text: string; image?: string | null; phone: string; address: string }
+  info: { provider: Provider; text: string; image?: string | null; voice?: { audio: string; seconds: number } | null; phone: string; address: string }
 ): Promise<Result<{ orderId: string }>> {
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المتجر مغلق حالياً' };
   { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
   if (!deliveryOpen(info.provider)) return { ok: false, error: 'التوصيل من منطقة هذا المتجر إلى منطقتك غير متاح حالياً' };
-  if (info.text.trim().length < 3 && !info.image) return { ok: false, error: 'اكتب طلبك أو ارفع صورة' };
+  if (info.text.trim().length < 3 && !info.image && !info.voice) return { ok: false, error: 'اكتب طلبك أو ارفع صورة أو سجّل رسالة صوتية' };
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
   pendingWrites++;
   try {
     const { order } = await apiPlaceRequest({
-      providerId: info.provider.id, text: info.text.trim(), image: info.image || null, phone: normPhone(info.phone), address: info.address.trim(), ...destBody(),
+      providerId: info.provider.id, text: info.text.trim(), image: info.image || null, ...(info.voice ? { voice: info.voice } : {}), phone: normPhone(info.phone), address: info.address.trim(), ...destBody(),
     });
     setCartDest({});
     if (info.image) imageCache.set(String(order.id), info.image);

@@ -94,6 +94,13 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
           <T w="bold" size={12.5} color={C.goldDeep}>طلب مجدول: {schedLabel(o.scheduledFor)}</T>
         </View>
       )}
+      {!!o.hasVoice && <T w="bold" size={12.5} color={C.green}>🎤 فيه رسالة صوتية ({o.voiceSecs || 0} ثانية)</T>}
+      {!!o.pool && o.pool.size > 1 && !['delivered', 'cancelled', 'rejected'].includes(o.status) && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.greenSoft, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 }}>
+          <T size={14}>🤝</T>
+          <T w="bold" size={12.5} color={C.green}>توصيلة مشتركة ({o.pool.size} طلبات) — رسوم التوصيل {o.pool.share} ج.م بدل {o.pool.fullFee}</T>
+        </View>
+      )}
       <T size={12.5} color={C.sub} numberOfLines={2}>
         {o.customText ? `🎁 ${o.customText}` : o.request ? `📝 ${o.request.text || 'طلب بصورة الروشتة'}${o.request.hasImage ? ' 📷' : ''}` : o.items.map((i) => `${i.qty}× ${i.name}`).join('، ')}
       </T>

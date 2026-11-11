@@ -671,3 +671,11 @@ CREATE INDEX IF NOT EXISTS idx_saved_addresses_user ON saved_addresses(user_id);
 
 -- The owner can pin a shop to the top of its list (1 = first); NULL = not pinned
 ALTER TABLE providers ADD COLUMN IF NOT EXISTS pin_rank INT;
+
+-- Voice orders (switch "voice"): a short recording (max 45 s) sent with a written request; the server keeps it 30 days
+CREATE TABLE IF NOT EXISTS order_voice (
+  order_id BIGINT PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
+  audio TEXT NOT NULL,
+  seconds INT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

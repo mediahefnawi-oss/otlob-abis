@@ -122,6 +122,9 @@ export interface OrderItem {
 }
 
 export interface Order {
+  hasVoice?: boolean; // the customer sent a voice message with the order
+  voiceSecs?: number;
+  pool?: { size: number; fullFee: number; share: number }; // "شير اللقمة": the delivery trip shared with neighbours
   scheduledFor?: number; // delivery time the customer asked for (ms), when it is a scheduled order
   staffHandled?: boolean; // a supervisor took the order over (the shop left it stuck)
   cancelledBy?: string; // who cancelled it: customer / provider / admin / supervisor

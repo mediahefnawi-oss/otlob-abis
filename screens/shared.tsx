@@ -24,6 +24,7 @@ import { SupportChatCard } from '../components/SupportChat';
 import { OrderMapCard, MyLocationCard } from '../components/Location';
 import { RateOrderCard } from '../components/Ratings';
 import { MyCouponsSheet } from '../components/Coupons';
+import { VoicePlayer } from '../components/Voice';
 
 /* ---------------- Order detail (all roles) ---------------- */
 const STEPS: OrderStatus[] = ['pending', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived', 'delivered'];
@@ -182,11 +183,13 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
               <T w="bold" size={12} color={C.goldDeep}>الطلب المكتوب</T>
               {!!o.request?.text && <T w="semi" size={13.5} color={C.dark3}>📝 {o.request.text}</T>}
               <RequestPhoto o={o} />
+              {o.hasVoice && <VoicePlayer orderId={o.id} secs={o.voiceSecs} />}
             </View>
           )}
           {isCustom ? (
             <View style={{ backgroundColor: C.goldSoft, borderRadius: 12, padding: 12 }}>
               <T w="semi" size={13.5} color={C.dark3}>🎁 {o.customText}</T>
+              {o.hasVoice && <View style={{ marginTop: 8 }}><VoicePlayer orderId={o.id} secs={o.voiceSecs} /></View>}
             </View>
           ) : (
             o.items.map((i) => (

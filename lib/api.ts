@@ -257,10 +257,10 @@ export type SyncPayload = { unchanged?: boolean; tag?: string; warnings?: string
 export async function apiSync(tag?: string | null) {
   return apiRequest<SyncPayload>(tag ? `/api/sync?tag=${encodeURIComponent(tag)}` : '/api/sync');
 }
-export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[]; coupon?: string; scheduledFor?: number; destMode?: string; destLat?: number; destLng?: number }) {
+export async function apiCheckout(input: { name: string; phone: string; address: string; notes: string; lines: { productId: string; qty: number }[]; coupon?: string; scheduledFor?: number; pool?: boolean; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ invoice: any; orders: any[]; address: string }>('/api/orders/checkout', { method: 'POST', body: JSON.stringify(input) });
 }
-export async function apiCustomOrder(input: { text: string; phone: string; address: string; destMode?: string; destLat?: number; destLng?: number }) {
+export async function apiCustomOrder(input: { text: string; voice?: { audio: string; seconds: number } | null; phone: string; address: string; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ invoice: any; orders: any[] }>('/api/orders/custom', { method: 'POST', body: JSON.stringify(input) });
 }
 export async function apiOrderAction(id: string | number, action: string, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string; gift?: { kind: 'amount' | 'percent'; value: number; days: number } }) {
@@ -294,7 +294,7 @@ export async function apiCatalog<T = any>() {
 }
 
 /** Free-text requests to supermarkets / pharmacies, priced by the shop. */
-export async function apiPlaceRequest(input: { providerId: string; text: string; image?: string | null; phone: string; address: string; destMode?: string; destLat?: number; destLng?: number }) {
+export async function apiPlaceRequest(input: { providerId: string; text: string; image?: string | null; voice?: { audio: string; seconds: number } | null; phone: string; address: string; destMode?: string; destLat?: number; destLng?: number }) {
   return apiRequest<{ order: any }>('/api/orders/request', { method: 'POST', body: JSON.stringify(input) });
 }
 export async function apiQuote(orderId: string | number, input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string; readyDate?: string; readyTime?: string }) {
@@ -467,3 +467,8 @@ export const apiAddressAdd = (label: string, address: string) => apiRequest<{ ad
 export const apiAddressDelete = (id: string) => apiRequest<{ ok: boolean }>(`/api/addresses/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 export const apiPinProvider = (providerId: string, rank: number | null) => apiRequest<{ ok: boolean }>(`/api/admin/providers/${encodeURIComponent(providerId)}/pin`, { method: 'PATCH', body: JSON.stringify({ rank }) });
+
+/** "شير اللقمة": how many neighbours already wait for the same shop (anonymous). */
+export async function apiPoolSuggest(providerId: string) {
+  return apiRequest<{ on: boolean; waiting: number; max?: number; minutes?: number }>(`/api/pool/suggest?providerId=${encodeURIComponent(providerId)}`);
+}

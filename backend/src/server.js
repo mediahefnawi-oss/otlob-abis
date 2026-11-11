@@ -174,7 +174,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
-const SCHEMA_VERSION = 20261206;
+const SCHEMA_VERSION = 20261207;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -1076,6 +1076,7 @@ require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
 ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./support')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./rx')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
+require('./voice').register(app, { pool, auth, asyncRoute, positiveId });
 require('./chat')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 
