@@ -54,6 +54,7 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
   process.exit(1);
 }
 app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin not allowed')); }, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization'] }));
+app.use(require('./adminlog').middleware(pool));
 app.use(express.json({ limit: '2mb' })); // a request photo is shrunk by the app to well under 600 KB
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false }));
 // Creating orders / uploading pictures is never needed in bursts: a generous cap per address stops abuse without bothering real users.
@@ -174,7 +175,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
-const SCHEMA_VERSION = 20261207;
+const SCHEMA_VERSION = 20261209;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -745,6 +746,14 @@ app.patch('/api/admin/settings', auth, roles('admin'), asyncRoute(async (req, re
   const hp = hours.parseInput(b); // checked first so a wrong time never half-saves the other settings
   if (!hp.ok) return res.status(400).json({ error: hp.error });
   const current = (await pool.query('SELECT * FROM app_settings WHERE id=1')).rows[0];
+  { // what to restore if the owner undoes this change from the log
+    const prev = {};
+    if (typeof b.appEnabled === 'boolean') prev.appEnabled = current.app_enabled;
+    if (typeof b.maintenanceMessage === 'string') prev.maintenanceMessage = current.maintenance_message;
+    if (typeof b.announcement === 'string') prev.announcement = current.announcement;
+    if (typeof b.autoAssign === 'boolean') prev.autoAssign = current.auto_assign;
+    if (Object.keys(prev).length) res.locals.undo = { type: 'settings', patch: prev };
+  }
   const boolField = (v, old) => typeof v === 'boolean' ? v : old;
   const textField = (v, old, max=500) => typeof v === 'string' ? v.trim().slice(0,max) : old;
   const r = await pool.query(`UPDATE app_settings SET app_enabled=$1,maintenance_message=$2,announcement=$3,auto_assign=$4,support_phone=$5,support_name=$6,apk_url=$7,credits=$8,updated_at=NOW() WHERE id=1 RETURNING *`, [
@@ -1071,12 +1080,13 @@ require('./mapmode').registerMapModeRoutes(app, { pool, auth, roles, asyncRoute,
 require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
-extrasLib.register(app, { pool, auth, roles, asyncRoute, positiveId, services, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
+extrasLib.register(app, { pool, auth, roles, asyncRoute, positiveId, services, pushToUsers, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
 ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./support')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./rx')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./voice').register(app, { pool, auth, asyncRoute, positiveId });
+require('./adminlog').register(app, { pool, auth, roles, asyncRoute, positiveId, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); }, settingsClear: () => settingsMemo.clear() });
 require('./chat')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 

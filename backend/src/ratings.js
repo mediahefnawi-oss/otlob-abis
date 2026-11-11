@@ -36,6 +36,7 @@ function registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId }
 
   // the customer rates a delivered order
   app.post('/api/orders/:id/rating', auth, roles('customer'), guard(async (req, res) => {
+    if (!(await require('./extras').featureOn(pool, 'ratings'))) throw fail(409, 'التقييم متوقف حاليًا');
     const id = positiveId(req.params.id);
     if (!id) throw fail(400, 'رقم الطلب غير صحيح');
     const b = req.body || {};

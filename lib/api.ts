@@ -413,6 +413,9 @@ export const apiCouponCheck = (code: string, lines: { productId: string; qty: nu
 export const apiMyCoupons = () => apiRequest<{ coupons: Coupon[] }>('/api/coupons/mine');
 
 /* ---- feature switches, section / order mode, menu pictures ---- */
+export type LogEntry = { id: string; at: number; admin: string; label: string; summary: string; details: string; canUndo: boolean; undone: boolean };
+export const apiAdminLog = () => apiRequest<{ entries: LogEntry[] }>('/api/admin/log?limit=100');
+export const apiUndoLog = (id: string) => apiRequest<{ ok: boolean }>(`/api/admin/log/${encodeURIComponent(id)}/undo`, { method: 'POST', body: '{}' });
 export type FeatureRow = { key: string; label: string; on: boolean };
 export const apiFeatures = () => apiRequest<{ features: FeatureRow[] }>('/api/admin/features');
 export const apiSetFeature = (key: string, on: boolean) => apiRequest<{ features: FeatureRow[] }>('/api/admin/features', { method: 'PATCH', body: JSON.stringify({ key, on }) });
@@ -448,7 +451,7 @@ export const apiApptAccept = (id: string) => apiRequest<{ appointment: any }>(`/
 export const apiBookMode = (providerId: string, mode: 'customer' | 'clinic') => apiRequest<{ ok: boolean }>(`/api/providers/${encodeURIComponent(providerId)}/book-mode`, { method: 'PATCH', body: JSON.stringify({ mode }) });
 
 /** Prescription forwarding (clinic -> patient -> pharmacy). */
-export type RxRow = { id: string; number: string; patientName: string; clinicName: string; pharmacyId: string; pharmacyName: string; meds: string; hasImage: boolean; status: 'issued' | 'sent' | 'ready' | 'picked_up' | 'delivery' | 'cancelled' | 'expired'; expiresAt: number; createdAt: number; role: string };
+export type RxRow = { id: string; number: string; patientName: string; clinicName: string; pharmacyId: string; pharmacyName: string; meds: string; hasImage: boolean; status: 'issued' | 'sent' | 'ready' | 'picked_up' | 'delivery' | 'cancelled' | 'expired'; expiresAt: number; createdAt: number; role: string; needsAction?: boolean };
 export const apiRxList = () => apiRequest<{ enabled: boolean; list: RxRow[] }>('/api/rx');
 export const apiRxPharmacies = (appointmentId: string) => apiRequest<{ pharmacies: { id: string; name: string; region: string; suggested: boolean }[] }>(`/api/rx/pharmacies/${encodeURIComponent(appointmentId)}`);
 export const apiRxCreate = (input: { appointmentId: string; meds: string; image?: string | null; pharmacyId?: string }) => apiRequest<{ rx: RxRow }>('/api/rx', { method: 'POST', body: JSON.stringify(input) });

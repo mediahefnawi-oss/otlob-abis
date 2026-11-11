@@ -27,6 +27,8 @@ module.exports = function registerRx(app, { pool, auth, roles, asyncRoute, posit
     pharmacyId: r.pharmacy_provider_id ? String(r.pharmacy_provider_id) : '', pharmacyName: r.pharmacy_name || '',
     meds: r.meds, hasImage: r.has_image, status: r.expired && !FINAL.includes(r.status) ? 'expired' : r.status,
     expiresAt: new Date(r.expires_at).getTime(), createdAt: new Date(r.created_at).getTime(), role,
+    // the app opens the prescription by itself for whoever has to act now: the patient (choose a pharmacy / collect or deliver) or the pharmacy (prepare it)
+    needsAction: !r.expired && ((role === 'patient' && ['issued', 'ready'].includes(r.status)) || (role === 'pharmacy' && r.status === 'sent')),
   });
   const roleIn = (r, req) => {
     const u = me(req);
@@ -83,7 +85,9 @@ module.exports = function registerRx(app, { pool, auth, roles, asyncRoute, posit
     }
     const r = await pool.query('INSERT INTO prescriptions(patient_user_id, clinic_provider_id, appointment_id, pharmacy_provider_id, meds, image, mime) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
       [a.rows[0].customer_user_id, a.rows[0].provider_id, aid, pharmacy, meds, img ? img.buf : null, img ? img.mime : null]);
-    notify([a.rows[0].customer_user_id], { title: 'روشتتك جاهزة 💊', body: `رقم ${num(r.rows[0].id)} — اختار الصيدلية من التطبيق`, tag: 'rx-' + r.rows[0].id, url: '/' });
+    const cl = await pool.query('SELECT name FROM providers WHERE id=$1', [a.rows[0].provider_id]);
+    const phn = pharmacy ? (await pool.query('SELECT name FROM providers WHERE id=$1', [pharmacy])).rows[0] : null;
+    notify([a.rows[0].customer_user_id], { title: `${(cl.rows[0] || {}).name || 'العيادة'} كتبت لك روشتة 💊`, body: phn ? `رقم ${num(r.rows[0].id)} — رشّحنا لك صيدلية ${phn.name}. افتح التطبيق وأكّد الصيدلية` : `رقم ${num(r.rows[0].id)} — افتح التطبيق واختار الصيدلية`, tag: 'rx-' + r.rows[0].id, url: '/' });
     const out = await pool.query(`${SQL} WHERE x.id=$1`, [r.rows[0].id]);
     res.status(201).json({ rx: json(out.rows[0], 'clinic') });
   }));
@@ -134,11 +138,12 @@ module.exports = function registerRx(app, { pool, auth, roles, asyncRoute, posit
     const ph = await pool.query("SELECT owner_user_id FROM providers WHERE id=$1 AND type='pharmacy' AND status='active' AND deleted_at IS NULL", [pid]);
     if (!ph.rowCount) throw fail(400, 'الصيدلية غير صالحة');
     await pool.query("UPDATE prescriptions SET pharmacy_provider_id=$1, status='sent', updated_at=NOW() WHERE id=$2", [pid, row.id]);
-    notify([ph.rows[0].owner_user_id], { title: 'روشتة جديدة 💊', body: num(row.id), tag: 'rx-' + row.id, url: '/' });
+    notify([ph.rows[0].owner_user_id], { title: 'روشتة جديدة للتجهيز 💊', body: `${num(row.id)} من ${row.patient_name} — جهّزها وبلّغ العميل`, tag: 'rx-' + row.id, url: '/' });
+    notify([row.clinic_owner], { title: 'المريض أكّد الصيدلية ✅', body: `${row.patient_name} بعت ${num(row.id)} للصيدلية`, tag: 'rx-c-' + row.id, url: '/' });
   })));
   app.post('/api/rx/:id/ready', auth, roles('provider'), guard((req, res) => step(req, res, ['pharmacy'], ['sent'], async row => {
     await pool.query("UPDATE prescriptions SET status='ready', updated_at=NOW() WHERE id=$1", [row.id]);
-    notify([row.patient_user_id], { title: 'روشتتك جاهزة في الصيدلية ✅', body: `${num(row.id)} — ${row.pharmacy_name}`, tag: 'rx-' + row.id, url: '/' });
+    notify([row.patient_user_id], { title: `روشتتك جاهزة في ${row.pharmacy_name} 💊`, body: `${num(row.id)} — تحب تستلمها بنفسك ولا نوصّلهالك؟ افتح التطبيق واختار`, tag: 'rx-' + row.id, url: '/' });
   })));
   app.post('/api/rx/:id/pickup', auth, roles('customer', 'provider', 'admin'), guard((req, res) => step(req, res, ['patient', 'pharmacy', 'admin'], ['sent', 'ready', 'delivery'], async row => {
     await pool.query("UPDATE prescriptions SET status='picked_up', updated_at=NOW() WHERE id=$1", [row.id]);
@@ -146,6 +151,7 @@ module.exports = function registerRx(app, { pool, auth, roles, asyncRoute, posit
   // "deliver it to me": the patient then sends an ordinary written order to the pharmacy that carries the RX number
   app.post('/api/rx/:id/delivery', auth, roles('customer'), guard((req, res) => step(req, res, ['patient'], ['sent', 'ready'], async row => {
     await pool.query("UPDATE prescriptions SET status='delivery', updated_at=NOW() WHERE id=$1", [row.id]);
+    if (row.pharmacy_owner) notify([row.pharmacy_owner], { title: 'العميل عايز توصيل الروشتة 🛵', body: `${num(row.id)} — هيوصلك طلب مكتوب بالتفاصيل`, tag: 'rx-d-' + row.id, url: '/' });
     return { orderText: `روشتة ${num(row.id)}: ${row.meds || 'بالصورة المرفقة'}`.slice(0, 600), pharmacyId: String(row.pharmacy_provider_id) };
   })));
   app.post('/api/rx/:id/cancel', auth, roles('customer', 'provider', 'admin'), guard((req, res) => step(req, res, ['patient', 'clinic', 'admin'], ['issued', 'sent'], async row => {

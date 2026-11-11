@@ -21,8 +21,13 @@ const HINT: Record<string, string> = {
   schedule: 'العميل يطلب لوقت لاحق (مثلًا الساعة 8 مساءً)',
   dailyReport: 'إشعار يومي لك بعدد الطلبات والإيرادات وأكتر محل',
   lateAlert: 'تنبيه ليك وللمحل لو طلب اتأخر من غير ما يتحرك',
+  winback: 'إشعار للعميل اللي ما طلبش من 14 يوم (مرة كل 30 يوم، بين 5 و9 مساءً)',
   bot: 'المساعد الآلي يرد على الأسئلة الشائعة في الدعم',
+  coupons: 'أكواد الخصم في السلة. لو قفلتها العميل مش هيشوف خانة الكود',
+  ratings: 'العميل يقيّم المحل والمندوب بعد التسليم',
+  support: 'شات العميل والمحل والمندوب مع الدعم الفني',
 };
+const BASIC = ['coupons', 'ratings', 'support', 'bot'];
 
 /** Owner only: every new feature is a switch. Closing one hides it at once; whatever already started finishes normally. */
 export function AdminFeaturesScreen({ navigation }: any) {
@@ -41,7 +46,20 @@ export function AdminFeaturesScreen({ navigation }: any) {
       <Header title="تشغيل الميزات" subtitle="افتح الميزة بعد ما تجربها بنفسك" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
         {rows && !rows.length && <Empty icon="toggle" title="تعذر تحميل الميزات" />}
-        {(rows || []).map((f) => (
+        {(rows || []).some((f) => BASIC.includes(f.key)) && <T w="black" size={13} color={C.sub}>ميزات أساسية (شغّالة من الأول، تقدر تقفلها)</T>}
+        {(rows || []).filter((f) => BASIC.includes(f.key)).map((f) => (
+          <Card key={f.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <T w="black" size={14.5}>{f.label}</T>
+              <T size={12} color={C.sub}>{HINT[f.key] || ''}</T>
+            </View>
+            <View style={{ opacity: busy === f.key ? 0.5 : 1 }} pointerEvents={busy ? 'none' : 'auto'}>
+              <Toggle value={f.on} onValueChange={(v) => flip(f.key, v)} />
+            </View>
+          </Card>
+        ))}
+        <T w="black" size={13} color={C.sub}>ميزات جديدة (مقفولة لحد ما تفتحها)</T>
+        {(rows || []).filter((f) => !BASIC.includes(f.key)).map((f) => (
           <Card key={f.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View style={{ flex: 1, gap: 2 }}>
               <T w="black" size={14.5}>{f.label}</T>

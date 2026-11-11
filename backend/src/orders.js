@@ -497,6 +497,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
 
   /** The customer asks, in the cart, what his discount code would take off (nothing is saved). */
   app.post('/api/coupons/check', auth, roles('customer'), guard(async (req, res) => {
+    if (!(await extrasLib.featureOn(pool, 'coupons'))) throw fail(409, 'الكوبونات متوقفة حاليًا');
     const b = req.body || {};
     const groups = await buildGroups(cleanLines(b.lines));
     const ev = await couponsLib.evaluate(pool, { code: b.code, userId: Number(req.auth.sub), groups: [...groups.values()].map(g => ({ providerId: g.p.provider_id, subtotal: g.subtotal, hasOffer: g.hasOffer })) });
@@ -515,6 +516,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const scheduledFor = await scheduleOf(b);
     const wantPool = b.pool === true && !scheduledFor && (await poolLib.on(pool));
     const groups = await buildGroups(lines);
+    if (String(b.coupon || '').trim() && !(await extrasLib.featureOn(pool, 'coupons'))) throw fail(409, 'الكوبونات متوقفة حاليًا');
     const out = await withTx(async db => {
       const region = await regionOf(db, Number(req.auth.sub));
       const orders = [];

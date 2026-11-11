@@ -18,7 +18,12 @@ const FEATURES = {
   schedule: { label: 'طلب مجدول لوقت لاحق', on: false },
   dailyReport: { label: 'تقرير يومي للمالك', on: false },
   lateAlert: { label: 'تنبيه تأخر الطلب', on: false },
+  winback: { label: 'رسالة «وحشتنا» للعميل المنقطع', on: false },
   bot: { label: 'بوت الدعم', on: true },
+  // old features: ON by default so nothing changes until the owner switches one off
+  coupons: { label: 'الكوبونات وأكواد الخصم', on: true },
+  ratings: { label: 'تقييم الطلبات والمحلات', on: true },
+  support: { label: 'الدعم الفني (شات العميل مع الإدارة)', on: true },
 };
 const MODES = ['cart', 'request', 'menu'];
 const MAX_MENU_IMAGE = 1500000; // characters of base64 text
@@ -64,8 +69,11 @@ function orderShops(list) {
 
 const effectiveMode = (row, feats) => (feats.menu && MODES.includes(row.order_mode) ? row.order_mode : '');
 
-function register(app, { pool, auth, roles, asyncRoute, positiveId, services, clearCaches }) {
+function register(app, { pool, auth, roles, asyncRoute, positiveId, services, clearCaches, pushToUsers }) {
   const fail = (status, error) => Object.assign(new Error(error), { http: status });
+  // a sound + text push to the given users; a failed push never fails the request
+  const notify = (ids, title, body, tag) => { try { const p = pushToUsers && pushToUsers((ids || []).filter(Boolean), { title, body, tag, url: '/' }); if (p && p.catch) p.catch(() => {}); } catch { /* ignore */ } };
+  const adminIds = async () => (await pool.query("SELECT id FROM users WHERE role='admin' AND status='active'")).rows.map(r => r.id);
   const guard = fn => asyncRoute(async (req, res) => {
     try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; }
   });
@@ -81,6 +89,8 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
     const key = String(b.key || '');
     if (!FEATURES[key]) throw fail(400, 'ميزة غير معروفة');
     if (typeof b.on !== 'boolean') throw fail(400, 'حدد تشغيل أو إيقاف');
+    const before = !!(await featuresOf(pool))[key];
+    if (res.locals) res.locals.undo = { type: 'feature', key, label: FEATURES[key].label, before, now: b.on };
     try { await pool.query('UPDATE app_settings SET features = COALESCE(features, \'{}\'::jsonb) || jsonb_build_object($1::text, $2::boolean), updated_at=NOW() WHERE id=1', [key, b.on]); }
     catch (e) { if (e.code === '42703') throw fail(503, 'قاعدة البيانات لم تُحدَّث بعد'); throw e; }
     clearCaches();
@@ -185,6 +195,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
     if (!img) throw fail(400, 'ارفع صورة صالحة (JPG أو PNG) وبحجم أصغر');
     await pool.query(`INSERT INTO courier_photos(user_id, pending_image, pending_mime, status) VALUES($1,$2,$3,'pending')
       ON CONFLICT (user_id) DO UPDATE SET pending_image=EXCLUDED.pending_image, pending_mime=EXCLUDED.pending_mime, status='pending', updated_at=NOW()`, [req.auth.sub, img.buf, img.mime]);
+    adminIds().then(ids => notify(ids, 'صورة مندوب جديدة 📷', 'فيه صورة مندوب بانتظار موافقتك من تشغيل الميزات', 'courier-photo')).catch(() => {});
     res.status(201).json({ ok: true, status: 'pending' });
   }));
   app.get('/api/admin/courier-photos', ...admin, guard(async (_req, res) => {
@@ -209,6 +220,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
       ? await pool.query(`UPDATE courier_photos SET image=pending_image, mime=pending_mime, pending_image=NULL, pending_mime=NULL, status='approved', updated_at=NOW() WHERE user_id=$1 AND pending_image IS NOT NULL RETURNING user_id`, [id])
       : await pool.query(`UPDATE courier_photos SET pending_image=NULL, pending_mime=NULL, status='rejected', updated_at=NOW() WHERE user_id=$1 AND pending_image IS NOT NULL RETURNING user_id`, [id]);
     if (!r.rowCount) throw fail(404, 'لا توجد صورة بانتظار المراجعة');
+    notify([id], req.body.approve ? 'تمت الموافقة على صورتك ✅' : 'تم رفض صورتك ❌', req.body.approve ? 'صورتك بقت تظهر للعملاء على طلباتهم' : 'ارفع صورة شخصية أوضح وجرّب تاني', 'courier-photo-' + id);
     res.json({ ok: true });
   }));
   app.get('/api/courier-photo/:uid', guard(async (req, res) => {

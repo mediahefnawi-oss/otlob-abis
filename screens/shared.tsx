@@ -134,7 +134,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           </Card>
         )}
 
-        <RateOrderCard o={o} />
+        {db.settings.features?.ratings !== false && <RateOrderCard o={o} />}
 
         {me.role === 'admin' && o.status === 'delivered' && <CommissionTrail orderId={o.id} />}
 
@@ -602,12 +602,13 @@ const FAQ = [
 ];
 export function SupportScreen({ navigation }: any) {
   const me = useMe();
+  const { db } = useStore();
   const [open, setOpen] = useState(0);
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="الدعم الفني" subtitle="نحن هنا لمساعدتك على مدار الساعة" onBack={navigation?.canGoBack?.() && navigation.getState?.().routes?.length > 1 ? () => navigation.goBack() : undefined} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-        {me && ['customer', 'provider', 'courier'].includes(me.role) && <SupportChatCard />}
+        {me && ['customer', 'provider', 'courier'].includes(me.role) && db.settings.features?.support !== false && <SupportChatCard />}
         <Card style={{ alignItems: 'center', gap: 10, paddingVertical: 22 }}>
           <View style={{ width: 76, height: 76, borderRadius: 38, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="logo-whatsapp" size={44} color="#fff" />

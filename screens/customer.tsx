@@ -577,7 +577,7 @@ export function CartScreen({ navigation }: any) {
             <SchedulePicker onChange={setSched} />
             {det.groups.length === 1 && <PoolCard providerId={String(det.groups[0].provider.id)} fee={det.delivery} disabled={!!sched} value={pool} onChange={setPool} />}
             <ProductSheet p={sel} inCart={sel ? qty(sel.id) : 0} canOrder bg={C.goldSoft} onClose={() => setSel(null)} />
-            <CouponBox lines={cpLines} applied={cp} onApplied={setCp} />
+            {db.settings.features?.coupons !== false && <CouponBox lines={cpLines} applied={cp} onApplied={setCp} />}
 
             <Card style={{ gap: 8, backgroundColor: C.dark }}>
               <View style={{ flexDirection: 'row' }}><T color="#C9D8D2" style={{ flex: 1 }}>قيمة الطلبات</T><T w="bold" color="#fff">{money(det.subtotal)}</T></View>

@@ -51,6 +51,7 @@ module.exports = function registerSupportRoutes(app, { pool, auth, roles, asyncR
     res.json({ thread: { id: String(t.id), status: t.status }, messages: msgs.rows.map(msgJson) });
   }));
   app.post('/api/support/mine/messages', auth, userRoles, guard(async (req, res) => {
+    if (!(await extrasLib.featureOn(pool, 'support'))) throw fail(409, 'الدعم الفني متوقف حاليًا');
     const text = bodyOf(req);
     const u = (await pool.query('SELECT name, role FROM users WHERE id=$1', [me(req)])).rows[0];
     if (!u) throw fail(404, 'الحساب غير موجود');

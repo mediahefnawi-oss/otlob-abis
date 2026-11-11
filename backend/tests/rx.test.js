@@ -7,12 +7,13 @@ for (const m of ['get', 'post', 'patch', 'put', 'delete']) app[m] = (p, ...c) =>
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const positiveId = v => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : null; };
 const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
+const pushes = [];
 (async () => {
   const pool = new Pool(); const q = (t, p) => pool.query(t, p);
   const roles = (...allowed) => (req, res, next) => (allowed.includes(req.auth.role) ? next() : next(Object.assign(new Error('no'), { http: 403 })));
   const pass1 = (req, res, next) => next();
   const services = require('../src/services.js');
-  const deps = { pool, auth: pass1, roles, asyncRoute, positiveId, services, clearCaches() {}, pushToUsers: async () => {} };
+  const deps = { pool, auth: pass1, roles, asyncRoute, positiveId, services, clearCaches() {}, pushToUsers: async (ids, p) => { pushes.push({ ids: ids.map(String), p }); } };
   require('../src/rx.js')(app, deps); require('../src/extras.js').register(app, deps);
   const call = (key, as, body, params) => new Promise(resolve => {
     const chain = routes[key]; if (!chain) throw new Error('no route ' + key);
@@ -64,12 +65,20 @@ const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////
   console.log('D) the patient approves');
   eq((await call('POST /api/rx/:id/choose', OTH, {}, id)).status, 404, 'a stranger cannot approve');
   eq((await call('POST /api/rx/:id/choose', PAT, { pharmacyId: String(clinic) }, id)).status, 400, 'a clinic is not a pharmacy');
+  eq((await call('GET /api/rx', PAT)).json.list[0].needsAction, true, 'patient: needs action while choosing the pharmacy');
+  pushes.length = 0;
   r = await call('POST /api/rx/:id/choose', PAT, { pharmacyId: String(ph3) }, id); eq(r.status, 200, 'patient changes the pharmacy'); eq(r.json.rx.status, 'sent', 'sent'); eq(r.json.rx.pharmacyId, String(ph3), 'to the chosen one');
+  ok(pushes.some(x => /روشتة جديدة للتجهيز/.test(x.p.title)), 'pharmacy gets a push to prepare it');
+  ok(pushes.some(x => /أكّد الصيدلية/.test(x.p.title)), 'the clinic is told the patient confirmed');
+  eq((await call('GET /api/rx', PH3)).json.list[0].needsAction, true, 'pharmacy: needs action');
   eq((await call('GET /api/rx', PH1)).json.list.length, 0, 'the first suggestion still sees nothing');
   eq((await call('GET /api/rx', PH3)).json.list.length, 1, 'the chosen pharmacy sees it now');
   eq((await call('GET /api/rx/:id/photo', PH3, {}, id)).status, 200, 'and its picture');
   eq((await call('POST /api/rx/:id/ready', PH2, {}, id)).status, 404, 'another pharmacy cannot act');
+  pushes.length = 0;
   eq((await call('POST /api/rx/:id/ready', PH3, {}, id)).json.rx.status, 'ready', 'pharmacy marks it ready');
+  ok(pushes.some(x => /روشتتك جاهزة في/.test(x.p.title) && /نوصّلهالك/.test(x.p.body)), 'patient is asked: collect or deliver');
+  eq((await call('GET /api/rx', PAT)).json.list[0].needsAction, true, 'patient: needs action when ready');
   r = await call('POST /api/rx/:id/delivery', PAT, {}, id); eq(r.status, 200, 'patient asks for delivery'); ok(/RX-\d+/.test(r.json.orderText), 'text for the written order carries the number'); eq(r.json.pharmacyId, String(ph3), 'for that pharmacy');
   eq((await call('POST /api/rx/:id/pickup', PH3, {}, id)).json.rx.status, 'picked_up', 'pharmacy closes it');
   eq((await call('POST /api/rx/:id/pickup', PAT, {}, id)).status, 409, 'cannot close twice');

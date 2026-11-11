@@ -1,0 +1,32 @@
+// "we miss you" notices
+const { Pool } = require('./shim');
+let pass = 0, bad = 0; const ok = (c, m) => { if (c) pass++; else { bad++; console.log('  FAIL:', m); } };
+const eq = (a, b, m) => ok(a === b, `${m}: got ${a}, want ${b}`);
+(async () => {
+  const pool = new Pool(); const q = (t, p) => pool.query(t, p);
+  const w = require('../src/watch');
+  const sent = []; const notify = async (ids, payload) => { sent.push({ ids: ids.map(String), payload }); };
+  await q("UPDATE app_settings SET features='{}'::jsonb WHERE id=1"); await q('DELETE FROM winback_log');
+  const mk = async (n, role) => (await q("INSERT INTO users(name, phone, password_hash, role, status) VALUES($1,$2,'x',$3,'active') RETURNING id", [n, '010' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'), role])).rows[0].id;
+  const own = await mk('صاحب', 'provider');
+  const prov = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES($1,'restaurant','مطعم الاختبار','01000000000','active',TRUE) RETURNING id", [own])).rows[0].id;
+  const push = id => q("INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth) VALUES($1,$2,'k','a')", [id, 'fcm:t' + id + Math.random()]);
+  const order = (cu, days, status = 'delivered') => q("INSERT INTO orders(customer_user_id, provider_id, status, total, data, created_at, updated_at) VALUES($1,$2,$3,100,'{}', NOW() - ($4 || ' days')::interval, NOW() - ($4 || ' days')::interval)", [cu, prov, status, String(days)]);
+  const quiet = await mk('أحمد علي', 'customer'), recent = await mk('منى', 'customer'), never = await mk('جديد', 'customer'), nopush = await mk('بدون', 'customer'), cancelled = await mk('ملغي', 'customer');
+  for (const u of [quiet, recent, never, cancelled]) await push(u);
+  await order(quiet, 20); await order(recent, 3); await order(nopush, 30); await order(cancelled, 25, 'cancelled');
+  eq(await w.winbackSweep(pool, notify, { force: true }), 0, 'OFF: nothing is sent');
+  await q("UPDATE app_settings SET features = features || '{\"winback\": true}'::jsonb WHERE id=1");
+  const hour = (await q("SELECT EXTRACT(HOUR FROM NOW() AT TIME ZONE 'Africa/Cairo')::int h")).rows[0].h;
+  if (hour < 17 || hour >= 21) eq(await w.winbackSweep(pool, notify), 0, 'outside 5-9 pm Cairo time: nothing is sent');
+  eq(await w.winbackSweep(pool, notify, { force: true }), 1, 'ON: only the customer who ordered before, is silent 14+ days and has push');
+  const m = sent[0]; eq(m.ids[0], String(quiet), 'sent to the quiet customer'); ok(/أحمد/.test(m.payload.title) && !/علي/.test(m.payload.title), 'uses the first name only'); ok(/مطعم الاختبار/.test(m.payload.body), 'names the shop he used to order from');
+  eq(await w.winbackSweep(pool, notify, { force: true }), 0, 'never twice within 30 days');
+  await q("UPDATE winback_log SET sent_at = NOW() - INTERVAL '31 days'");
+  eq(await w.winbackSweep(pool, notify, { force: true }), 1, 'after 30 days he can get one again');
+  await order(quiet, 1); await q("UPDATE winback_log SET sent_at = NOW() - INTERVAL '40 days'");
+  eq(await w.winbackSweep(pool, notify, { force: true }), 0, 'a customer who ordered again is left alone');
+  await q("UPDATE app_settings SET features='{}'::jsonb WHERE id=1");
+  console.log(bad ? `FAILED ${bad}` : 'ALL OK', 'pass=' + pass);
+  await pool.end(); process.exit(bad ? 1 : 0);
+})().catch(e => { console.error('CRASH', e); process.exit(2); });

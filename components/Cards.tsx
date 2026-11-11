@@ -1,4 +1,4 @@
-import { feeFor, deliveryOpen, useStore } from '../lib/store';
+import { feeFor, deliveryOpen, useStore, useMe } from '../lib/store';
 import { ProviderLogo } from './Brand';
 import { CourierAvatar } from './CourierPhoto';
 import { schedLabel } from './Schedule';
@@ -26,13 +26,14 @@ export function AreaTag({ p }: { p: Pick<Provider, 'regionId' | 'regionName'> })
 export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void }) {
   const t = TYPES[p.type];
   const closed = !p.open;
+  const isOwner = useMe()?.role === 'admin'; // the pin mark is for the owner only: customers just see the order
   return (
     <Card onPress={onPress} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: closed ? 0.75 : 1 }}>
       <ProviderLogo p={p} size={62} />
       <View style={{ flex: 1, gap: 3 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <T w="bold" size={15.5} numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</T>
-          {p.pinRank != null && <T size={11}>📌</T>}
+          {isOwner && p.pinRank != null && <T size={11}>📌</T>}
         </View>
         <T size={12} color={C.sub} numberOfLines={1}>{p.desc}</T>
         {!!p.regionName && <AreaTag p={p} />}

@@ -679,3 +679,27 @@ CREATE TABLE IF NOT EXISTS order_voice (
   seconds INT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Owner activity log: every change made from the owner panel, with an "undo" for feature switches and basic settings
+CREATE TABLE IF NOT EXISTS admin_log (
+  id BIGSERIAL PRIMARY KEY,
+  at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  admin_id BIGINT,
+  admin_name TEXT NOT NULL DEFAULT '',
+  method TEXT NOT NULL DEFAULT '',
+  path TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  undo JSONB,
+  undone_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_admin_log_at ON admin_log(at DESC);
+
+-- "We miss you" notices (switch "winback"): one per customer per 30 days
+CREATE TABLE IF NOT EXISTS winback_log (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_winback_user ON winback_log(user_id, sent_at DESC);

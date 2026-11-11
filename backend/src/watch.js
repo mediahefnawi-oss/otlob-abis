@@ -62,15 +62,41 @@ async function dailyReport(pool, notify, { force = false } = {}) {
   return true;
 }
 
+const SILENT_DAYS = 14;  // a customer who has not ordered for this long gets the message
+const REPEAT_DAYS = 30;  // and never more than one per this many days
+/** "We miss you": one friendly notification (17:00-21:00 Cairo time only) to a customer who ordered before but not for 14 days. Returns how many were sent. */
+async function winbackSweep(pool, notify, { force = false, limit = 100 } = {}) {
+  if (!(await extrasLib.featureOn(pool, 'winback'))) return 0;
+  const h = (await pool.query("SELECT EXTRACT(HOUR FROM NOW() AT TIME ZONE 'Africa/Cairo')::int AS h")).rows[0].h;
+  if (!force && (h < 17 || h >= 21)) return 0;
+  const r = await pool.query(
+    `SELECT u.id, u.name, (SELECT p.name FROM orders o JOIN providers p ON p.id=o.provider_id WHERE o.customer_user_id=u.id AND o.status='delivered' ORDER BY o.created_at DESC LIMIT 1) AS shop
+       FROM users u
+      WHERE u.role='customer' AND u.status='active'
+        AND EXISTS (SELECT 1 FROM orders o WHERE o.customer_user_id=u.id AND o.status='delivered')
+        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_user_id=u.id AND o.created_at > NOW() - ($1 || ' days')::interval)
+        AND NOT EXISTS (SELECT 1 FROM winback_log w WHERE w.user_id=u.id AND w.sent_at > NOW() - ($2 || ' days')::interval)
+        AND EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.user_id=u.id)
+      ORDER BY u.id LIMIT $3`, [String(SILENT_DAYS), String(REPEAT_DAYS), limit]);
+  let sent = 0;
+  for (const u of r.rows) {
+    await pool.query('INSERT INTO winback_log(user_id) VALUES($1)', [u.id]); // marked first: a failed push is never retried and nobody gets it twice
+    const first = String(u.name || '').trim().split(/\s+/)[0] || 'يا غالي';
+    await notify([u.id], { title: `وحشتنا يا ${first} 💛`, body: u.shop ? `${u.shop} مستنيك. اطلب تاني بضغطة من التطبيق` : 'محلات منطقتك مستنياك، اطلب دلوقتي', tag: 'winback', url: '/' });
+    sent++;
+  }
+  return sent;
+}
+
 let lastPurge = 0;
 function start({ pool, pushToUsers, everyMs = 60 * 1000 }) {
   const notify = async (ids, payload) => { try { await pushToUsers(ids, payload); } catch { /* a failed push is not an error here */ } };
   const run = async () => {
-    try { await lateSweep(pool, notify); await dailyReport(pool, notify); if (Date.now() - lastPurge > 6 * 3600 * 1000) { lastPurge = Date.now(); await require('./voice').purge(pool); } }
+    try { await lateSweep(pool, notify); await dailyReport(pool, notify); await winbackSweep(pool, notify); if (Date.now() - lastPurge > 6 * 3600 * 1000) { lastPurge = Date.now(); await require('./voice').purge(pool); } }
     catch (e) { if (e && e.code !== '42P01') console.warn('watch:', e.message); }
   };
   setTimeout(run, 30 * 1000).unref();
   const t = setInterval(run, everyMs); t.unref();
   return t;
 }
-module.exports = { start, lateSweep, dailyReport, dayStats, reportText };
+module.exports = { start, lateSweep, dailyReport, winbackSweep, dayStats, reportText };

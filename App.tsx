@@ -19,6 +19,7 @@ import { OrderAlarmBar } from './components/OrderAlarmBar';
 import { UpdateBanner } from './components/UpdateBanner';
 import { InstallBanner } from './components/InstallBanner';
 import { navigationRef } from './lib/nav';
+import { RxAutoOpen } from './components/Rx';
 import { SideNav } from './components/SideNav';
 import { useWide, useNav } from './lib/wide';
 import { setUiScale, setScaleConfig } from './lib/scale';
@@ -38,6 +39,7 @@ import { SupportInbox, useSupportUnread } from './components/SupportChat';
 import { AdminOffersScreen } from './components/Offers';
 import { AdminCouponsScreen } from './components/Coupons';
 import { AdminFeaturesScreen } from './components/Features';
+import { AdminLogScreen } from './components/AdminLog';
 import { AdminRatingsScreen } from './components/Ratings';
 import { CouriersMapScreen, useCourierTracking } from './components/Location';
 import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
@@ -168,6 +170,7 @@ function Root() {
         <Stack.Screen name="AdminOffers" component={AdminOffersScreen} />
         <Stack.Screen name="AdminCoupons" component={AdminCouponsScreen} />
         <Stack.Screen name="AdminFeatures" component={AdminFeaturesScreen} />
+        <Stack.Screen name="AdminLog" component={AdminLogScreen} />
         <Stack.Screen name="AdminRatings" component={AdminRatingsScreen} />
       </>
     );
@@ -178,6 +181,7 @@ function Root() {
       <Stack.Navigator key={`${me?.id || 'guest'}-${!gate.blocked}-${me?.status}-${db.settings.theme || 'default'}`} screenOptions={{ headerShown: false, animation: 'slide_from_left', contentStyle: { backgroundColor: C.bg } }}>
         {screens}
       </Stack.Navigator>
+      <RxAutoOpen />
     </NavigationContainer>
   );
 }

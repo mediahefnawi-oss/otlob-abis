@@ -8,7 +8,7 @@ import { OrderCard, ApptCard } from '../components/Cards';
 import { MenuManager } from '../components/Menu';
 import { ClinicSetActions, ClinicModeCard } from '../components/ClinicSchedule';
 import { ShopChatInbox } from '../components/Chat';
-import { ClinicRxButton, PharmacyRxInbox } from '../components/Rx';
+import { ClinicRxButton, ClinicRxSheet, PharmacyRxInbox } from '../components/Rx';
 import { LabCardActions } from '../components/Lab';
 import { QuoteButtons, MakerOrderButtons } from '../components/Quote';
 import { ProviderLogo, ProductThumb, ProductPicture, LogoPicker } from '../components/Brand';
@@ -31,6 +31,7 @@ export function ProviderOrdersScreen({ navigation }: any) {
   const { me, db, prov } = useMyProvider();
   const isClinic = isBooking(prov.type);
   const [seg, setSeg] = useState(isClinic ? 'pending' : 'new');
+  const [rxFor, setRxFor] = useState<any>(null);
   const couriers = db.couriersOnline ?? availableCouriers(db).length;
 
   const orders = db.orders.filter((o) => o.providerId === prov.id).sort((a, b) => b.createdAt - a.createdAt);
@@ -118,7 +119,7 @@ export function ProviderOrdersScreen({ navigation }: any) {
                 {!item.lab && item.status === 'confirmed' && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="soft" icon="document-text" title="الفاتورة" style={{ flex: 1 }} onPress={() => navigation.navigate('Invoice', { id: item.invoiceId })} />
-                    <Btn small variant="dark" icon="checkmark-done" title="تمت الزيارة" style={{ flex: 1 }} onPress={() => { apptAction(item.id, 'complete'); toast('تم تسجيل الزيارة'); }} />
+                    <Btn small variant="dark" icon="checkmark-done" title="تمت الزيارة" style={{ flex: 1 }} onPress={() => { apptAction(item.id, 'complete'); toast('تم تسجيل الزيارة'); if (db.settings.features?.rx && !item.lab) setRxFor(item); }} />
                   </View>
                 )}
               </ApptCard>
@@ -131,6 +132,7 @@ export function ProviderOrdersScreen({ navigation }: any) {
           keyExtractor={(o) => o.id}
           refreshControl={rc}
           contentContainerStyle={{ padding: 16, gap: 12 }}
+          ListHeaderComponent={prov.type === 'pharmacy' ? <PharmacyRxInbox compact /> : null}
           ListEmptyComponent={<Empty icon="receipt" title="لا توجد طلبات هنا" text="ستظهر الطلبات الجديدة فور وصولها من العملاء" />}
           renderItem={({ item, index }) => (
             <Appear i={index}>
@@ -154,6 +156,7 @@ export function ProviderOrdersScreen({ navigation }: any) {
           )}
         />
       )}
+      {rxFor && <ClinicRxSheet a={rxFor} visible onClose={() => setRxFor(null)} />}
     </View>
   );
 }
@@ -334,7 +337,6 @@ export function ProviderProfileScreen({ navigation }: any) {
   const extra = (
     <>
       <ClinicModeCard prov={prov} />
-      {prov.type === 'pharmacy' && <PharmacyRxInbox />}
       <ShopChatInbox />
       {db.settings.features?.menu && <MenuManager providerId={prov.id} />}
       <Card style={{ gap: 12 }}>
