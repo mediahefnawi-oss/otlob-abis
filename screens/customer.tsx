@@ -619,6 +619,7 @@ export function CustomOrderScreen({ navigation }: any) {
               {sug.map((s) => <Chip key={s} label={s} onPress={() => setText((t) => (t ? t + '، ' : '') + s)} />)}
             </View>
             <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+            <AddressPicker address={address} onPick={setAddress} />
             <Field label="عنوان التوصيل" icon="location" value={address} onChangeText={setAddress} multiline />
             <DeliveryPin />
           </Card>
@@ -856,6 +857,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
           </View>
         )}
         <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+        <AddressPicker address={address} onPick={setAddress} />
         <Field label="العنوان التفصيلي" icon="location" value={address} onChangeText={setAddress} multiline />
         <DeliveryPin />
         <Btn title={maker ? 'إرسال الطلب للصانع' : 'إرسال الطلب للمتجر'} icon="send" loading={busy} onPress={submit} />
