@@ -440,3 +440,17 @@ export const apiChatThreadSend = (id: string, text: string) => apiRequest<{ mess
 export const apiChatReport = (msgId: string) => apiRequest<{ ok: boolean }>(`/api/chat/messages/${encodeURIComponent(msgId)}/report`, { method: 'POST' });
 export const apiChatReports = () => apiRequest<{ reports: { id: string; at: number; text: string; from: string; reporter: string; providerId: string; providerName: string }[] }>('/api/admin/chat-reports');
 export const apiProviderChatOff = (providerId: string, disabled: boolean) => apiRequest<{ ok: boolean }>(`/api/admin/providers/${encodeURIComponent(providerId)}/chat`, { method: 'PATCH', body: JSON.stringify({ disabled }) });
+
+/** Clinics that set the visit time themselves: the customer asks, the clinic writes the day and time, the customer accepts. */
+export const apiApptRequest = (input: { doctorId: string; patientName: string; phone: string; notes: string }) => apiRequest<{ appointment: any }>('/api/appointments/request', { method: 'POST', body: JSON.stringify(input) });
+export const apiApptPropose = (id: string, date: string, time: string) => apiRequest<{ appointment: any }>(`/api/appointments/${encodeURIComponent(id)}/propose`, { method: 'POST', body: JSON.stringify({ date, time }) });
+export const apiApptAccept = (id: string) => apiRequest<{ appointment: any }>(`/api/appointments/${encodeURIComponent(id)}/accept`, { method: 'POST', body: '{}' });
+export const apiBookMode = (providerId: string, mode: 'customer' | 'clinic') => apiRequest<{ ok: boolean }>(`/api/providers/${encodeURIComponent(providerId)}/book-mode`, { method: 'PATCH', body: JSON.stringify({ mode }) });
+
+/** Prescription forwarding (clinic -> patient -> pharmacy). */
+export type RxRow = { id: string; number: string; patientName: string; clinicName: string; pharmacyId: string; pharmacyName: string; meds: string; hasImage: boolean; status: 'issued' | 'sent' | 'ready' | 'picked_up' | 'delivery' | 'cancelled' | 'expired'; expiresAt: number; createdAt: number; role: string };
+export const apiRxList = () => apiRequest<{ enabled: boolean; list: RxRow[] }>('/api/rx');
+export const apiRxPharmacies = (appointmentId: string) => apiRequest<{ pharmacies: { id: string; name: string; region: string; suggested: boolean }[] }>(`/api/rx/pharmacies/${encodeURIComponent(appointmentId)}`);
+export const apiRxCreate = (input: { appointmentId: string; meds: string; image?: string | null; pharmacyId?: string }) => apiRequest<{ rx: RxRow }>('/api/rx', { method: 'POST', body: JSON.stringify(input) });
+export const apiRxPhoto = (id: string) => apiRequest<{ image: string | null }>(`/api/rx/${encodeURIComponent(id)}/photo`);
+export const apiRxStep = (id: string, step: 'choose' | 'ready' | 'pickup' | 'delivery' | 'cancel', body: any = {}) => apiRequest<{ rx: RxRow; orderText?: string; pharmacyId?: string }>(`/api/rx/${encodeURIComponent(id)}/${step}`, { method: 'POST', body: JSON.stringify(body) });

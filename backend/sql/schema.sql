@@ -619,3 +619,21 @@ CREATE TABLE IF NOT EXISTS chat_reports (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (message_id, reporter_id)
 );
+
+-- Prescription forwarding: the clinic writes it, the patient approves the pharmacy, the pharmacy prepares it; valid for 7 days
+CREATE TABLE IF NOT EXISTS prescriptions (
+  id BIGSERIAL PRIMARY KEY,
+  patient_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  clinic_provider_id BIGINT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  appointment_id BIGINT REFERENCES appointments(id) ON DELETE SET NULL,
+  pharmacy_provider_id BIGINT REFERENCES providers(id) ON DELETE SET NULL,
+  meds TEXT NOT NULL DEFAULT '',
+  image BYTEA,
+  mime TEXT,
+  status TEXT NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','sent','ready','picked_up','delivery','cancelled')),
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_rx_patient ON prescriptions(patient_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rx_pharmacy ON prescriptions(pharmacy_provider_id, status);

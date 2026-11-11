@@ -47,6 +47,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       doctorId: r.doctor_product_id ? String(r.doctor_product_id) : '', doctorName: d.doctorName || '', specialty: d.specialty || '',
       date: r.date_str, time: r.appointment_time, fee: num(r.fee), notes: d.notes || '', status: r.status,
       invoiceId: d.invoiceId ? String(d.invoiceId) : undefined, createdAt: ms(r.created_at), updatedAt: ms(r.updated_at),
+      ...(d.kind === 'clinic_set' ? { clinicSet: { stage: d.stage || 'awaiting' } } : {}),
       ...(d.kind === 'lab' && d.lab ? { lab: { stage: d.lab.stage || 'new', reason: d.lab.reason || '', hasRx: !!d.lab.hasRx, hasReport: !!d.lab.hasReport, reportName: d.lab.reportName || '', note: d.lab.note || '' } } : {}),
     };
   };
@@ -1059,6 +1060,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const isCustomer = role === 'admin' || (role === 'customer' && Number(a.customer_user_id) === me);
       const dataNow = { ...(a.data || {}) };
       let status;
+      if (action === 'confirm' && dataNow.kind === 'clinic_set') throw fail(409, 'العيادة تقترح الميعاد والعميل هو اللي يوافق عليه');
       if (action === 'confirm') { if (!isClinic) throw fail(403, 'غير مسموح'); if (a.status !== 'pending') throw fail(409, 'تم البت في هذا الحجز'); status = 'confirmed'; }
       else if (action === 'reject') { if (!isClinic) throw fail(403, 'غير مسموح'); if (a.status !== 'pending') throw fail(409, 'تم البت في هذا الحجز'); status = 'rejected'; }
       else if (action === 'complete') { if (!isClinic) throw fail(403, 'غير مسموح'); if (a.status !== 'confirmed') throw fail(409, 'يجب تأكيد الحجز أولاً'); status = 'completed'; }
@@ -1080,6 +1082,88 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     });
     if (['confirm', 'reject'].includes(action)) await notify([out.customer_user_id], action === 'confirm' ? 'تم تأكيد حجزك ✅' : 'اعتذرت العيادة عن الحجز', `${(out.data || {}).clinicName || ''} — ${out.date_str} ${out.appointment_time}`, `appt-${out.id}`);
     res.json({ appointment: apptJsonFor(out, (req.auth || {}).role) });
+  }));
+
+
+  /* ---------- clinic sets the time (switch "clinicSchedule" + the clinic's own mode): the customer asks, the clinic writes the day and time,
+     the customer accepts (a booking invoice is made) or cancels ---------- */
+  const INVOICE_FOR = async (db, a, dataNow) => {
+    const dateStr = (await db.query("SELECT to_char(appointment_date,'YYYY-MM-DD') AS d FROM appointments WHERE id=$1", [a.id])).rows[0].d;
+    const inv = await db.query('INSERT INTO invoices(customer_user_id, appointment_id, kind, total, data) VALUES($1,$2,\'booking\',$3,$4) RETURNING *', [
+      a.customer_user_id, a.id, Number(a.fee),
+      JSON.stringify({ number: `BK-${500 + Number(a.id)}`, customerName: dataNow.patientName, phone: dataNow.phone, address: dataNow.clinicAddress, parts: [],
+        appointmentId: String(a.id), ownerId: dataNow.clinicOwnerId, clinicName: dataNow.clinicName, doctorName: dataNow.doctorName,
+        specialty: dataNow.specialty, date: dateStr, time: a.appointment_time, fee: Number(a.fee) }),
+    ]);
+    return String(inv.rows[0].id);
+  };
+  app.post('/api/appointments/request', auth, roles('customer'), guard(async (req, res) => {
+    await requireOpen();
+    if (!(await extrasLib.featureOn(pool, 'clinicSchedule'))) throw fail(409, 'الميزة غير متاحة حاليًا');
+    const b = req.body || {};
+    const doctorId = positiveId(b.doctorId);
+    const patientName = String(b.patientName || '').trim();
+    const phone = normPhone(b.phone);
+    if (!doctorId) throw fail(400, 'اختر الطبيب');
+    if (patientName.length < 3) throw fail(400, 'اكتب اسم المريض');
+    if (!PHONE.test(phone)) throw fail(400, 'رقم الهاتف غير صحيح');
+    const d = await pool.query(
+      `SELECT pr.*, p.id AS pid, p.name AS pname, p.owner_user_id, p.address AS paddr, p.status AS pstatus, p.is_open, p.deleted_at, p.metadata AS pmeta
+       FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE pr.id=$1`, [doctorId]);
+    if (!d.rowCount) throw fail(404, 'الطبيب غير موجود');
+    const doc = d.rows[0];
+    if (doc.deleted_at || doc.pstatus !== 'active' || !doc.is_open || !doc.available) throw fail(409, 'العيادة لا تستقبل حجوزات حالياً');
+    if (!doc.pmeta || doc.pmeta.bookMode !== 'clinic') throw fail(409, 'هذه العيادة تحجز بالطريقة العادية');
+    const r = await pool.query(
+      `INSERT INTO appointments(customer_user_id, provider_id, doctor_product_id, appointment_date, appointment_time, status, fee, data)
+       VALUES($1,$2,$3,CURRENT_DATE,'بانتظار-'||substr(md5(random()::text),1,8),'pending',$4,$5) RETURNING id`,
+      [Number(req.auth.sub), doc.pid, doc.id, Number(doc.price), JSON.stringify({
+        kind: 'clinic_set', stage: 'awaiting', patientName, phone, clinicName: doc.pname, clinicOwnerId: String(doc.owner_user_id), clinicAddress: doc.paddr || '', doctorName: doc.name,
+        specialty: (doc.data && doc.data.category) || '', notes: String(b.notes || '').slice(0, 500), ...(await flagData(pool, Number(req.auth.sub))) })]);
+    const a = await pool.query(`${APPT_SQL} WHERE a.id=$1`, [r.rows[0].id]);
+    await notify([doc.owner_user_id], 'طلب كشف جديد 📅', `${patientName} — حدد له اليوم والساعة`, `appt-${r.rows[0].id}`);
+    res.status(201).json({ appointment: apptJson(a.rows[0]) });
+  }));
+  app.post('/api/appointments/:id/propose', auth, roles('provider', 'admin'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف الحجز غير صالح');
+    const date = String((req.body || {}).date || ''), time = String((req.body || {}).time || '').trim();
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00Z`) : null;
+    if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) throw fail(400, 'اكتب اليوم');
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(time)) throw fail(400, 'اكتب الساعة بالشكل 18:30');
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT a.*, p.owner_user_id AS powner FROM appointments a JOIN providers p ON p.id=a.provider_id WHERE a.id=$1 FOR UPDATE OF a', [id]);
+      if (!f.rowCount) throw fail(404, 'الحجز غير موجود');
+      const a = f.rows[0]; const d = a.data || {};
+      if (d.kind !== 'clinic_set') throw fail(409, 'هذا الحجز ليس من نوع تحديد العيادة للميعاد');
+      if (req.auth.role !== 'admin' && Number(a.powner) !== Number(req.auth.sub)) throw fail(403, 'غير مسموح');
+      if (a.status !== 'pending') throw fail(409, 'تم البت في هذا الحجز');
+      const past = await db.query('SELECT ($1::date < CURRENT_DATE) AS past, ($1::date > CURRENT_DATE + 90) AS far', [date]);
+      if (past.rows[0].past) throw fail(400, 'اختر يومًا قادمًا');
+      if (past.rows[0].far) throw fail(400, 'اختر ميعادًا خلال الأشهر القادمة');
+      try { await db.query("UPDATE appointments SET appointment_date=$1, appointment_time=$2, data=$3, updated_at=NOW() WHERE id=$4", [date, time, JSON.stringify({ ...d, stage: 'proposed' }), id]); }
+      catch (e) { if (e.code === '23505' || e.errno === '23505') throw fail(409, 'الميعاد ده محجوز لحد تاني، اكتب ميعاد آخر'); throw e; }
+      return (await db.query(`${APPT_SQL} WHERE a.id=$1`, [id])).rows[0];
+    });
+    await notify([out.customer_user_id], 'العيادة حددت ميعاد كشفك 📅', `${out.date_str} الساعة ${out.appointment_time}، وافق عليه من التطبيق`, `appt-${id}`);
+    res.json({ appointment: apptJsonFor(out, req.auth.role) });
+  }));
+  app.post('/api/appointments/:id/accept', auth, roles('customer'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف الحجز غير صالح');
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT a.*, p.owner_user_id AS powner FROM appointments a JOIN providers p ON p.id=a.provider_id WHERE a.id=$1 FOR UPDATE OF a', [id]);
+      if (!f.rowCount || Number(f.rows[0].customer_user_id) !== Number(req.auth.sub)) throw fail(404, 'الحجز غير موجود');
+      const a = f.rows[0]; const d = { ...(a.data || {}) };
+      if (d.kind !== 'clinic_set' || d.stage !== 'proposed') throw fail(409, 'لا يوجد ميعاد مقترح للموافقة عليه');
+      if (a.status !== 'pending') throw fail(409, 'تم البت في هذا الحجز');
+      d.stage = 'accepted';
+      d.invoiceId = await INVOICE_FOR(db, a, d);
+      await db.query("UPDATE appointments SET status='confirmed', data=$1, updated_at=NOW() WHERE id=$2", [JSON.stringify(d), id]);
+      return { row: (await db.query(`${APPT_SQL} WHERE a.id=$1`, [id])).rows[0], owner: a.powner };
+    });
+    await notify([out.owner], 'العميل وافق على الميعاد ✅', `${out.row.date_str} ${out.row.appointment_time}`, `appt-${id}`);
+    res.json({ appointment: apptJsonFor(out.row, 'customer') });
   }));
 
   /* ---------- medical labs: the customer writes the reason / sends a prescription, the lab sets the visit day and price, the customer

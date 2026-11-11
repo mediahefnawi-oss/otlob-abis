@@ -6,7 +6,9 @@ import {
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
 import { MenuManager } from '../components/Menu';
+import { ClinicSetActions, ClinicModeCard } from '../components/ClinicSchedule';
 import { ShopChatInbox } from '../components/Chat';
+import { ClinicRxButton, PharmacyRxInbox } from '../components/Rx';
 import { LabCardActions } from '../components/Lab';
 import { QuoteButtons, MakerOrderButtons } from '../components/Quote';
 import { ProviderLogo, ProductThumb, ProductPicture, LogoPicker } from '../components/Brand';
@@ -105,7 +107,9 @@ export function ProviderOrdersScreen({ navigation }: any) {
             <Appear i={index}>
               <ApptCard a={item} perspective="provider" onPress={() => navigation.navigate('ApptDetail', { id: item.id })}>
                 {item.lab ? <LabCardActions a={item} navigation={navigation} role="provider" /> : null}
-                {!item.lab && item.status === 'pending' && (
+                {item.clinicSet ? <ClinicSetActions a={item} role="provider" /> : null}
+                <ClinicRxButton a={item} />
+                {!item.lab && !item.clinicSet && item.status === 'pending' && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="green" icon="checkmark" title="قبول وإصدار الفاتورة" style={{ flex: 2 }} onPress={() => { apptAction(item.id, 'confirm'); toast('تم قبول الحجز وإنشاء الفاتورة ✅'); }} />
                     <Btn small variant="danger" icon="close" title="رفض" style={{ flex: 1 }} onPress={() => { apptAction(item.id, 'reject'); toast('تم رفض الحجز'); }} />
@@ -329,6 +333,8 @@ export function ProviderProfileScreen({ navigation }: any) {
   const orders = db.orders.filter((o) => o.providerId === prov.id && o.status === 'delivered');
   const extra = (
     <>
+      <ClinicModeCard prov={prov} />
+      {prov.type === 'pharmacy' && <PharmacyRxInbox />}
       <ShopChatInbox />
       {db.settings.features?.menu && <MenuManager providerId={prov.id} />}
       <Card style={{ gap: 12 }}>

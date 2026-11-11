@@ -42,20 +42,19 @@ function Conversation({ load, send, hint }: { load: () => Promise<ChatMsg[] | nu
 }
 
 /** Customer: "ask the shop" on the shop's page. Hidden unless the owner switched chat on (and did not close it for this shop). */
-export function ShopChatButton({ providerId, chatOff }: { providerId: string; chatOff?: boolean }) {
+export function ShopChatButton({ providerId, chatOff, bottom = 22 }: { providerId: string; chatOff?: boolean; bottom?: number }) {
   const { db } = useStore();
   const [open, setOpen] = useState(false);
   if (!db.settings.features?.chat || chatOff) return null;
   const load = () => apiShopChat(providerId).then((r) => (r.enabled ? r.messages : null));
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} style={{ marginHorizontal: 16, marginTop: 10 }}>
-        <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 }}>
-          <Icon name="chatbubbles" size={22} color={C.goldDeep} />
-          <View style={{ flex: 1 }}><T w="bold" size={13.5}>اسأل المحل قبل ما تطلب</T><T size={11.5} color={C.sub}>اسأل عن منتج أو سعر أو ميعاد</T></View>
-          <Icon name="chevron-back" size={16} color={C.sub} />
-        </Card>
-      </Pressable>
+      <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center', zIndex: 20 }}>
+        <Pressable onPress={() => setOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.gold, borderRadius: 30, paddingHorizontal: 22, paddingVertical: 12, shadowColor: C.gold, shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 }}>
+          <Icon name="chatbubbles" size={20} color={C.dark} />
+          <T w="black" size={14} color={C.dark}>اسأل المحل قبل ما تطلب</T>
+        </Pressable>
+      </View>
       <Sheet visible={open} onClose={() => setOpen(false)} title="محادثة مع المحل">
         {open && <Conversation load={load} send={(t) => apiShopChatSend(providerId, t).then((r) => r.message)} hint="اكتب سؤالك للمحل" />}
         <Btn variant="soft" icon="cart" title="اطلب دلوقتي" onPress={() => setOpen(false)} />

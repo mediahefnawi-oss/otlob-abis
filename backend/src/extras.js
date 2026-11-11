@@ -99,6 +99,17 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
     if (!p.rowCount) throw fail(404, 'مقدم الخدمة غير موجود');
     if (req.auth.role !== 'admin' && String(p.rows[0].owner_user_id) !== req.auth.sub) throw fail(403, 'غير مسموح');
   }
+  app.patch('/api/providers/:id/book-mode', auth, roles('provider', 'admin'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف غير صالح');
+    await ownerCheck(req, id);
+    const mode = String((req.body || {}).mode || '');
+    if (!['customer', 'clinic'].includes(mode)) throw fail(400, 'اختر طريقة الحجز');
+    if (mode === 'clinic' && !(await featureOn(pool, 'clinicSchedule'))) throw fail(409, 'الميزة غير مفعّلة');
+    await pool.query("UPDATE providers SET metadata = jsonb_set(COALESCE(metadata,'{}'::jsonb), '{bookMode}', to_jsonb($1::text)) WHERE id=$2", [mode, id]);
+    clearCaches();
+    res.json({ ok: true, mode });
+  }));
   app.get('/api/providers/:id/menu', guard(async (req, res) => {
     const id = positiveId(req.params.id);
     if (!id) throw fail(400, 'معرّف غير صالح');

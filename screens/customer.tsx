@@ -18,12 +18,14 @@ import { ProductPhoto } from '../components/Quote';
 import { CouponBox } from '../components/Coupons';
 import { ProductSheet } from '../components/ProductSheet';
 import {
-  useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, deliveryOpen, feeFor, kmInfoFor } from '../lib/store';
+  useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, requestClinicSlot, deliveryOpen, feeFor, kmInfoFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
 import { MenuGallery } from '../components/Menu';
+import { ClinicSetActions } from '../components/ClinicSchedule';
 import { ShopChatButton } from '../components/Chat';
+import { MyRxCard } from '../components/Rx';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isLab, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { LabCardActions } from '../components/Lab';
 import { ProviderType, Provider, Product } from '../lib/types';
@@ -395,7 +397,6 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13} style={{ flex: 1 }}>التوصيل من منطقة هذا المكان إلى منطقتك غير متاح حالياً</T>
         </View>
       )}
-      <ShopChatButton providerId={p.id} chatOff={p.chatOff} />
       {(p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} />}
       {!blocked && (requestOnly || isMakerTpl(p.type)) && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
@@ -482,6 +483,7 @@ export function ProviderScreen({ navigation, route }: any) {
           <T w="black" color={C.gold}>{money(det.subtotal)}</T>
         </Pressable>
       )}
+      <ShopChatButton providerId={p.id} chatOff={p.chatOff} bottom={insets.bottom + (cartCount > 0 && !isBooking(p.type) ? 84 : 22)} />
     </View>
   );
 }
@@ -646,6 +648,7 @@ export function BookingScreen({ navigation, route }: any) {
   const [phone, setPhone] = useState(me.phone);
   const [notes, setNotes] = useState('');
   if (!doc || !clinic) return <Empty title="غير موجود" />;
+  const clinicSets = !!db.settings.features?.clinicSchedule && clinic.bookMode === 'clinic';
   const nowH = new Date();
   const slots = (doc.slots && doc.slots.length ? doc.slots : ALL_SLOTS).filter((s) => {
     if (date !== days[0]) return true;
@@ -654,6 +657,13 @@ export function BookingScreen({ navigation, route }: any) {
   });
 
   const submit = async () => {
+    if (clinicSets) {
+      const r0 = await requestClinicSlot(me, { doctor: doc, patientName: pname, phone, notes });
+      if (!r0.ok) return toast(r0.error, 'err');
+      toast('تم إرسال طلبك، والعيادة هتحدد لك الميعاد ✅');
+      navigation.replace('ApptDetail', { id: r0.id });
+      return;
+    }
     if (!time) return toast('اختر ميعاد الحجز', 'err');
     const r = await bookAppointment(me, { doctor: doc, date, time, patientName: pname, phone, notes });
     if (!r.ok) return toast(r.error, 'err');
@@ -674,7 +684,8 @@ export function BookingScreen({ navigation, route }: any) {
               <T w="bold" size={13.5} color={C.goldDeep}>رسوم الكشف {money(doc.price)}</T>
             </View>
           </Card>
-          <View>
+          {clinicSets && <Card><T w="bold" size={13.5}>العيادة هي اللي بتحدد اليوم والساعة</T><T size={12} color={C.sub}>سجّل بياناتك وهيجيلك الميعاد من العيادة، توافق عليه فيتأكد الحجز.</T></Card>}
+          {!clinicSets && <View>
             <SectionTitle title="اختر اليوم" />
             <FlatList horizontal data={days} keyExtractor={(d) => d} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}
               renderItem={({ item, index }) => {
@@ -688,8 +699,8 @@ export function BookingScreen({ navigation, route }: any) {
                 );
               }}
             />
-          </View>
-          <View>
+          </View>}
+          {!clinicSets && <View>
             <SectionTitle title="اختر الميعاد" />
             {slots.length === 0 ? (
               <T color={C.sub}>لا توجد مواعيد متاحة اليوم، اختر يوماً آخر.</T>
@@ -706,13 +717,13 @@ export function BookingScreen({ navigation, route }: any) {
                 })}
               </View>
             )}
-          </View>
+          </View>}
           <Card style={{ gap: 12 }}>
             <Field label="اسم المريض" icon="person" value={pname} onChangeText={setPname} />
             <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
             <Field label="ملاحظات للدكتور (اختياري)" icon="create" value={notes} onChangeText={setNotes} multiline placeholder="الأعراض أو سبب الزيارة" />
           </Card>
-          <Btn title="تأكيد طلب الحجز" icon="checkmark-circle" onPress={submit} />
+          <Btn title={clinicSets ? "إرسال طلب الكشف" : "تأكيد طلب الحجز"} icon="checkmark-circle" onPress={submit} />
           <T size={12} color={C.sub} align="center">سيصل طلبك للعيادة وبعد تأكيدها ستصلك فاتورة الحجز</T>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -761,6 +772,7 @@ export function CustomerOrdersScreen({ navigation }: any) {
         <FlatList
           data={appts}
           keyExtractor={(o) => o.id}
+          ListHeaderComponent={<MyRxCard />}
           refreshControl={rc}
           contentContainerStyle={{ padding: 16, gap: 12 }}
           ListEmptyComponent={<Empty icon="calendar" title="لا توجد حجوزات" text="احجز موعدك مع أفضل الأطباء من قسم حجز العيادات" />}
@@ -768,6 +780,7 @@ export function CustomerOrdersScreen({ navigation }: any) {
             <Appear i={index}>
               <ApptCard a={item} perspective="customer" onPress={() => navigation.navigate('ApptDetail', { id: item.id })}>
                 {item.lab ? <LabCardActions a={item} navigation={navigation} role="customer" /> : null}
+                {item.clinicSet ? <ClinicSetActions a={item} role="customer" /> : null}
                 {item.invoiceId && <Btn small variant="soft" title="فاتورة الحجز" icon="document-text" onPress={() => navigation.navigate('Invoice', { id: item.invoiceId })} />}
               </ApptCard>
             </Appear>
@@ -783,7 +796,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
   const { db } = useStore();
   const me = useMe()!;
   const p = db.providers.find((x) => x.id === route.params.id);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(route.params?.prefill || '');
   const [image, setImage] = useState<string | null>(null);
   const [phone, setPhone] = useState(me.phone);
   const [address, setAddress] = useState(me.address);

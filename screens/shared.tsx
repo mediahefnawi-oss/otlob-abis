@@ -10,6 +10,7 @@ import {
   toast, confirmDialog, openWhats, callPhone, IconBtn, SectionTitle, AcctPill, FlagPill,
 } from '../components/ui';
 import { APP_VERSION } from '../lib/version';
+import { ClinicSetActions } from '../components/ClinicSchedule';
 import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened, ackOrder } from '../lib/store';
 import { CommissionTrail } from '../components/Finance';
 import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel, isMakerTpl } from '../lib/format';
@@ -309,9 +310,10 @@ export function ApptDetailScreen({ navigation, route }: any) {
           {!!a.notes && <Row icon="create" label="ملاحظات" value={a.notes} />}
         </Card>
         {me.role === 'admin' && a.status === 'completed' && <CommissionTrail appointmentId={a.id} />}
-        {a.status === 'pending' && me.role === 'customer' && <T size={12.5} color={C.sub} align="center">بانتظار تأكيد العيادة، وستصلك فاتورة الحجز فور القبول.</T>}
+        {a.status === 'pending' && me.role === 'customer' && !a.clinicSet && <T size={12.5} color={C.sub} align="center">بانتظار تأكيد العيادة، وستصلك فاتورة الحجز فور القبول.</T>}
         <View style={{ gap: 10 }}>
-          {isOwner && a.status === 'pending' && (
+          {a.clinicSet && a.status === 'pending' && (me.role === 'customer' || isOwner) && <ClinicSetActions a={a} role={me.role === 'customer' ? 'customer' : 'provider'} />}
+          {isOwner && a.status === 'pending' && !a.clinicSet && (
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Btn title="قبول الحجز" icon="checkmark" variant="green" style={{ flex: 1 }} onPress={() => act('confirm', 'تم قبول الحجز وإنشاء الفاتورة ✅')} />
               <Btn title="رفض" icon="close" variant="danger" style={{ flex: 1 }} onPress={() => confirmDialog({ title: 'رفض الحجز؟', danger: true, confirmText: 'رفض', onConfirm: () => act('reject', 'تم رفض الحجز') })} />

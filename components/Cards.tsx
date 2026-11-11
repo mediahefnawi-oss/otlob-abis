@@ -132,7 +132,9 @@ export function ApptCard({ a, onPress, perspective, children }: { a: Appointment
         {a.lab ? <LabPill stage={a.lab.stage} /> : <ApptPill s={a.status} />}
       </View>
       {perspective !== 'customer' && !!a.customerFlag && <View style={{ flexDirection: 'row' }}><FlagPill flag={a.customerFlag} /></View>}
-      {a.lab && a.lab.stage === 'new' ? (
+      {a.clinicSet && a.clinicSet.stage === 'awaiting' ? (
+        <T size={12.5} color={C.sub}>{perspective === 'provider' ? 'العميل بيطلب كشف، حدد له اليوم والساعة' : 'بانتظار العيادة تحدد لك اليوم والساعة'}</T>
+      ) : a.lab && a.lab.stage === 'new' ? (
         <T size={12.5} color={C.sub} numberOfLines={2}>{a.lab.reason || 'طلب بروشتة مرفقة'}</T>
       ) : (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>

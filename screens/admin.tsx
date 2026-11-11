@@ -27,6 +27,7 @@ import { MapModeCard, CustomerLocationCard } from '../components/Location';
 import { apiSupervisorSupport } from '../lib/api';
 import { AdsManager } from '../components/Ads';
 import { MenuManager } from '../components/Menu';
+import { ClinicModeCard } from '../components/ClinicSchedule';
 import { HoursSettings } from '../components/HoursSettings';
 import { ReplicationCard } from '../components/Replication';
 import { ProviderType, AccountStatus, Provider } from '../lib/types';
@@ -503,6 +504,7 @@ export function AdminDetailScreen({ navigation, route }: any) {
           </View>
         </Card>
         {prov && <ProviderModeCard prov={prov} />}
+        {prov && <ClinicModeCard prov={prov} />}
         {prov && db.settings.features?.menu && <MenuManager providerId={prov.id} />}
         {prov && (
           <Card style={{ gap: 12 }}>

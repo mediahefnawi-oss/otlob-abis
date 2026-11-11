@@ -76,7 +76,8 @@ export interface Provider {
   featured?: boolean; // the owner put it in the customers' "الأعلى تقييماً" row
   orderMode?: '' | 'cart' | 'request' | 'menu'; // how this one place takes orders when the owner overrides its section (empty = by section)
   menuCount?: number;
-  chatOff?: boolean; // pages of its picture menu
+  chatOff?: boolean;
+  bookMode?: 'customer' | 'clinic'; // pages of its picture menu
   lat?: number; // the shop's spot on the map
   lng?: number;
   createdAt: number;
@@ -173,6 +174,7 @@ export interface LabInfo { stage: 'new' | 'quoted' | 'confirmed' | 'visited' | '
 
 export interface Appointment {
   lab?: LabInfo;
+  clinicSet?: { stage: 'awaiting' | 'proposed' | 'accepted' };
   customerFlag?: string;
   customerFlagNote?: string;
   id: string;

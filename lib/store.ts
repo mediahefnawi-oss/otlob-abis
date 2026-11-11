@@ -11,7 +11,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -266,7 +266,7 @@ const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0, ratingCount: Number(x.ratingCount) || 0,
   eta: x.eta ?? (isBooking(x.type) ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
-  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, orderMode: ['cart', 'request', 'menu'].includes(x.orderMode) ? x.orderMode : '', chatOff: !!x.chatOff, menuCount: Number(x.menuCount) || 0, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
+  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, orderMode: ['cart', 'request', 'menu'].includes(x.orderMode) ? x.orderMode : '', chatOff: !!x.chatOff, bookMode: x.bookMode === 'clinic' ? 'clinic' : undefined, menuCount: Number(x.menuCount) || 0, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
 });
 const toProduct = (x: any): Product => ({
   id: String(x.id), providerId: String(x.providerId), kind: x.kind === 'doctor' ? 'doctor' : 'item', name: x.name,
@@ -937,6 +937,35 @@ export async function bookAppointment(
   } finally {
     pendingWrites--;
   }
+}
+
+/* ---------- clinics that set the time themselves ---------- */
+export async function requestClinicSlot(me: User, info: { doctor: Product; patientName: string; phone: string; notes: string }): Promise<Result<{ id: string }>> {
+  { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
+  if (info.patientName.trim().length < 3) return { ok: false, error: 'اكتب اسم المريض' };
+  if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
+  pendingWrites++;
+  try {
+    const { appointment } = await apiApptRequest({ doctorId: info.doctor.id, patientName: info.patientName.trim(), phone: normPhone(info.phone), notes: info.notes.trim() });
+    mutate((db) => { db.appointments = upsertById(db.appointments, [appointment as Appointment]); });
+    return { ok: true, id: String(appointment.id) };
+  } catch (e) { return { ok: false, error: errMsg(e) }; } finally { pendingWrites--; }
+}
+async function clinicStep(f: () => Promise<{ appointment: any }>): Promise<Result> {
+  pendingWrites++;
+  try {
+    const { appointment } = await f();
+    mutate((db) => { db.appointments = upsertById(db.appointments, [appointment as Appointment]); });
+    syncOrders().catch(() => {});
+    return { ok: true };
+  } catch (e) { syncOrders().catch(() => {}); return { ok: false, error: errMsg(e) }; } finally { pendingWrites--; }
+}
+export const proposeApptTime = (id: string, date: string, time: string) => clinicStep(() => apiApptPropose(id, date, time));
+export const acceptApptTime = (id: string) => clinicStep(() => apiApptAccept(id));
+export async function setClinicBookMode(providerId: string, mode: 'customer' | 'clinic'): Promise<Result> {
+  try { await apiBookMode(providerId, mode); } catch (e) { return { ok: false, error: errMsg(e) }; }
+  mutate((db) => { db.providers = db.providers.map((x) => (x.id === providerId ? { ...x, bookMode: mode === 'clinic' ? 'clinic' : undefined } : x)); });
+  return { ok: true };
 }
 
 /* ---------- medical labs ---------- */
