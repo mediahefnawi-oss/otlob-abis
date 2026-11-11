@@ -23,6 +23,7 @@ import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
 import { MenuGallery } from '../components/Menu';
+import { ShopChatButton } from '../components/Chat';
 import { TYPES, money, SPECIALTIES, SPEC_EMOJI, isoDay, dayName, ALL_SLOTS, isBooking, isLab, isMakerTpl, isRequestOnly, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { LabCardActions } from '../components/Lab';
 import { ProviderType, Provider, Product } from '../lib/types';
@@ -345,6 +346,8 @@ export function ProviderScreen({ navigation, route }: any) {
   const [rateOpen, setRateOpen] = useState(false);
   const [sel, setSel] = useState<Product | null>(null);
   const insets = useSafeAreaInsets();
+  // an ad that points at one item opens its sheet
+  useEffect(() => { const pid = route.params?.product; if (pid) { const x = db.products.find((y) => y.id === pid); if (x) setSel(x); } }, [route.params?.product, db.products.length]);
   // a medical lab has no menu: the customer goes straight to the request form
   useEffect(() => { if (p && isLab(p.type)) navigation.replace('LabRequest', { id: p.id }); }, [p?.id]);
   if (!p) return <Empty title="غير موجود" />;
@@ -392,6 +395,7 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13} style={{ flex: 1 }}>التوصيل من منطقة هذا المكان إلى منطقتك غير متاح حالياً</T>
         </View>
       )}
+      <ShopChatButton providerId={p.id} chatOff={p.chatOff} />
       {(p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} />}
       {!blocked && (requestOnly || isMakerTpl(p.type)) && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>

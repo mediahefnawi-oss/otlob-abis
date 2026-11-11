@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { View, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Card, Header, Toggle, Empty, toast } from './ui';
+import { CourierPhotoReview } from './CourierPhoto';
+import { ChatReportsList } from './Chat';
 import { apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
 
 const HINT: Record<string, string> = {
@@ -43,6 +45,8 @@ export function AdminFeaturesScreen({ navigation }: any) {
             </View>
           </Card>
         ))}
+        {(rows || []).some((f) => f.key === 'chat' && f.on) && <ChatReportsList />}
+        {(rows || []).some((f) => f.key === 'courierPhoto' && f.on) && <CourierPhotoReview />}
       </ScrollView>
     </View>
   );

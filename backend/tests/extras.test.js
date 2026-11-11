@@ -88,6 +88,44 @@ const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////
   r = await call('GET /api/providers/:id/menu', C, {}, { id: String(rest) }); eq(r.json.images.length, 0, 'switch OFF: customers see no menu');
   eq((await call('POST /api/providers/:id/menu', P1, { image: PIC }, { id: String(rest) })).status, 409, 'switch OFF: no uploads');
 
+  console.log('E) ads that open a shop or a product');
+  const X = require('../src/extras');
+  const prodRow = await pool.query('SELECT id FROM products LIMIT 1');
+  const prodId = prodRow.rows[0] && prodRow.rows[0].id;
+  await call('PATCH /api/admin/features', A, { key: 'adTarget', on: false });
+  r = await X.checkAppLink(pool, 'app:provider:' + rest); ok(r && r.error, 'switch OFF: an in-app link is refused');
+  await call('PATCH /api/admin/features', A, { key: 'adTarget', on: true });
+  r = await X.checkAppLink(pool, 'app:provider:' + rest); ok(r && r.ok, 'switch ON: link to a shop accepted');
+  r = await X.checkAppLink(pool, 'app:provider:99999'); ok(r && r.error, 'unknown shop refused');
+  if (prodId) { r = await X.checkAppLink(pool, 'app:product:' + prodId); ok(r && r.ok, 'link to a product accepted'); }
+  r = await X.checkAppLink(pool, 'app:product:99999'); ok(r && r.error, 'unknown product refused');
+  eq(await X.checkAppLink(pool, 'app:other:1'), null, 'other app: kinds are not app links (then fail the http check)');
+  eq(await X.checkAppLink(pool, 'https://example.com'), null, 'normal web link untouched');
+  eq(await X.checkAppLink(pool, ''), null, 'empty link untouched');
+
+  console.log('F) courier photo needs the owner\'s approval');
+  const cour = await mk('مندوب', 'courier'); const K = { sub: String(cour), role: 'courier', status: 'active' };
+  await call('PATCH /api/admin/features', A, { key: 'courierPhoto', on: false });
+  eq((await call('POST /api/courier/photo', K, { image: PIC })).status, 409, 'switch OFF: no upload');
+  await call('PATCH /api/admin/features', A, { key: 'courierPhoto', on: true });
+  eq((await call('POST /api/courier/photo', K, { image: 'data:text/html;base64,AAAA' })).status, 400, 'not a picture refused');
+  eq((await call('POST /api/courier/photo', K, { image: 'data:image/jpeg;base64,' + 'A'.repeat(500000) })).status, 400, 'too big refused');
+  eq((await call('POST /api/courier/photo', K, { image: PIC })).status, 201, 'courier uploads');
+  r = await call('GET /api/courier/photo', K); eq(r.json.status, 'pending', 'waits for approval'); eq(r.json.approved, false, 'nothing approved yet');
+  r = await call('GET /api/courier-photo/:uid', C, {}, { uid: String(cour) }); eq(r.status, 404, 'customers see nothing while pending');
+  r = await call('GET /api/admin/courier-photos', A); eq(r.json.photos.length, 1, 'owner sees one waiting'); eq(r.json.photos[0].userId, String(cour), 'it is the courier'); ok(/^data:image\/jpeg;base64,/.test(r.json.photos[0].image), 'owner gets the picture to look at');
+  eq((await call('PATCH /api/admin/courier-photos/:uid', A, { approve: 'yes' }, { uid: String(cour) })).status, 400, 'a clear yes/no is required');
+  eq((await call('PATCH /api/admin/courier-photos/:uid', A, { approve: true }, { uid: String(cour) })).status, 200, 'owner approves');
+  r = await call('GET /api/courier-photo/:uid', C, {}, { uid: String(cour) }); eq(r.status, 200, 'customers now see it');
+  eq((await call('PATCH /api/admin/courier-photos/:uid', A, { approve: true }, { uid: String(cour) })).status, 404, 'nothing left to approve');
+  await call('POST /api/courier/photo', K, { image: PIC });
+  r = await call('GET /api/courier-photo/:uid', C, {}, { uid: String(cour) }); eq(r.status, 200, 'a new upload does not hide the approved one');
+  eq((await call('PATCH /api/admin/courier-photos/:uid', A, { approve: false }, { uid: String(cour) })).status, 200, 'owner rejects the new one');
+  r = await call('GET /api/courier/photo', K); eq(r.json.status, 'rejected', 'courier sees it was rejected');
+  r = await call('GET /api/courier-photo/:uid', C, {}, { uid: String(cour) }); eq(r.status, 200, 'the approved one stays');
+  await call('PATCH /api/admin/features', A, { key: 'courierPhoto', on: false });
+  r = await call('GET /api/courier-photo/:uid', C, {}, { uid: String(cour) }); eq(r.status, 404, 'switch OFF hides it');
+
   console.log(bad ? `FAILED ${bad}` : 'ALL OK', 'pass=' + pass);
   await pool.end();
   process.exit(bad ? 1 : 0);

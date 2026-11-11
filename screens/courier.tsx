@@ -1,3 +1,4 @@
+import { CourierPhotoCard } from '../components/CourierPhoto';
 import React, { useEffect, useState } from 'react';
 import { View, FlatList, ScrollView, Pressable } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -231,6 +232,8 @@ export function CourierHistoryScreen({ navigation }: any) {
 export function CourierProfileScreen({ navigation }: any) {
   const me = useMe()!;
   const extra = (
+    <>
+    <CourierPhotoCard />
     <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
       <Icon name="bicycle" size={26} color={C.goldDeep} />
       <View style={{ flex: 1 }}>
@@ -238,6 +241,7 @@ export function CourierProfileScreen({ navigation }: any) {
         <T size={12} color={C.sub}>الحالة: {me.available ? 'متاح للعمل' : 'غير متاح'}</T>
       </View>
     </Card>
+    </>
   );
   return <ProfileScreen navigation={navigation} extra={extra} />;
 }

@@ -1,5 +1,6 @@
 import { feeFor, deliveryOpen, useStore } from '../lib/store';
 import { ProviderLogo } from './Brand';
+import { CourierAvatar } from './CourierPhoto';
 import React from 'react';
 import { View } from 'react-native';
 import { Provider, Order, Appointment, Invoice } from '../lib/types';
@@ -106,6 +107,7 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
         {perspective === 'courier' && <T size={11.5} color={C.sub}>عمولة التوصيل</T>}
         {perspective !== 'courier' && o.courierName && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <CourierAvatar courierId={o.courierId} size={24} />
             <Icon name="bicycle" size={14} color={C.sub} />
             <T size={11.5} color={C.sub}>{o.courierName}</T>
           </View>

@@ -422,3 +422,21 @@ export const apiMenuList = (providerId: string) => apiRequest<{ images: string[]
 export const apiMenuAdd = (providerId: string, image: string) => apiRequest<{ id: string }>(`/api/providers/${encodeURIComponent(providerId)}/menu`, { method: 'POST', body: JSON.stringify({ image }) });
 export const apiMenuDelete = (imgId: string) => apiRequest<{ ok: boolean }>(`/api/menu/${encodeURIComponent(imgId)}`, { method: 'DELETE' });
 export const menuImageUrl = (imgId: string) => `${API_BASE}/api/menu/${encodeURIComponent(imgId)}`;
+
+/** Courier's own picture: the courier uploads, the owner approves, customers see only approved ones. */
+export const apiCourierPhoto = () => apiRequest<{ enabled: boolean; status: 'none' | 'pending' | 'approved' | 'rejected'; approved: boolean }>('/api/courier/photo');
+export const apiCourierPhotoUpload = (image: string) => apiRequest<{ ok: boolean }>('/api/courier/photo', { method: 'POST', body: JSON.stringify({ image }) });
+export const apiPendingCourierPhotos = () => apiRequest<{ photos: { userId: string; name: string; image: string }[] }>('/api/admin/courier-photos');
+export const apiReviewCourierPhoto = (userId: string, approve: boolean) => apiRequest<{ ok: boolean }>(`/api/admin/courier-photos/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify({ approve }) });
+export const courierPhotoUrl = (userId: string, v = 0) => `${API_BASE}/api/courier-photo/${encodeURIComponent(userId)}?v=${v}`;
+
+/** Chat between a customer and a shop before an order. */
+export type ChatMsg = { id: string; mine: boolean; fromCustomer: boolean; text: string; at: number };
+export const apiShopChat = (providerId: string) => apiRequest<{ enabled: boolean; messages: ChatMsg[] }>(`/api/providers/${encodeURIComponent(providerId)}/chat`);
+export const apiShopChatSend = (providerId: string, text: string) => apiRequest<{ message: ChatMsg }>(`/api/providers/${encodeURIComponent(providerId)}/chat`, { method: 'POST', body: JSON.stringify({ text }) });
+export const apiChatThreads = () => apiRequest<{ enabled: boolean; unread?: number; threads: { id: string; name: string; last: string; at: number; unread: number }[] }>('/api/chat/threads');
+export const apiChatThread = (id: string) => apiRequest<{ name: string; messages: ChatMsg[] }>(`/api/chat/threads/${encodeURIComponent(id)}`);
+export const apiChatThreadSend = (id: string, text: string) => apiRequest<{ message: ChatMsg }>(`/api/chat/threads/${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ text }) });
+export const apiChatReport = (msgId: string) => apiRequest<{ ok: boolean }>(`/api/chat/messages/${encodeURIComponent(msgId)}/report`, { method: 'POST' });
+export const apiChatReports = () => apiRequest<{ reports: { id: string; at: number; text: string; from: string; reporter: string; providerId: string; providerName: string }[] }>('/api/admin/chat-reports');
+export const apiProviderChatOff = (providerId: string, disabled: boolean) => apiRequest<{ ok: boolean }>(`/api/admin/providers/${encodeURIComponent(providerId)}/chat`, { method: 'PATCH', body: JSON.stringify({ disabled }) });

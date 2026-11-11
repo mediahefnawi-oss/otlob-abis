@@ -31,6 +31,18 @@ async function featuresOf(db) {
 }
 async function featureOn(db, key) { return !!(await featuresOf(db))[key]; }
 /** menu / manual-request mode of a shop, only while the switch is on */
+/** Ad link that opens a shop or a product inside the app: "app:provider:12" / "app:product:34". Returns null if the link is not one of those. */
+const APP_LINK = /^app:(provider|product):(\d{1,12})$/;
+async function checkAppLink(db, link) {
+  const m = APP_LINK.exec(String(link || ''));
+  if (!m) return null;
+  if (!(await featureOn(db, 'adTarget'))) return { error: 'ميزة ربط الإعلان بمحل أو منتج مقفولة. فعّلها من «تشغيل الميزات»' };
+  const q = m[1] === 'provider' ? 'SELECT 1 FROM providers WHERE id=$1' : 'SELECT 1 FROM products WHERE id=$1';
+  const r = await db.query(q, [Number(m[2])]);
+  if (!r.rowCount) return { error: m[1] === 'provider' ? 'المحل غير موجود' : 'المنتج غير موجود' };
+  return { ok: true };
+}
+
 const effectiveMode = (row, feats) => (feats.menu && MODES.includes(row.order_mode) ? row.order_mode : '');
 
 function register(app, { pool, auth, roles, asyncRoute, positiveId, services, clearCaches }) {
@@ -128,6 +140,57 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
     clearCaches();
     res.json({ ok: true });
   }));
+
+  /* ---------- courier photo (the owner approves each new picture) ---------- */
+  const MAX_PHOTO = 400000;
+  const parsePhoto = v => { const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(v || '')); return m && String(v).length <= MAX_PHOTO ? { mime: m[1], buf: Buffer.from(m[2], 'base64') } : null; };
+  app.get('/api/courier/photo', auth, roles('courier'), guard(async (req, res) => {
+    const r = await pool.query('SELECT status, image IS NOT NULL AS has_approved FROM courier_photos WHERE user_id=$1', [req.auth.sub]);
+    res.set('Cache-Control', 'no-store');
+    res.json({ enabled: await featureOn(pool, 'courierPhoto'), status: r.rowCount ? r.rows[0].status : 'none', approved: !!(r.rowCount && r.rows[0].has_approved) });
+  }));
+  app.post('/api/courier/photo', auth, roles('courier'), guard(async (req, res) => {
+    if (!(await featureOn(pool, 'courierPhoto'))) throw fail(409, 'ميزة صورة المندوب غير مفعّلة');
+    const img = parsePhoto((req.body || {}).image);
+    if (!img) throw fail(400, 'ارفع صورة صالحة (JPG أو PNG) وبحجم أصغر');
+    await pool.query(`INSERT INTO courier_photos(user_id, pending_image, pending_mime, status) VALUES($1,$2,$3,'pending')
+      ON CONFLICT (user_id) DO UPDATE SET pending_image=EXCLUDED.pending_image, pending_mime=EXCLUDED.pending_mime, status='pending', updated_at=NOW()`, [req.auth.sub, img.buf, img.mime]);
+    res.status(201).json({ ok: true, status: 'pending' });
+  }));
+  app.get('/api/admin/courier-photos', ...admin, guard(async (_req, res) => {
+    const r = await pool.query(`SELECT cp.user_id, u.name, cp.pending_mime, cp.pending_image FROM courier_photos cp JOIN users u ON u.id=cp.user_id WHERE cp.status='pending' AND cp.pending_image IS NOT NULL ORDER BY cp.updated_at`);
+    res.set('Cache-Control', 'no-store');
+    res.json({ photos: r.rows.map(x => ({ userId: String(x.user_id), name: x.name, image: `data:${x.pending_mime};base64,${x.pending_image.toString('base64')}` })) });
+  }));
+  app.get('/api/admin/courier-photos/:uid/pending', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.uid);
+    if (!id) return res.status(400).end();
+    const r = await pool.query('SELECT pending_image, pending_mime FROM courier_photos WHERE user_id=$1 AND pending_image IS NOT NULL', [id]);
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].pending_mime);
+    res.set('Cache-Control', 'no-store');
+    res.send(r.rows[0].pending_image);
+  }));
+  app.patch('/api/admin/courier-photos/:uid', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.uid);
+    if (!id) throw fail(400, 'معرّف غير صالح');
+    if (typeof (req.body || {}).approve !== 'boolean') throw fail(400, 'حدد الموافقة أو الرفض');
+    const r = req.body.approve
+      ? await pool.query(`UPDATE courier_photos SET image=pending_image, mime=pending_mime, pending_image=NULL, pending_mime=NULL, status='approved', updated_at=NOW() WHERE user_id=$1 AND pending_image IS NOT NULL RETURNING user_id`, [id])
+      : await pool.query(`UPDATE courier_photos SET pending_image=NULL, pending_mime=NULL, status='rejected', updated_at=NOW() WHERE user_id=$1 AND pending_image IS NOT NULL RETURNING user_id`, [id]);
+    if (!r.rowCount) throw fail(404, 'لا توجد صورة بانتظار المراجعة');
+    res.json({ ok: true });
+  }));
+  app.get('/api/courier-photo/:uid', guard(async (req, res) => {
+    const id = positiveId(req.params.uid);
+    if (!id || !(await featureOn(pool, 'courierPhoto'))) return res.status(404).end();
+    const r = await pool.query('SELECT image, mime FROM courier_photos WHERE user_id=$1 AND image IS NOT NULL', [id]);
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime);
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(r.rows[0].image);
+  }));
 }
 
-module.exports = { register, FEATURES, mergeFeatures, featuresOf, featureOn, effectiveMode, MODES };
+module.exports = { register, FEATURES, mergeFeatures, featuresOf, featureOn, effectiveMode, MODES, checkAppLink };

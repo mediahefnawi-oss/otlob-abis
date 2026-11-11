@@ -166,7 +166,7 @@ function providerVisibility(viewer, values) {
 }
 const services = require('./services');
 const hours = require('./hours');
-const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), ...(p.lat != null && p.lng != null ? { lat: Number(p.lat), lng: Number(p.lng) } : {}), status: p.status, open: p.is_open, orderMode: p.order_mode || '', menuCount: Number(p.menu_count) || 0, createdAt: new Date(p.created_at).getTime() });
+const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), ...(p.lat != null && p.lng != null ? { lat: Number(p.lat), lng: Number(p.lng) } : {}), status: p.status, open: p.is_open, orderMode: p.order_mode || '', chatOff: !!p.chat_disabled, menuCount: Number(p.menu_count) || 0, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
@@ -174,7 +174,7 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
-const SCHEMA_VERSION = 20261201;
+const SCHEMA_VERSION = 20261202;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -652,7 +652,9 @@ app.post('/api/admin/ads', auth, roles('admin'), asyncRoute(async (req, res) => 
   if (!img) return res.status(400).json({ error: 'ارفع صورة صالحة (JPG أو PNG)' });
   const title = String(b.title || '').trim().slice(0, 80);
   const link = String(b.link || '').trim().slice(0, 300);
-  if (link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'الرابط يجب أن يبدأ بـ http أو https' });
+  const appLink = await extrasLib.checkAppLink(pool, link);
+  if (appLink && appLink.error) return res.status(400).json({ error: appLink.error });
+  if (!appLink && link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'الرابط يجب أن يبدأ بـ http أو https' });
   const next = await pool.query('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM ads');
   const r = await pool.query('INSERT INTO ads(title, link, image, mime, sort_order) VALUES($1,$2,$3,$4,$5) RETURNING id, title, link, active, sort_order, updated_at', [title, link, img.buf, img.mime, next.rows[0].n]);
   res.status(201).json({ ad: adJson(r.rows[0]) });
@@ -670,7 +672,9 @@ app.patch('/api/admin/ads/:id', auth, roles('admin'), asyncRoute(async (req, res
     image = img.buf; mime = img.mime;
   }
   const link = b.link === undefined ? old.rows[0].link : String(b.link).trim().slice(0, 300);
-  if (link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'الرابط يجب أن يبدأ بـ http أو https' });
+  const appLink = await extrasLib.checkAppLink(pool, link);
+  if (appLink && appLink.error) return res.status(400).json({ error: appLink.error });
+  if (!appLink && link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'الرابط يجب أن يبدأ بـ http أو https' });
   const r = await pool.query('UPDATE ads SET title=$1, link=$2, image=$3, mime=$4, active=$5, sort_order=$6, updated_at=NOW() WHERE id=$7 RETURNING id, title, link, active, sort_order, updated_at', [
     b.title === undefined ? old.rows[0].title : String(b.title).trim().slice(0, 80), link, image, mime,
     b.active === undefined ? old.rows[0].active : Boolean(b.active),
@@ -1070,6 +1074,7 @@ extrasLib.register(app, { pool, auth, roles, asyncRoute, positiveId, services, c
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
 ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./support')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
+require('./chat')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });
 
 app.get('/api/admin/providers/pending', auth, roles('admin'), asyncRoute(async (_req, res) => {

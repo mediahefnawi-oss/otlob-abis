@@ -579,3 +579,43 @@ CREATE TABLE IF NOT EXISTS menu_images (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_menu_images_provider ON menu_images(provider_id, sort_order, id);
+
+-- Courier's own picture: a new upload waits for the owner's approval; customers only ever see the approved one
+CREATE TABLE IF NOT EXISTS courier_photos (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  image BYTEA,
+  mime TEXT,
+  pending_image BYTEA,
+  pending_mime TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Customer <-> shop chat BEFORE an order (the owner can switch it off for everybody or for one shop)
+ALTER TABLE providers ADD COLUMN IF NOT EXISTS chat_disabled BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS chat_threads (
+  id BIGSERIAL PRIMARY KEY,
+  customer_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider_id BIGINT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  unread_customer INT NOT NULL DEFAULT 0,
+  unread_provider INT NOT NULL DEFAULT 0,
+  last_message TEXT NOT NULL DEFAULT '',
+  last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (customer_id, provider_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_threads_provider ON chat_threads(provider_id, last_message_at DESC);
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id BIGSERIAL PRIMARY KEY,
+  thread_id BIGINT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+  from_customer BOOLEAN NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_thread ON chat_messages(thread_id, id);
+CREATE TABLE IF NOT EXISTS chat_reports (
+  id BIGSERIAL PRIMARY KEY,
+  message_id BIGINT NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+  reporter_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (message_id, reporter_id)
+);

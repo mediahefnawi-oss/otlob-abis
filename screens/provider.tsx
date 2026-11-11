@@ -6,6 +6,7 @@ import {
 } from '../components/ui';
 import { OrderCard, ApptCard } from '../components/Cards';
 import { MenuManager } from '../components/Menu';
+import { ShopChatInbox } from '../components/Chat';
 import { LabCardActions } from '../components/Lab';
 import { QuoteButtons, MakerOrderButtons } from '../components/Quote';
 import { ProviderLogo, ProductThumb, ProductPicture, LogoPicker } from '../components/Brand';
@@ -328,6 +329,7 @@ export function ProviderProfileScreen({ navigation }: any) {
   const orders = db.orders.filter((o) => o.providerId === prov.id && o.status === 'delivered');
   const extra = (
     <>
+      <ShopChatInbox />
       {db.settings.features?.menu && <MenuManager providerId={prov.id} />}
       <Card style={{ gap: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>

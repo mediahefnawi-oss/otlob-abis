@@ -12,7 +12,7 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
 import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
@@ -417,6 +417,12 @@ function ProviderModeCard({ prov }: { prov: Provider }) {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {typeKeys().map((k) => <Chip key={k} label={TYPES[k as ProviderType].label} active={prov.type === k} onPress={() => { if (k !== prov.type) confirmDialog({ title: 'نقل لقسم آخر؟', message: `سينتقل "${prov.name}" إلى قسم ${TYPES[k as ProviderType].label}`, confirmText: 'نقل', onConfirm: () => { run(adminMoveProvider(prov.id, k), 'تم النقل ✅'); } }); }} />)}
       </View>
+      {!!db.settings.features?.chat && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <T w="bold" size={12.5} style={{ flex: 1 }}>المحادثة مع العملاء</T>
+          <Toggle value={!prov.chatOff} onValueChange={(v) => run(adminSetChatOff(prov.id, !v), v ? 'تم فتح المحادثة' : 'تم قفل المحادثة')} />
+        </View>
+      )}
       <T w="bold" size={12.5}>طريقة الطلب</T>
       {menuOn ? (
         <View style={{ flexDirection: 'row', gap: 8 }}>
