@@ -409,7 +409,7 @@ function ProviderModeCard({ prov }: { prov: Provider }) {
     setBusy(false);
     toast(r.ok ? okMsg : r.error, r.ok ? 'ok' : 'err');
   };
-  const modes: ['' | 'request' | 'menu', string][] = [['', 'حسب القسم'], ['request', 'طلب يدوي'], ['menu', 'منيو بصورة']];
+  const modes: ['' | 'request', string][] = [['', 'حسب القسم'], ['request', 'طلب مكتوب بدل السلة']];
   return (
     <Card style={{ gap: 12, opacity: busy ? 0.6 : 1 }} pointerEvents={busy ? 'none' : 'auto'}>
       <T w="black" size={15}>القسم وطريقة الطلب</T>
@@ -422,7 +422,7 @@ function ProviderModeCard({ prov }: { prov: Provider }) {
         <View style={{ flexDirection: 'row', gap: 8 }}>
           {modes.map(([m, l]) => <Chip key={m || 'def'} label={l} active={(prov.orderMode || '') === m} onPress={() => run(adminSetOrderMode(prov.id, m), 'تم الحفظ ✅')} />)}
         </View>
-      ) : <T size={12} color={C.sub}>فعّل «المنيو وطرق الطلب» من شاشة «تشغيل الميزات» أولاً.</T>}
+      ) : <T size={12} color={C.sub}>فعّل «المنيو وطرق الطلب» من شاشة «تشغيل الميزات» أولاً (المنيو بالصور بيتضاف فوق طريقة الطلب الحالية).</T>}
     </Card>
   );
 }
@@ -497,7 +497,7 @@ export function AdminDetailScreen({ navigation, route }: any) {
           </View>
         </Card>
         {prov && <ProviderModeCard prov={prov} />}
-        {prov && db.settings.features?.menu && prov.orderMode === 'menu' && <MenuManager providerId={prov.id} />}
+        {prov && db.settings.features?.menu && <MenuManager providerId={prov.id} />}
         {prov && (
           <Card style={{ gap: 12 }}>
             <T w="black" size={15}>الظهور للعملاء</T>
