@@ -238,14 +238,14 @@ export async function apiAdminDeleteProvider(id: string | number) {
 }
 
 /** Phase 4: delivery areas. */
-export type ServerRegion = { id: string; name: string; deliveryFee: number; active: boolean };
+export type ServerRegion = { id: string; name: string; deliveryFee: number; active: boolean; closed?: boolean; closedMessage?: string; closedUntil?: number | null; closedRaw?: boolean; closedText?: string; closedUntilRaw?: number | null };
 export async function apiListRegions() {
   return apiRequest<{ regions: ServerRegion[] }>('/api/regions', {}, true);
 }
 export async function apiAdminCreateRegion(input: { name: string }) {
   return apiRequest<{ region: ServerRegion }>('/api/admin/regions', { method: 'POST', body: JSON.stringify(input) });
 }
-export async function apiAdminUpdateRegion(id: string | number, patch: { name?: string; deliveryFee?: number; active?: boolean }) {
+export async function apiAdminUpdateRegion(id: string | number, patch: { name?: string; deliveryFee?: number; active?: boolean; closed?: boolean; closedMessage?: string; closedUntil?: number | null; notify?: boolean }) {
   return apiRequest<{ region: ServerRegion }>(`/api/admin/regions/${encodeURIComponent(String(id))}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 export async function apiAdminDeleteRegion(id: string | number) {

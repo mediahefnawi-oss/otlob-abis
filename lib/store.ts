@@ -409,7 +409,7 @@ async function syncCatalog() {
   if (pendingWrites > 0) return;
   const P = providers.map(toProvider);
   const I = products.map(toProduct);
-  const R: Region[] = regions.map((r) => ({ id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active }));
+  const R: Region[] = regions.map((r) => toRegion(r));
   const A: Ad[] = (ads || []).map(toAd);
   const same = JSON.stringify(P) === JSON.stringify(state.db.providers) && JSON.stringify(I) === JSON.stringify(state.db.products)
     && JSON.stringify(R) === JSON.stringify(state.db.regions) && JSON.stringify(A) === JSON.stringify(state.db.ads || []) && JSON.stringify(routePrices || {}) === JSON.stringify(state.db.routePrices || {}) && JSON.stringify(services || []) === JSON.stringify(state.db.services || []);
@@ -1429,7 +1429,9 @@ export async function adminResetPassword(userId: string, newPass: string): Promi
 }
 
 /* ---------- delivery areas (owner) ---------- */
-const toRegion = (r: { id: string; name: string; deliveryFee: number; active: boolean }): Region => ({ id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active });
+function toRegion(r: any): Region {
+  return { id: r.id, name: r.name, deliveryFee: Number(r.deliveryFee) || 0, active: r.active, ...(r.closed ? { closed: true, closedMessage: r.closedMessage || '', closedUntil: r.closedUntil || null } : {}), ...(r.closedRaw !== undefined ? { closedRaw: !!r.closedRaw, closedText: r.closedText || '', closedUntilRaw: r.closedUntilRaw || null } : {}) };
+}
 
 /** Owner: the delivery price from one shop area to each customer area (an empty price removes it: that route then uses the customer area's normal price). */
 export async function saveRoutePrices(fromId: string, prices: { toId: string; price: number | null }[]): Promise<Result> {
@@ -1446,7 +1448,7 @@ export async function addRegion(name: string): Promise<Result> {
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
-export async function updateRegion(id: string, patch: { name?: string; active?: boolean }): Promise<Result> {
+export async function updateRegion(id: string, patch: { name?: string; active?: boolean; closed?: boolean; closedMessage?: string; closedUntil?: number | null; notify?: boolean }): Promise<Result> {
   try {
     const { region } = await apiAdminUpdateRegion(id, patch);
     mutate((db) => { db.regions = db.regions.map((r) => (r.id === id ? toRegion(region) : r)); });

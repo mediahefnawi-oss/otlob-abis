@@ -51,6 +51,14 @@ export interface Region {
   name: string;
   deliveryFee: number;
   active: boolean;
+  /** temporary closing (switch "regionClose"): customers of the area cannot send delivery orders and read the message */
+  closed?: boolean;
+  closedMessage?: string;
+  closedUntil?: number | null;
+  /** owner only: what is stored (also while the switch is off) */
+  closedRaw?: boolean;
+  closedText?: string;
+  closedUntilRaw?: number | null;
 }
 
 export interface Provider {

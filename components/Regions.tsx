@@ -5,6 +5,22 @@ import { T, Icon, Card, Btn, Sheet, Field, Chip, SectionTitle, Toggle, toast, co
 import { useStore, addRegion, updateRegion, deleteRegion, saveRoutePrices } from '../lib/store';
 import { Region } from '../lib/types';
 
+/** Customer: a red notice while the owner has closed the delivery of his area (switch "regionClose"). */
+export function RegionClosedBanner({ regionId }: { regionId?: string | null }) {
+  const { db } = useStore();
+  const r = db.regions.find((x) => x.id === regionId);
+  if (!db.settings.features?.regionClose || !r || !r.closed) return null;
+  return (
+    <View style={{ flexDirection: 'row', gap: 10, backgroundColor: '#FDECEC', borderRadius: 16, padding: 12, alignItems: 'center', marginBottom: 14 }}>
+      <Icon name="alert-circle" size={22} color={C.red} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <T w="black" size={13} color={C.red}>التوصيل متوقف مؤقتًا في {r.name}</T>
+        <T size={12} color={C.dark3}>{r.closedMessage || 'هنرجع قريب إن شاء الله'}</T>
+      </View>
+    </View>
+  );
+}
+
 /** A field that shows the chosen area and opens the list of areas the owner enabled. */
 export function RegionPicker({ value, onChange, label = 'المنطقة' }: { value?: string | null; onChange: (id: string) => void; label?: string }) {
   const { db } = useStore();
@@ -52,6 +68,23 @@ export function RegionsManager() {
   const [edit, setEdit] = useState<Region | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const closeOn = !!db.settings.features?.regionClose;
+  const [cl, setCl] = useState<Region | null>(null);
+  const [clMsg, setClMsg] = useState('');
+  const [clHours, setClHours] = useState(0); // 0 = until I reopen it
+  const HOURS = [{ h: 0, t: 'لحد ما أفتحها' }, { h: 1, t: 'ساعة' }, { h: 3, t: '3 ساعات' }, { h: 6, t: '6 ساعات' }, { h: 24, t: 'يوم' }];
+  const doClose = async () => {
+    if (!cl) return;
+    setBusy(true);
+    const x = await updateRegion(cl.id, { closed: true, closedMessage: clMsg.trim(), closedUntil: clHours ? Date.now() + clHours * 3600000 : null });
+    setBusy(false);
+    if (!x.ok) return toast(x.error, 'err');
+    setCl(null); toast('اتقفلت المنطقة، العملاء فيها هيشوفوا رسالتك');
+  };
+  const doOpen = (r: Region) => confirmDialog({
+    title: `فتح ${r.name}؟`, message: 'العملاء في المنطقة هيوصلهم إشعار إن التوصيل رجع.', confirmText: 'افتح',
+    onConfirm: async () => { const x = await updateRegion(r.id, { closed: false }); if (!x.ok) toast(x.error, 'err'); else toast('اتفتحت المنطقة ✅'); },
+  });
 
   const open = (r: Region | null) => {
     setEdit(r);
@@ -76,7 +109,11 @@ export function RegionsManager() {
         <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, borderTopWidth: 1, borderTopColor: C.line }}>
           <Pressable onPress={() => open(r)} style={{ flex: 1 }}>
             <T w="bold" size={14} color={r.active ? C.text : C.sub}>{r.name}{r.active ? '' : ' (متوقفة)'}</T>
+            {closeOn && r.closed && <T size={11.5} color={C.red}>🔒 التوصيل مقفول{r.closedUntil ? ` لحد ${new Date(r.closedUntil).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' })}` : ''}</T>}
           </Pressable>
+          {closeOn && (r.closed
+            ? <Btn small variant="green" title="فتح" onPress={() => doOpen(r)} />
+            : <Btn small variant="soft" title="إغلاق مؤقت" onPress={() => { setCl(r); setClMsg(''); setClHours(0); }} />)}
           <Toggle value={r.active} onValueChange={async (v) => { const x = await updateRegion(r.id, { active: v }); if (!x.ok) toast(x.error, 'err'); }} />
           <Pressable
             onPress={() => confirmDialog({
@@ -89,6 +126,15 @@ export function RegionsManager() {
           </Pressable>
         </View>
       ))}
+      <Sheet visible={!!cl} onClose={() => setCl(null)} title={`إغلاق التوصيل في ${cl?.name || ''}`}>
+        <T size={12.5} color={C.sub}>العملاء في المنطقة دي مش هيقدروا يبعتوا طلب توصيل لحد ما تفتحها (أو يخلص الوقت). حسابهم وأسعارهم ما بيتأثروش، وكمان الحجوزات مش بتتأثر.</T>
+        <Field label="رسالة للعملاء (اختياري)" icon="chatbubble" value={clMsg} onChangeText={setClMsg} placeholder="مثال: مفيش مناديب النهارده، هنرجع بكرة الصبح" maxLength={200} />
+        <T w="bold" size={12.5}>لمدة</T>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {HOURS.map((x) => <Chip key={x.h} label={x.t} active={clHours === x.h} onPress={() => setClHours(x.h)} />)}
+        </View>
+        <Btn title="إغلاق المنطقة" icon="lock-closed" variant="danger" loading={busy} onPress={doClose} />
+      </Sheet>
       <Sheet visible={sheet} onClose={() => setSheet(false)} title={edit ? 'تعديل منطقة' : 'إضافة منطقة'}>
         <Field label="اسم المنطقة" icon="location" value={name} onChangeText={setName} placeholder="مثال: ابيس 3/8" />
         {!edit && <T size={11.5} color={C.sub}>بعد الحفظ حدد سعر التوصيل من وإلى هذه المنطقة من «أسعار التوصيل». أي طريق بدون سعر لا يُقبل عليه طلب.</T>}

@@ -27,6 +27,7 @@ import { MenuGallery } from '../components/Menu';
 import { ClinicSetActions } from '../components/ClinicSchedule';
 import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
+import { RegionClosedBanner } from '../components/Regions';
 import { AddressPicker } from '../components/AddressBook';
 import { SchedulePicker } from '../components/Schedule';
 import { PoolCard } from '../components/Pool';
@@ -115,6 +116,7 @@ export function HomeScreen({ navigation }: any) {
       ) : (
         <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
           <View style={{ marginHorizontal: -16, marginTop: -14, marginBottom: 12 }}><AdsCarousel /></View>
+          <RegionClosedBanner regionId={me.regionId} />
           <FavoritesRow />
           {!!db.settings.announcement && (
             <Appear>
@@ -532,6 +534,7 @@ export function CartScreen({ navigation }: any) {
       ) : (
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">
+            <RegionClosedBanner regionId={me.regionId} />
             {det.groups.map((g, gi) => (
               <Appear key={g.provider.id} i={gi}>
                 <Card style={{ gap: 12 }}>

@@ -13,6 +13,7 @@ const tracking = require('./tracking');
 const mapMode = require('./mapmode');
 const couponsLib = require('./coupons');
 const extrasLib = require('./extras');
+const regionClose = require('./regionclose');
 const poolLib = require('./pool');
 const voiceLib = require('./voice');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
@@ -506,6 +507,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
 
   app.post('/api/orders/checkout', auth, roles('customer'), guard(async (req, res) => {
     await requireOpen();
+    await regionClose.assertOpen(pool, Number(req.auth.sub), fail); // the customer's area is closed for a while (switch "regionClose")
     const b = req.body || {};
     const dest = await destRule(b);
     await rememberSpot(Number(req.auth.sub), dest);
@@ -592,6 +594,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   /** "اطلب أي حاجة": a free errand for the couriers (no shop involved). */
   app.post('/api/orders/custom', auth, roles('customer'), guard(async (req, res) => {
     await requireOpen();
+    await regionClose.assertOpen(pool, Number(req.auth.sub), fail); // the customer's area is closed for a while (switch "regionClose")
     if (!services.errandActive()) throw fail(409, 'هذه الخدمة متوقفة حالياً');
     const b = req.body || {};
     const dest = await destRule(b);
@@ -630,6 +633,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   const MAX_IMAGE = 600000; // characters of base64 text
   app.post('/api/orders/request', auth, roles('customer'), guard(async (req, res) => {
     await requireOpen();
+    await regionClose.assertOpen(pool, Number(req.auth.sub), fail); // the customer's area is closed for a while (switch "regionClose")
     const b = req.body || {};
     const dest = await destRule(b);
     await rememberSpot(Number(req.auth.sub), dest);

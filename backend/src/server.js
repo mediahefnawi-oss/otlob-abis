@@ -175,7 +175,8 @@ const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.in
 const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
-const SCHEMA_VERSION = 20261211;
+const regionClose = require('./regionclose');
+const SCHEMA_VERSION = 20261212;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -587,7 +588,7 @@ app.post('/api/admin/providers', auth, roles('admin'), asyncRoute(async (req, re
 }));
 
 // Delivery areas: everyone reads the active list; only the owner edits it.
-const regionJson = r => ({ id: String(r.id), name: r.name, deliveryFee: Number(r.delivery_fee), active: r.active });
+const regionJson = (r, on = true) => ({ id: String(r.id), name: r.name, deliveryFee: Number(r.delivery_fee), active: r.active, ...regionClose.view(r, true, on) });
 app.get('/api/regions', optionalAuth, asyncRoute(async (req, res) => {
   res.json({ regions: await listRegions(req.viewer) });
 }));
@@ -613,8 +614,19 @@ app.patch('/api/admin/regions/:id', auth, roles('admin'), asyncRoute(async (req,
   const name = b.name === undefined ? old.rows[0].name : String(b.name).trim().slice(0, 80);
   if (name.length < 2) return res.status(400).json({ error: 'اكتب اسم المنطقة' });
   try {
-    const r = await pool.query('UPDATE regions SET name=$1, delivery_fee=$2, active=$3 WHERE id=$4 RETURNING *', [name, Number(old.rows[0].delivery_fee), b.active === undefined ? old.rows[0].active : Boolean(b.active), id]);
-    res.json({ region: regionJson(r.rows[0]) });
+    const on = await extrasLib.featureOn(pool, 'regionClose');
+    let cl = { closed: old.rows[0].closed, msg: old.rows[0].closed_message, until: old.rows[0].closed_until };
+    const touches = b.closed !== undefined || b.closedMessage !== undefined || b.closedUntil !== undefined;
+    if (touches) {
+      if (!on) return res.status(409).json({ error: 'فعّل «إغلاق منطقة توصيل مؤقتًا» من تشغيل الميزات أولاً' });
+      try { cl = regionClose.parsePatch(b, old.rows[0], (http, error) => Object.assign(new Error(error), { http })); }
+      catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; }
+    }
+    const r = await pool.query('UPDATE regions SET name=$1, delivery_fee=$2, active=$3, closed=$4, closed_message=$5, closed_until=$6 WHERE id=$7 RETURNING *',
+      [name, Number(old.rows[0].delivery_fee), b.active === undefined ? old.rows[0].active : Boolean(b.active), cl.closed, cl.msg, cl.until, id]);
+    // reopened by hand: the customers of the area hear about it (unless the owner says not to)
+    if (touches && old.rows[0].closed && !cl.closed && b.notify !== false) regionClose.notifyReopened(pool, pushToUsers, id, name).catch(() => {});
+    res.json({ region: regionJson(r.rows[0], on) });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'المنطقة موجودة بالفعل' });
     throw e;
@@ -905,7 +917,8 @@ app.put('/api/admin/route-prices', auth, roles('admin'), asyncRoute(async (req, 
 async function listRegions(viewer) {
   const all = viewer && viewer.role === 'admin';
   const r = await pool.query(`SELECT * FROM regions ${all ? '' : 'WHERE active=TRUE'} ORDER BY sort_order, id`);
-  return r.rows.map(x => ({ id: String(x.id), name: x.name, deliveryFee: Number(x.delivery_fee), active: x.active }));
+  const on = await extrasLib.featureOn(pool, 'regionClose');
+  return r.rows.map(x => ({ id: String(x.id), name: x.name, deliveryFee: Number(x.delivery_fee), active: x.active, ...regionClose.view(x, all, on) }));
 }
 app.get('/api/providers', optionalAuth, asyncRoute(async (req, res) => {
   res.json({ providers: await listProviders(req.viewer, req.query.type) });

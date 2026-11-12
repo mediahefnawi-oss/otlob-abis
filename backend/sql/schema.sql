@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS regions (
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- temporary closing of an area (switch "regionClose"): a message for its customers and an optional end time
+ALTER TABLE regions ADD COLUMN IF NOT EXISTS closed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE regions ADD COLUMN IF NOT EXISTS closed_message TEXT NOT NULL DEFAULT '';
+ALTER TABLE regions ADD COLUMN IF NOT EXISTS closed_until TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS region_id BIGINT REFERENCES regions(id) ON DELETE SET NULL;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS regions_seeded BOOLEAN NOT NULL DEFAULT FALSE;
 
