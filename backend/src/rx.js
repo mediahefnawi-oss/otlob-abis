@@ -165,27 +165,20 @@ module.exports = function registerRx(app, { pool, auth, roles, asyncRoute, posit
     // collected from the pharmacy: the platform's commission on the medicines' price (a delivered one is already an ordinary order with its own commission)
     if (row.status !== 'delivery') await accrue(row);
   })));
+  // collected from the pharmacy: exactly like any other commission, the owner's ordinary provider rules decide (percent / fixed, minimum, scope, dates)
   const accrue = async row => {
     try {
-      if (!row.pharmacy_provider_id || row.price == null || Number(row.price) <= 0 || !(await extrasLib.featureOn(pool, 'rxCommission'))) return;
-      const pct = Number((await pool.query('SELECT rx_commission_pct FROM app_settings WHERE id=1')).rows[0].rx_commission_pct);
-      const amount = Math.round(Number(row.price) * pct) / 100;
-      if (!(pct > 0) || !(amount > 0)) return;
-      await pool.query(`INSERT INTO commission_entries(entry_type, kind, rx_id, provider_id, base_amount, amount, rule_snapshot, note)
-        VALUES('accrual','provider',$1,$2,$3,$4,$5,$6) ON CONFLICT (rx_id, kind) WHERE entry_type='accrual' AND rx_id IS NOT NULL DO NOTHING`,
-      [row.id, row.pharmacy_provider_id, row.price, amount, JSON.stringify({ scope: 'rx', kind: 'percent', value: pct }), `عمولة روشتة ${num(row.id)}`]);
+      if (!row.pharmacy_provider_id || row.price == null || Number(row.price) <= 0) return;
+      const comm = require('./commissions');
+      const type = ((await pool.query('SELECT type FROM providers WHERE id=$1', [row.pharmacy_provider_id])).rows[0] || {}).type || 'pharmacy';
+      const rule = await comm.ruleFor(pool, 'provider', new Date(), type, row.pharmacy_provider_id, null);
+      const amount = comm.computeAmount(rule, Number(row.price));
+      if (!rule || !(amount > 0)) return;
+      await pool.query(`INSERT INTO commission_entries(entry_type, kind, rx_id, provider_id, base_amount, amount, rule_id, rule_snapshot, note)
+        VALUES('accrual','provider',$1,$2,$3,$4,$5,$6,$7) ON CONFLICT (rx_id, kind) WHERE entry_type='accrual' AND rx_id IS NOT NULL DO NOTHING`,
+      [row.id, row.pharmacy_provider_id, row.price, amount, rule.id, JSON.stringify({ id: String(rule.id), scope: rule.scope, kind: rule.kind, value: Number(rule.value), minAmount: Number(rule.min_amount), effectiveFrom: new Date(rule.effective_from).getTime() }), `روشتة ${num(row.id)}`]);
     } catch (e) { console.error('rx commission failed:', e.message); }
   };
-  // the owner sets the percentage here (the on/off switch is "rxCommission" in the features list)
-  app.get('/api/admin/rx-commission', auth, roles('admin'), guard(async (req, res) => {
-    res.json({ enabled: await extrasLib.featureOn(pool, 'rxCommission'), percent: Number((await pool.query('SELECT rx_commission_pct FROM app_settings WHERE id=1')).rows[0].rx_commission_pct) });
-  }));
-  app.patch('/api/admin/rx-commission', auth, roles('admin'), guard(async (req, res) => {
-    const p = Number((req.body || {}).percent);
-    if (!Number.isFinite(p) || p < 0 || p > 100) throw fail(400, 'النسبة بين 0 و100');
-    await pool.query('UPDATE app_settings SET rx_commission_pct=$1 WHERE id=1', [Math.round(p * 100) / 100]);
-    res.json({ enabled: await extrasLib.featureOn(pool, 'rxCommission'), percent: Math.round(p * 100) / 100 });
-  }));
   // "deliver it to me": the patient then sends an ordinary written order to the pharmacy that carries the RX number
   app.post('/api/rx/:id/delivery', auth, roles('customer'), guard((req, res) => step(req, res, ['patient'], ['sent', 'ready'], async row => {
     await pool.query("UPDATE prescriptions SET status='delivery', updated_at=NOW() WHERE id=$1", [row.id]);

@@ -6,7 +6,7 @@ import { useStore, publishUpdateNotice, setWelcomeLogo, setLoginImage, setAppIco
 import { TYPES, DEFAULT_CREDITS, money, fmtDateTime, isoDay, DAYS, typeKeys, serviceDefs, errandDef, TEMPLATE_LABEL } from '../lib/format';
 import { ProviderType, ServiceDef, ServiceTemplate } from '../lib/types';
 import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
-import { loginImageUrl, welcomeLogoUrl, appIconUrl, catIconUrl, apiFeatures, apiSetFeature, apiRxCommission, apiSetRxCommission } from '../lib/api';
+import { loginImageUrl, welcomeLogoUrl, appIconUrl, catIconUrl } from '../lib/api';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useRC } from '../screens/customer';
 
@@ -138,49 +138,6 @@ function RuleSheet({ rule, visible, onClose, onSaved }: { rule?: any; visible: b
   );
 }
 
-/** Owner: commission on prescriptions collected at the pharmacy. Switch + percentage live here, next to the other commission rules. */
-function RxCommissionCard() {
-  const [on, setOn] = useState(false);
-  const [pct, setPct] = useState('');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    apiFeatures().then((r) => setOn(!!r.features.find((f) => f.key === 'rxCommission')?.on)).catch(() => {});
-    apiRxCommission().then((r) => setPct(String(r.percent))).catch(() => {});
-  }, []);
-  const flip = async (v: boolean) => {
-    setBusy(true);
-    try { const r = await apiSetFeature('rxCommission', v); setOn(!!r.features.find((f) => f.key === 'rxCommission')?.on); toast(v ? 'تم التشغيل ✅' : 'تم الإيقاف'); }
-    catch (e: any) { toast(e?.message || 'تعذر التنفيذ', 'err'); }
-    finally { setBusy(false); }
-  };
-  const save = async () => {
-    const n = Number(toEn(pct).replace(',', '.'));
-    if (!Number.isFinite(n) || n < 0 || n > 100) return toast('اكتب نسبة بين 0 و100', 'err');
-    setBusy(true);
-    try { const r = await apiSetRxCommission(n); setPct(String(r.percent)); toast('تم حفظ النسبة ✅'); }
-    catch (e: any) { toast(e?.message || 'تعذر الحفظ', 'err'); }
-    finally { setBusy(false); }
-  };
-  return (
-    <Card style={{ gap: 8 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <T w="black" size={14.5}>عمولة الروشتات</T>
-          <T size={12} color={C.sub}>نسبة للمنصة من سعر الأدوية لما العميل يستلم الروشتة من الصيدلية</T>
-        </View>
-        <View style={{ opacity: busy ? 0.5 : 1 }} pointerEvents={busy ? 'none' : 'auto'}><Toggle value={on} onValueChange={flip} /></View>
-      </View>
-      {on && (
-        <>
-          <Field label="النسبة % من سعر الأدوية" icon="cash" value={pct} onChangeText={setPct} keyboardType="decimal-pad" placeholder="مثال: 5" />
-          <Btn small icon="save" title="حفظ النسبة" loading={busy} onPress={save} />
-        </>
-      )}
-      <T size={11.5} color={C.sub}>بتتسجل مستحقة على الصيدلية. لو العميل طلب توصيل، الطلب نفسه بيتحسب عليه عمولة الصيدلية العادية، فمفيش عمولة مرتين.</T>
-    </Card>
-  );
-}
-
 function RulesTab() {
   const { db } = useStore();
   const [rules, setRules] = useState<any[]>([]);
@@ -219,7 +176,6 @@ function RulesTab() {
         <T w="black" size={14} color={C.goldDeep}>كيف تُحتسب العمولة؟</T>
         <T size={12.5} color={C.dark3}>تُسجَّل مرة واحدة عند تسليم الطلب أو إتمام الحجز. الأخص يغلب الأعم: مقدم خدمة محدد ← قسم ← الجميع. اختر القاعدة الأحدث التي بدأ سريانها.</T>
       </Card>
-      <RxCommissionCard />
       <SectionTitle title="مقدمو الخدمة" action="+ قاعدة جديدة" onAction={() => { setEdit(null); setOpen(true); }} />
       {group('provider').map(card)}
       <SectionTitle title="خصم المناديب" />

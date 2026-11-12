@@ -9,7 +9,6 @@ const FEATURES = {
   voice: { label: 'الطلب الصوتي', on: false },
   clinicSchedule: { label: 'العيادة تحدد الموعد', on: false },
   rx: { label: 'تحويل الروشتة للصيدلية', on: false },
-  rxCommission: { label: 'عمولة على روشتات الصيدليات', on: false },
   regionClose: { label: 'إغلاق منطقة توصيل مؤقتًا', on: false },
   offerBadge: { label: 'شارة الخصم على كارت المحل', on: false },
   todayOffers: { label: 'شريط «عروض اليوم» في الرئيسية', on: false },

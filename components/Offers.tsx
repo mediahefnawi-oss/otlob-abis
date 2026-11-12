@@ -38,13 +38,13 @@ function useShopOffers(switchKey: 'offerBadge' | 'todayOffers') {
 }
 
 /** Small "خصم 20%" tag on a shop card (switch «offerBadge»). */
-export function ShopOfferTag({ providerId }: { providerId: string }) {
+export function ShopOfferTag({ providerId, compact }: { providerId: string; compact?: boolean }) {
   const o = useShopOffers('offerBadge').get(providerId);
   if (!o) return null;
   const c = OFFER_COLORS[o.color] || OFFER_COLORS.red;
   return (
-    <View style={{ alignSelf: 'flex-start', backgroundColor: c.bg, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 2 }}>
-      <T w="black" size={11} color={c.fg}>🏷️ خصم {o.percent}%{o.endsAt ? ` • ينتهي بعد ${left(o.endsAt)}` : ''}</T>
+    <View style={{ alignSelf: compact ? 'center' : 'flex-start', backgroundColor: c.bg, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 2 }}>
+      <T w="black" size={compact ? 10.5 : 11} color={c.fg}>🏷️ خصم {o.percent}%{!compact && o.endsAt ? ` • ينتهي بعد ${left(o.endsAt)}` : ''}</T>
     </View>
   );
 }

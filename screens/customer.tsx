@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DeliveryPin } from '../components/Location';
-import { OfferBadge, TodayOffers } from '../components/Offers';
+import { OfferBadge, TodayOffers, ShopOfferTag } from '../components/Offers';
 import { ShopRatingsSheet } from '../components/Ratings';
 import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -224,6 +224,7 @@ export function HomeScreen({ navigation }: any) {
                   <ProviderLogo p={item} size={tw - 18} />
                   <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
                   <AreaTag p={item} />
+                  <ShopOfferTag providerId={item.id} compact />
                 </Card>
               )}
             />
@@ -248,6 +249,7 @@ export function HomeScreen({ navigation }: any) {
                     <T size={11.5} color={C.sub}>• {item.eta} د</T>
                   </View>
                   <AreaTag p={item} />
+                  <ShopOfferTag providerId={item.id} compact />
                 </Card>
               )}
             />

@@ -34,7 +34,6 @@ const HINT: Record<string, string> = {
   support: 'شات العميل والمحل والمندوب مع الدعم الفني',
 };
 const BASIC = ['coupons', 'ratings', 'support', 'bot'];
-const MOVED = ['rxCommission']; // lives in «العمولات والعدادات» now
 
 const WIPE_PARTS = [{ k: 'orders', t: 'الطلبات' }, { k: 'bookings', t: 'الحجوزات' }, { k: 'rx', t: 'الروشتات' }];
 
@@ -116,7 +115,7 @@ export function AdminFeaturesScreen({ navigation }: any) {
           </Card>
         ))}
         <T w="black" size={13} color={C.sub}>ميزات جديدة (مقفولة لحد ما تفتحها)</T>
-        {(rows || []).filter((f) => !BASIC.includes(f.key) && !MOVED.includes(f.key)).map((f) => (
+        {(rows || []).filter((f) => !BASIC.includes(f.key)).map((f) => (
           <Card key={f.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View style={{ flex: 1, gap: 2 }}>
               <T w="black" size={14.5}>{f.label}</T>

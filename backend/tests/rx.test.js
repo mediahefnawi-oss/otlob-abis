@@ -117,32 +117,45 @@ const pushes = [];
   eq((await call('POST /api/rx/:id/price', PH1, { price: 0 }, f.k)).status, 400, 'a zero price refused on change');
   eq((await call('POST /api/rx/:id/price', PH1, { price: 185 }, f.k)).json.rx.price, 185, 'back to 185');
   eq((await toReady()).r.json.rx.price, null, 'a prescription without price still works (old behaviour)');
-  // commission: switch OFF -> nothing
+  // commission = the owner's ordinary provider rules (same as orders and bookings)
+  const cnt = async id => (await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [id])).rows[0].n;
+  const ruleSave = [(await q('SELECT * FROM commission_rules')).rows];
+  await q('DELETE FROM commission_rules');
   await q("DELETE FROM commission_entries WHERE rx_id IS NOT NULL");
   await call('POST /api/rx/:id/pickup', PH1, {}, f.k);
-  eq((await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [f.k.id])).rows[0].n, 0, 'switch OFF: no commission');
-  // switch ON at 10%
-  await call('PATCH /api/admin/features', A, { key: 'rxCommission', on: true });
-  eq((await call('GET /api/admin/rx-commission', A)).json.enabled, true, 'admin sees it enabled');
-  eq((await call('PATCH /api/admin/rx-commission', A, { percent: 150 })).status, 400, 'percent above 100 refused');
-  eq((await call('PATCH /api/admin/rx-commission', A, { percent: 'x' })).status, 400, 'percent must be a number');
-  eq((await call('PATCH /api/admin/rx-commission', A, { percent: 10 })).json.percent, 10, 'percent saved');
+  eq(await cnt(f.k.id), 0, 'no rule at all: no commission');
+  const addRule = async (scope, kind, value, extra = {}) => (await q(`INSERT INTO commission_rules(target, scope, provider_type, provider_id, kind, value, min_amount, active, effective_from) VALUES('provider',$1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [scope, scope === 'type' ? 'pharmacy' : null, scope === 'provider' ? ph1 : null, kind, value, extra.min || 0, extra.active !== false, extra.from || '2000-01-01'])).rows[0].id;
+  const rType = await addRule('type', 'percent', 10);
   f = await toReady(185); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
   let e = (await q("SELECT * FROM commission_entries WHERE rx_id=$1", [f.k.id])).rows;
-  eq(e.length, 1, 'collected: one commission entry'); eq(Number(e[0].amount), 18.5, '10% of 185'); eq(String(e[0].provider_id), String(ph1), 'on the pharmacy'); eq(e[0].status, 'due', 'due');
+  eq(e.length, 1, 'section rule: one entry'); eq(Number(e[0].amount), 18.5, '10% of 185'); eq(String(e[0].provider_id), String(ph1), 'on the pharmacy'); eq(e[0].status, 'due', 'due');
+  eq(String(e[0].rule_id), String(rType), 'the rule is recorded'); eq(e[0].rule_snapshot.kind, 'percent', 'snapshot kept');
+  // the more specific rule wins (this pharmacy: fixed 7)
+  await addRule('provider', 'fixed', 7);
+  f = await toReady(185); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
+  eq(Number((await q("SELECT amount FROM commission_entries WHERE rx_id=$1", [f.k.id])).rows[0].amount), 7, 'a rule for this pharmacy beats the section rule');
+  await q("DELETE FROM commission_rules WHERE scope='provider'");
+  // minimum amount, inactive, future
+  await q("UPDATE commission_rules SET min_amount=300"); f = await toReady(185); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
+  eq(await cnt(f.k.id), 0, 'below the rule minimum: none');
+  await q("UPDATE commission_rules SET min_amount=0, active=FALSE"); f = await toReady(185); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
+  eq(await cnt(f.k.id), 0, 'rule switched off: none');
+  await q("UPDATE commission_rules SET active=TRUE, effective_from=NOW()+INTERVAL '1 day'"); f = await toReady(185); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
+  eq(await cnt(f.k.id), 0, 'rule not started yet: none');
+  await q("UPDATE commission_rules SET effective_from='2000-01-01'");
   // delivered one: an ordinary order takes the commission, so none here
   f = await toReady(100); await call('POST /api/rx/:id/delivery', PAT, {}, f.k); await call('POST /api/rx/:id/pickup', PH1, {}, f.k);
-  eq((await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [f.k.id])).rows[0].n, 0, 'delivery path: no second commission');
+  eq(await cnt(f.k.id), 0, 'delivery path: no second commission');
   // delivery text carries the price
   f = await toReady(120); r = await call('POST /api/rx/:id/delivery', PAT, {}, f.k); ok(/120/.test(r.json.orderText), 'the written order text carries the price');
-  // no price -> no commission; 0% -> none
+  // no price -> none; picking up twice -> still one entry
   f = await toReady(); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
-  eq((await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [f.k.id])).rows[0].n, 0, 'no price: no commission');
-  await call('PATCH /api/admin/rx-commission', A, { percent: 0 });
-  f = await toReady(50); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
-  eq((await q('SELECT COUNT(*)::int n FROM commission_entries WHERE rx_id=$1', [f.k.id])).rows[0].n, 0, '0%: no commission');
-  eq((await call('GET /api/admin/rx-commission', PAT)).status, 403, 'only the owner reads the setting');
-  await q("DELETE FROM commission_entries WHERE rx_id IS NOT NULL");
+  eq(await cnt(f.k.id), 0, 'no price: no commission');
+  f = await toReady(200); await call('POST /api/rx/:id/pickup', PAT, {}, f.k); await call('POST /api/rx/:id/pickup', PAT, {}, f.k);
+  eq(await cnt(f.k.id), 1, 'never twice');
+  await q("DELETE FROM commission_entries WHERE rx_id IS NOT NULL"); await q('DELETE FROM commission_rules');
+  for (const r of ruleSave[0]) await q('INSERT INTO commission_rules(target, scope, provider_type, provider_id, courier_user_id, kind, value, min_amount, active, effective_from, note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [r.target, r.scope, r.provider_type, r.provider_id, r.courier_user_id, r.kind, r.value, r.min_amount, r.active, r.effective_from, r.note]);
 
   console.log(bad ? `FAILED ${bad}` : 'ALL OK', 'pass=' + pass);
   await pool.end(); process.exit(bad ? 1 : 0);
