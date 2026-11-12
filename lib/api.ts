@@ -457,6 +457,10 @@ export const apiRxPharmacies = (appointmentId: string) => apiRequest<{ pharmacie
 export const apiRxCreate = (input: { appointmentId: string; meds: string; image?: string | null; pharmacyId?: string }) => apiRequest<{ rx: RxRow }>('/api/rx', { method: 'POST', body: JSON.stringify(input) });
 export const apiRxPhoto = (id: string) => apiRequest<{ image: string | null }>(`/api/rx/${encodeURIComponent(id)}/photo`);
 export const apiRxStep = (id: string, step: 'choose' | 'ready' | 'pickup' | 'delivery' | 'cancel' | 'price', body: any = {}) => apiRequest<{ rx: RxRow; orderText?: string; pharmacyId?: string }>(`/api/rx/${encodeURIComponent(id)}/${step}`, { method: 'POST', body: JSON.stringify(body) });
+/** Owner: wipe trial data (switch "dataWipe"). Needs the owner's password and the word «مسح». */
+export type WipeCounts = { orders: number; openOrders: number; bookings: number; rx: number; invoices: number; messages: number; commissions: number };
+export const apiWipePreview = () => apiRequest<{ enabled: boolean; counts: WipeCounts; word: string }>('/api/admin/wipe/preview');
+export const apiWipe = (input: { password: string; confirm: string; what: string[]; renumber: boolean }) => apiRequest<{ ok: boolean; before: WipeCounts; after: WipeCounts }>('/api/admin/wipe', { method: 'POST', body: JSON.stringify(input) });
 export const apiRxCommission = () => apiRequest<{ enabled: boolean; percent: number }>('/api/admin/rx-commission');
 export const apiSetRxCommission = (percent: number) => apiRequest<{ enabled: boolean; percent: number }>('/api/admin/rx-commission', { method: 'PATCH', body: JSON.stringify({ percent }) });
 

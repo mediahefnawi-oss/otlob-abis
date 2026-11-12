@@ -12,7 +12,7 @@ const LABELS = [
   [/^\/api\/admin\/coupons/, 'الكوبونات'], [/^\/api\/admin\/offers/, 'العروض'], [/^\/api\/admin\/providers/, 'المحلات والخدمات'],
   [/^\/api\/admin\/(couriers|supervisors)/, 'المناديب والمشرفين'], [/^\/api\/admin\/(users|customers)/, 'العملاء والحسابات'],
   [/^\/api\/admin\/update-notice/, 'إشعار التحديث'], [/^\/api\/admin\/courier-photos/, 'صور المناديب'], [/^\/api\/admin\/log/, 'سجل التغييرات'],
-  [/^\/api\/admin\/ratings/, 'التقييمات'],
+  [/^\/api\/admin\/ratings/, 'التقييمات'], [/^\/api\/admin\/wipe/, 'مسح البيانات'],
 ];
 const VERB = { POST: 'إضافة / تنفيذ', PATCH: 'تعديل', PUT: 'تعديل', DELETE: 'حذف' };
 const SECRET = /pass|token|secret|image|photo|icon|logo|audio|pin|key$/i;

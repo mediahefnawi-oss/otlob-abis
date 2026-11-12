@@ -1099,6 +1099,7 @@ ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId
 require('./support')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./rx')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./voice').register(app, { pool, auth, asyncRoute, positiveId });
+require('./wipe').register(app, { pool, auth, roles, asyncRoute });
 require('./adminlog').register(app, { pool, auth, roles, asyncRoute, positiveId, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); }, settingsClear: () => settingsMemo.clear() });
 require('./chat')(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./orders')(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers });

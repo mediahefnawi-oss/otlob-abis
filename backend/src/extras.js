@@ -11,6 +11,7 @@ const FEATURES = {
   rx: { label: 'تحويل الروشتة للصيدلية', on: false },
   rxCommission: { label: 'عمولة على روشتات الصيدليات', on: false },
   regionClose: { label: 'إغلاق منطقة توصيل مؤقتًا', on: false },
+  dataWipe: { label: 'مسح بيانات الطلبات (تجريبي)', on: false },
   pool: { label: 'الطلب الجماعي', on: false },
   adTarget: { label: 'ربط الإعلان بمحل ومنتج', on: false },
   courierPhoto: { label: 'صورة المندوب', on: false },

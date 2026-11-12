@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Card, Btn, Header, Toggle, Empty, Field, toast } from './ui';
+import { T, Card, Btn, Header, Toggle, Empty, Field, Chip, toast, confirmDialog } from './ui';
+import { refresh } from '../lib/store';
 import { CourierPhotoReview } from './CourierPhoto';
 import { ChatReportsList } from './Chat';
-import { apiRxCommission, apiSetRxCommission, apiDailyReport, apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
+import { apiWipePreview, apiWipe, WipeCounts, apiRxCommission, apiSetRxCommission, apiDailyReport, apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
 
 const HINT: Record<string, string> = {
   menu: 'المنيو بالصورة، ونقل المحل لقسم آخر، وطريقة الطلب لكل محل',
@@ -14,6 +15,7 @@ const HINT: Record<string, string> = {
   rx: 'العيادة تحوّل الروشتة لصيدلية برقم',
   rxCommission: 'نسبة للمنصة من سعر الأدوية لما العميل يستلم الروشتة من الصيدلية (بتتسجل في العمولات المستحقة على الصيدلية)',
   regionClose: 'تقفل التوصيل في منطقة بشكل مؤقت (برسالة ووقت رجوع)، والعملاء فيها ما يقدروش يطلبوا لحد ما ترجع. الزرار بيظهر جنب كل منطقة في «المناطق»',
+  dataWipe: 'بيفتح في آخر الصفحة كارت «مسح بيانات الطلبات» لتنضيف البيانات التجريبية. بيطلب كلمة مرورك وكلمة تأكيد. وما فيهوش تراجع',
   pool: 'الجيران يشاركوا رسوم التوصيل',
   adTarget: 'الإعلان يفتح محل أو منتج معين',
   courierPhoto: 'صورة المندوب تظهر للعميل بعد موافقتك',
@@ -30,6 +32,56 @@ const HINT: Record<string, string> = {
   support: 'شات العميل والمحل والمندوب مع الدعم الفني',
 };
 const BASIC = ['coupons', 'ratings', 'support', 'bot'];
+
+const WIPE_PARTS = [{ k: 'orders', t: 'الطلبات' }, { k: 'bookings', t: 'الحجوزات' }, { k: 'rx', t: 'الروشتات' }];
+
+/** Owner: clean the trial data. Everything is deleted in one go, the customers, shops, products and settings are never touched, and there is no undo. */
+function DataWipeCard() {
+  const [c, setC] = useState<WipeCounts | null>(null);
+  const [parts, setParts] = useState<string[]>([]);
+  const [renum, setRenum] = useState(true);
+  const [pass, setPass] = useState('');
+  const [word, setWord] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = () => apiWipePreview().then((r) => setC(r.counts)).catch(() => {});
+  useEffect(() => { load(); }, []);
+  const flip = (k: string) => setParts((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+  const run = async () => {
+    if (!parts.length) return toast('اختر اللي عايز تمسحه', 'err');
+    if (word.trim() !== 'مسح') return toast('اكتب كلمة «مسح» للتأكيد', 'err');
+    if (!pass) return toast('اكتب كلمة مرورك', 'err');
+    confirmDialog({
+      title: 'مسح نهائي؟', danger: true, confirmText: 'امسح',
+      message: `هيتمسح: ${WIPE_PARTS.filter((x) => parts.includes(x.k)).map((x) => x.t).join('، ')}. مفيش تراجع.${c && c.openOrders > 0 && parts.includes('orders') ? ` ⚠️ فيه ${c.openOrders} طلب لسه شغال هيتمسح معاهم.` : ''}`,
+      onConfirm: async () => {
+        setBusy(true);
+        try { const r = await apiWipe({ password: pass, confirm: word.trim(), what: parts, renumber: renum }); setC(r.after); setPass(''); setWord(''); setParts([]); toast('تم المسح ✅'); refresh().catch(() => {}); }
+        catch (e: any) { toast(e?.message || 'تعذر المسح', 'err'); }
+        finally { setBusy(false); }
+      },
+    });
+  };
+  return (
+    <Card style={{ gap: 10, borderWidth: 1.5, borderColor: C_RED }}>
+      <T w="black" size={14.5} color={C_RED}>⚠️ مسح بيانات الطلبات (نهائي)</T>
+      <T size={12} color={C.sub}>عشان تنضّف الطلبات التجريبية قبل الإطلاق. العملاء والمحلات والمنتجات والمناطق والإعدادات ما بتتمسحش أبدًا.</T>
+      {c && <T size={12.5}>الموجود دلوقتي: {c.orders} طلب (منهم {c.openOrders} شغال) • {c.bookings} حجز • {c.rx} روشتة • {c.invoices} فاتورة • {c.messages} رسالة</T>}
+      <T w="bold" size={12.5}>اختر اللي يتمسح</T>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {WIPE_PARTS.map((x) => <Chip key={x.k} label={x.t} active={parts.includes(x.k)} onPress={() => flip(x.k)} />)}
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <T size={13} style={{ flex: 1 }}>الترقيم يبدأ من 1 بعد المسح</T>
+        <Toggle value={renum} onValueChange={setRenum} />
+      </View>
+      <Field label="كلمة مرورك" icon="lock-closed" value={pass} onChangeText={setPass} secureTextEntry placeholder="••••••" />
+      <Field label="اكتب كلمة: مسح" icon="create" value={word} onChangeText={setWord} placeholder="مسح" />
+      <Btn variant="danger" icon="trash" title="امسح نهائيًا" loading={busy} onPress={run} />
+      <T size={11.5} color={C.sub}>مفيش تراجع من التطبيق. لو عايز نسخة تحميها قبل المسح، شغّل النسخة الاحتياطية من السيرفر الأول (backup.sh).</T>
+    </Card>
+  );
+}
+const C_RED = '#C0392B';
 
 function RxCommissionCard() {
   const [pct, setPct] = useState('');
@@ -103,6 +155,7 @@ export function AdminFeaturesScreen({ navigation }: any) {
           </Card>
         )}
         {(rows || []).some((f) => f.key === 'rxCommission' && f.on) && <RxCommissionCard />}
+        {(rows || []).some((f) => f.key === 'dataWipe' && f.on) && <DataWipeCard />}
         {(rows || []).some((f) => f.key === 'chat' && f.on) && <ChatReportsList />}
         {(rows || []).some((f) => f.key === 'courierPhoto' && f.on) && <CourierPhotoReview />}
       </ScrollView>
