@@ -36,7 +36,7 @@ export function VoiceRecorder({ value, onChange }: { value: Recorded | null; onC
     if (!value) return;
     if (playing) { stopPlay.current?.(); setPlaying(false); return; }
     setPlaying(true);
-    stopPlay.current = playAudio(value.audio, () => setPlaying(false));
+    stopPlay.current = playAudio(value.audio, () => setPlaying(false), (why) => { setPlaying(false); toast(why === 'format' ? 'الجهاز ده مش قادر يشغّل التسجيل' : 'ما اشتغلش، اضغط تاني', 'err'); });
   };
 
   return (
@@ -78,7 +78,11 @@ export function VoicePlayer({ orderId, secs }: { orderId: string; secs?: number 
         audio.current = r.audio;
       }
       setState('playing');
-      stop.current = playAudio(audio.current, () => setState('idle'));
+      stop.current = playAudio(audio.current, () => setState('idle'), (why) => {
+        setState('idle');
+        // 'blocked': the browser wants the tap itself to start the sound; the recording is already downloaded, so the next tap plays at once
+        toast(why === 'blocked' ? 'اضغط مرة تانية للتشغيل ▶️' : why === 'format' ? 'الجهاز ده مش قادر يشغّل التسجيل. جرّب من متصفح تاني أو من التطبيق' : 'تعذر تشغيل التسجيل، جرّب تاني', why === 'blocked' ? 'info' : 'err');
+      });
     } catch (e: any) {
       setState('idle');
       toast(e?.message || 'تعذر تشغيل التسجيل', 'err');

@@ -47,10 +47,32 @@ export function stopRecording(): Promise<Recorded | null> {
 }
 export async function cancelRecording() { try { rec?.stop(); } catch { /* ignore */ } cleanup(); }
 
-/** Plays a recording. Returns a function that stops it; `onEnd` is called when it finishes by itself. */
-export function playAudio(dataUrl: string, onEnd: () => void): () => void {
-  const a = new (globalThis as any).Audio(dataUrl);
-  a.onended = onEnd; a.onerror = onEnd;
-  a.play().catch(onEnd);
-  return () => { try { a.pause(); } catch { /* ignore */ } };
+/** data URL -> a temporary blob address (browsers play these more reliably than a long data URL, and a recording without a stored length plays too) */
+function toBlobUrl(dataUrl: string): string | null {
+  try {
+    const m = /^data:([^,]*?);base64,(.*)$/s.exec(dataUrl);
+    if (!m) return null;
+    const bin = atob(m[2]);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: m[1].replace(/;base64$/, '') || 'audio/webm' }));
+  } catch { return null; }
+}
+
+/**
+ * Plays a recording. Returns a function that stops it. `onEnd` is called when it finishes by itself; `onError` (optional) says why it could not
+ * play: 'blocked' = the browser wants another tap, 'format' = this device cannot play that recording, 'other'.
+ */
+export function playAudio(dataUrl: string, onEnd: () => void, onError?: (why: 'blocked' | 'format' | 'other') => void): () => void {
+  const url = toBlobUrl(dataUrl);
+  const a = new (globalThis as any).Audio(url || dataUrl);
+  let dead = false;
+  const done = () => { if (url) { try { URL.revokeObjectURL(url); } catch { /* ignore */ } } };
+  const fail = (why: 'blocked' | 'format' | 'other') => { if (dead) return; dead = true; done(); if (onError) onError(why); else onEnd(); };
+  a.onended = () => { if (!dead) { dead = true; done(); onEnd(); } };
+  a.onerror = () => fail(a.error && a.error.code === 4 ? 'format' : 'other');
+  a.preload = 'auto';
+  const p = a.play();
+  if (p && p.catch) p.catch((e: any) => fail(e && e.name === 'NotAllowedError' ? 'blocked' : e && e.name === 'NotSupportedError' ? 'format' : 'other'));
+  return () => { dead = true; try { a.pause(); } catch { /* ignore */ } done(); };
 }
