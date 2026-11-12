@@ -503,6 +503,8 @@ CREATE TABLE IF NOT EXISTS offers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_offers_active ON offers(active, provider_id);
+-- when customers were notified about this offer (at most one such push per 24 hours, switch "offerPush")
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMPTZ;
 
 -- Delivery price by distance (owner switch). 'region' = the area prices (as before); 'km' = price per kilometre between the shop and the customer.
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS fee_mode TEXT NOT NULL DEFAULT 'region';

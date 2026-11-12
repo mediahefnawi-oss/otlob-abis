@@ -5,7 +5,7 @@ import { T, Card, Btn, Header, Toggle, Empty, Field, Chip, toast, confirmDialog 
 import { refresh } from '../lib/store';
 import { CourierPhotoReview } from './CourierPhoto';
 import { ChatReportsList } from './Chat';
-import { apiWipePreview, apiWipe, WipeCounts, apiRxCommission, apiSetRxCommission, apiDailyReport, apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
+import { apiWipePreview, apiWipe, WipeCounts, apiDailyReport, apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
 
 const HINT: Record<string, string> = {
   menu: 'المنيو بالصورة، ونقل المحل لقسم آخر، وطريقة الطلب لكل محل',
@@ -13,7 +13,9 @@ const HINT: Record<string, string> = {
   voice: 'العميل يسجّل صوته بدل الكتابة',
   clinicSchedule: 'العيادة هي اللي تحدد يوم وساعة الكشف',
   rx: 'العيادة تحوّل الروشتة لصيدلية برقم',
-  rxCommission: 'نسبة للمنصة من سعر الأدوية لما العميل يستلم الروشتة من الصيدلية (بتتسجل في العمولات المستحقة على الصيدلية)',
+  offerBadge: 'شارة «خصم %» على كارت المحل في الرئيسية والقوائم',
+  todayOffers: 'شريط «عروض اليوم» أعلى الرئيسية مع عدّاد الوقت المتبقي',
+  offerPush: 'إشعار للعملاء لما يبدأ عرض جديد (مرة واحدة في اليوم كحد أقصى)',
   regionClose: 'تقفل التوصيل في منطقة بشكل مؤقت (برسالة ووقت رجوع)، والعملاء فيها ما يقدروش يطلبوا لحد ما ترجع. الزرار بيظهر جنب كل منطقة في «المناطق»',
   dataWipe: 'بيفتح في آخر الصفحة كارت «مسح بيانات الطلبات» لتنضيف البيانات التجريبية. بيطلب كلمة مرورك وكلمة تأكيد. وما فيهوش تراجع',
   pool: 'الجيران يشاركوا رسوم التوصيل',
@@ -32,6 +34,7 @@ const HINT: Record<string, string> = {
   support: 'شات العميل والمحل والمندوب مع الدعم الفني',
 };
 const BASIC = ['coupons', 'ratings', 'support', 'bot'];
+const MOVED = ['rxCommission']; // lives in «العمولات والعدادات» now
 
 const WIPE_PARTS = [{ k: 'orders', t: 'الطلبات' }, { k: 'bookings', t: 'الحجوزات' }, { k: 'rx', t: 'الروشتات' }];
 
@@ -83,28 +86,6 @@ function DataWipeCard() {
 }
 const C_RED = '#C0392B';
 
-function RxCommissionCard() {
-  const [pct, setPct] = useState('');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { apiRxCommission().then((r) => setPct(String(r.percent))).catch(() => {}); }, []);
-  const save = async () => {
-    const n = Number(pct.replace(',', '.'));
-    if (!Number.isFinite(n) || n < 0 || n > 100) return toast('اكتب نسبة بين 0 و100', 'err');
-    setBusy(true);
-    try { const r = await apiSetRxCommission(n); setPct(String(r.percent)); toast('تم حفظ النسبة ✅'); }
-    catch (e: any) { toast(e?.message || 'تعذر الحفظ', 'err'); }
-    finally { setBusy(false); }
-  };
-  return (
-    <Card style={{ gap: 8 }}>
-      <T w="black" size={14.5}>نسبة عمولة الروشتات</T>
-      <Field label="النسبة % من سعر الأدوية" icon="cash" value={pct} onChangeText={setPct} keyboardType="decimal-pad" placeholder="مثال: 5" />
-      <Btn small icon="save" title="حفظ النسبة" loading={busy} onPress={save} />
-      <T size={11.5} color={C.sub}>بتتحسب لما العميل يستلم من الصيدلية بسعر مكتوب. لو طلب توصيل، الطلب نفسه بيتحسب عليه عمولة الصيدلية العادية، فمفيش عمولة مرتين.</T>
-    </Card>
-  );
-}
-
 /** Owner only: every new feature is a switch. Closing one hides it at once; whatever already started finishes normally. */
 export function AdminFeaturesScreen({ navigation }: any) {
   const [rows, setRows] = useState<FeatureRow[] | null>(null);
@@ -135,7 +116,7 @@ export function AdminFeaturesScreen({ navigation }: any) {
           </Card>
         ))}
         <T w="black" size={13} color={C.sub}>ميزات جديدة (مقفولة لحد ما تفتحها)</T>
-        {(rows || []).filter((f) => !BASIC.includes(f.key)).map((f) => (
+        {(rows || []).filter((f) => !BASIC.includes(f.key) && !MOVED.includes(f.key)).map((f) => (
           <Card key={f.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View style={{ flex: 1, gap: 2 }}>
               <T w="black" size={14.5}>{f.label}</T>
@@ -154,7 +135,6 @@ export function AdminFeaturesScreen({ navigation }: any) {
             <T size={11.5} color={C.sub}>بيوصلك التقرير كإشعار كل يوم الساعة 10 مساءً بتوقيت القاهرة.</T>
           </Card>
         )}
-        {(rows || []).some((f) => f.key === 'rxCommission' && f.on) && <RxCommissionCard />}
         {(rows || []).some((f) => f.key === 'dataWipe' && f.on) && <DataWipeCard />}
         {(rows || []).some((f) => f.key === 'chat' && f.on) && <ChatReportsList />}
         {(rows || []).some((f) => f.key === 'courierPhoto' && f.on) && <CourierPhotoReview />}

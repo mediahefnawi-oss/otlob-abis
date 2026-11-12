@@ -20,6 +20,65 @@ export function OfferBadge({ p }: { p: Pick<Product, 'offer'> }) {
   );
 }
 
+/** The best offer running at a shop, read from its products (the server already attaches it). Only while the switch is on. */
+function useShopOffers(switchKey: 'offerBadge' | 'todayOffers') {
+  const { db } = useStore();
+  const on = !!db.settings.features?.[switchKey];
+  const now = Date.now();
+  return React.useMemo(() => {
+    const m = new Map<string, NonNullable<Product['offer']>>();
+    if (!on) return m;
+    for (const x of db.products) {
+      if (!x.offer || (x.offer.endsAt && x.offer.endsAt <= now)) continue;
+      const cur = m.get(x.providerId);
+      if (!cur || x.offer.percent > cur.percent) m.set(x.providerId, x.offer);
+    }
+    return m;
+  }, [db.products, on]);
+}
+
+/** Small "خصم 20%" tag on a shop card (switch «offerBadge»). */
+export function ShopOfferTag({ providerId }: { providerId: string }) {
+  const o = useShopOffers('offerBadge').get(providerId);
+  if (!o) return null;
+  const c = OFFER_COLORS[o.color] || OFFER_COLORS.red;
+  return (
+    <View style={{ alignSelf: 'flex-start', backgroundColor: c.bg, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 2 }}>
+      <T w="black" size={11} color={c.fg}>🏷️ خصم {o.percent}%{o.endsAt ? ` • ينتهي بعد ${left(o.endsAt)}` : ''}</T>
+    </View>
+  );
+}
+
+/** "عروض اليوم" strip at the top of the customer home (switch «todayOffers»): one tile per shop that has a running offer. */
+export function TodayOffers({ onOpen }: { onOpen: (providerId: string) => void }) {
+  const { db } = useStore();
+  const offers = useShopOffers('todayOffers');
+  const list = db.providers
+    .filter((p) => p.status === 'active' && offers.has(p.id))
+    .map((p) => ({ p, o: offers.get(p.id)! }))
+    .sort((a, b) => b.o.percent - a.o.percent)
+    .slice(0, 12);
+  if (!list.length) return null;
+  return (
+    <View style={{ marginBottom: 14, gap: 8 }}>
+      <T w="black" size={15}>🔥 عروض اليوم</T>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+        {list.map(({ p, o }) => {
+          const c = OFFER_COLORS[o.color] || OFFER_COLORS.red;
+          return (
+            <Pressable key={p.id} onPress={() => onOpen(p.id)} style={({ pressed }) => [{ width: 150, backgroundColor: c.bg, borderRadius: 18, padding: 12, gap: 4 }, pressed && { opacity: 0.85 }]}>
+              <T w="black" size={22} color={c.fg}>{o.percent}%</T>
+              <T w="bold" size={13} color={c.fg} numberOfLines={1}>{p.name}</T>
+              <T size={11} color={c.fg} numberOfLines={1}>{o.title}</T>
+              {!!o.endsAt && <T size={10.5} color={c.fg}>⏱ ينتهي بعد {left(o.endsAt)}</T>}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 /** Owner only: create, switch off and delete offers. */
 export function AdminOffersScreen({ navigation }: any) {
   const { db } = useStore();

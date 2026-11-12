@@ -9,6 +9,7 @@ import { C } from '../lib/theme';
 import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel, isBooking } from '../lib/format';
 import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill, FlagPill } from './ui';
 import { LabPill, fmt12 } from './Lab';
+import { ShopOfferTag } from './Offers';
 
 /** "في منطقتك" when the place is in the customer's own area, otherwise "منطقة X". */
 export function AreaTag({ p }: { p: Pick<Provider, 'regionId' | 'regionName'> }) {
@@ -37,6 +38,7 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
         </View>
         <T size={12} color={C.sub} numberOfLines={1}>{p.desc}</T>
         {!!p.regionName && <AreaTag p={p} />}
+        <ShopOfferTag providerId={p.id} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <Icon name="star" size={13} color={C.gold} />

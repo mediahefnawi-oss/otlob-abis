@@ -26,7 +26,30 @@ function bestOffer(offers, providerId) {
 const salePrice = (price, offer) => offer ? round2(Number(price) * (100 - offer.percent) / 100) : Number(price);
 const offerJson = o => ({ id: String(o.id), title: o.title, percent: Number(o.percent), color: o.color, providerId: o.provider_id ? String(o.provider_id) : null, endsAt: o.ends_at ? new Date(o.ends_at).getTime() : null });
 
-function registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId }) {
+/**
+ * Tell the customers about a new offer (switch "offerPush"). At most one such push every 24 hours, however many offers are created:
+ * the offer that wins the slot is marked in one atomic statement, so two offers created together cannot both push.
+ * Returns how many customers were notified (0 when the switch is off, the cap is used, or the offer is not running yet).
+ */
+async function notifyNewOffer(db, pushToUsers, id) {
+  try {
+    if (typeof pushToUsers !== 'function' || !(await require('./extras').featureOn(db, 'offerPush'))) return 0;
+    const slot = await db.query(
+      `UPDATE offers SET pushed_at=NOW() WHERE id=$1 AND active=TRUE AND starts_at <= NOW() AND (ends_at IS NULL OR ends_at > NOW())
+         AND NOT EXISTS (SELECT 1 FROM offers WHERE pushed_at > NOW() - INTERVAL '24 hours')
+       RETURNING title, percent, provider_id`, [id]);
+    if (!slot.rowCount) return 0;
+    const o = slot.rows[0];
+    let where = '';
+    if (o.provider_id) where = (await db.query('SELECT name FROM providers WHERE id=$1', [o.provider_id])).rows[0]?.name || '';
+    const ids = (await db.query("SELECT id FROM users WHERE role='customer' AND status='active'")).rows.map(r => r.id);
+    if (!ids.length) return 0;
+    await pushToUsers(ids, { title: `🔥 ${o.title}`, body: where ? `خصم ${o.percent}% في ${where}` : `خصم ${o.percent}% على كل المحلات`, tag: 'offer', url: '/' });
+    return ids.length;
+  } catch { return 0; } // a failed push never fails the creation of the offer
+}
+
+function registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers }) {
   const fail = (status, error) => Object.assign(new Error(error), { http: status });
   const guard = fn => asyncRoute(async (req, res) => {
     try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; }
@@ -53,7 +76,8 @@ function registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId })
       if (!(h > 0 && h <= 24 * 365)) throw fail(400, 'مدة العرض غير صحيحة');
       ends = new Date(Date.now() + h * 3600 * 1000);
     }
-    await pool.query('INSERT INTO offers(title, percent, provider_id, color, ends_at) VALUES($1,$2,$3,$4,$5)', [title, percent, pid, color, ends]);
+    const ins = await pool.query('INSERT INTO offers(title, percent, provider_id, color, ends_at) VALUES($1,$2,$3,$4,$5) RETURNING id', [title, percent, pid, color, ends]);
+    await notifyNewOffer(pool, pushToUsers, ins.rows[0].id);
     res.status(201).json({ offers: await list() });
   }));
   app.patch('/api/admin/offers/:id', auth, roles('admin'), guard(async (req, res) => {
@@ -70,4 +94,4 @@ function registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId })
     res.json({ offers: await list() });
   }));
 }
-module.exports = { registerOfferRoutes, activeOffers, bestOffer, salePrice, offerJson, COLORS };
+module.exports = { notifyNewOffer, registerOfferRoutes, activeOffers, bestOffer, salePrice, offerJson, COLORS };

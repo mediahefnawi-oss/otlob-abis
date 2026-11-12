@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DeliveryPin } from '../components/Location';
-import { OfferBadge } from '../components/Offers';
+import { OfferBadge, TodayOffers } from '../components/Offers';
 import { ShopRatingsSheet } from '../components/Ratings';
 import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -117,6 +117,7 @@ export function HomeScreen({ navigation }: any) {
         <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
           <View style={{ marginHorizontal: -16, marginTop: -14, marginBottom: 12 }}><AdsCarousel /></View>
           <RegionClosedBanner regionId={me.regionId} />
+          <TodayOffers onOpen={(id) => navigation.navigate('Provider', { id })} />
           <FavoritesRow />
           {!!db.settings.announcement && (
             <Appear>
