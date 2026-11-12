@@ -38,7 +38,8 @@ jobs:
       - name: Install packages
         run: |
           npm install --no-audit --no-fund
-          npx expo install expo-image-picker expo-image-manipulator expo-notifications
+          npx expo install expo-audio
+          npx expo install expo-image-picker expo-image-manipulator expo-notifications expo-location expo-task-manager react-native-webview
       - name: Phone-only settings (kept out of the web build)
         run: |
           node -e "
@@ -47,7 +48,8 @@ jobs:
           const e=a.expo;
           e.plugins=[...(e.plugins||[]),
             ['expo-image-picker',{photosPermission:'نحتاج صورك لرفع الروشتة وصور المنتجات والشعارات',cameraPermission:'نحتاج الكاميرا لتصوير الروشتة والمنتجات'}],
-            ['expo-notifications',{color:'#F2B51D'}]];
+            ['expo-notifications',{color:'#F2B51D'}],
+            ['expo-location',{locationAlwaysAndWhenInUsePermission:'نستخدم موقعك ليتابع العميل طلبه على الخريطة',locationWhenInUsePermission:'نستخدم موقعك لتحديد مكان التوصيل',isAndroidBackgroundLocationEnabled:true,isAndroidForegroundServiceEnabled:true}]];
           if(fs.existsSync('google-services.json')){e.android.googleServicesFile='./google-services.json';console.log('Firebase file found: notifications enabled');}
           else console.log('No google-services.json: the app is built without phone notifications');
           fs.writeFileSync('app.json',JSON.stringify(a,null,2));
@@ -97,7 +99,10 @@ jobs:
         working-directory: android
         env:
           KS_PASS: ${{ secrets.KEYSTORE_PASSPHRASE }}
-        run: ./gradlew bundleRelease --no-daemon
+        run: |
+          sed -i 's/networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          for i in 1 2 3 4 5 6; do ./gradlew --version --no-daemon && break; echo "download failed, retry $i"; sleep 30; done
+          ./gradlew bundleRelease --no-daemon
       - name: Name the file
         run: cp android/app/build/outputs/bundle/release/*.aab otlob-abis.aab
       - uses: actions/upload-artifact@v4
