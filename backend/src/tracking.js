@@ -129,7 +129,7 @@ module.exports = function registerTrackingRoutes(app, { pool, auth, roles, async
     const d = o.data || {};
     const live = ACTIVE.includes(o.status) && o.courier_user_id && o.clat != null;
     // the courier is hidden from the customer and the shop when the order is over, and a courier sees no one else's position
-    const showCourier = live && role !== 'courier';
+    const showCourier = live && (role !== 'courier' || Number(o.courier_user_id) === who);
     const dest = d.destLat != null && d.destLng != null ? { lat: Number(d.destLat), lng: Number(d.destLng) } : null;
     const shop = o.plat != null ? { lat: Number(o.plat), lng: Number(o.plng) } : null;
     const courier = showCourier ? posJson({ lat: o.clat, lng: o.clng, heading: o.chead, updated_at: o.cat }) : null;

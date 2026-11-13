@@ -1,15 +1,17 @@
 import React, { useEffect, useRef } from 'react';
 import { View } from 'react-native';
-import { mapHtml, MapMarker } from '../lib/mapHtml';
+import { mapHtml, MapMarker, MapLine } from '../lib/mapHtml';
 
 /** Phone: the Leaflet page inside a WebView (react-native-webview is added by the APK build). */
-export default function MapView({ markers, height = 220, pickable, onPick }: { markers: MapMarker[]; height?: number; pickable?: boolean; onPick?: (p: { lat: number; lng: number }) => void }) {
+export default function MapView({ markers, lines, fitKey, height = 220, pickable, onPick }: { markers: MapMarker[]; lines?: MapLine[]; fitKey?: string | number; height?: number; pickable?: boolean; onPick?: (p: { lat: number; lng: number }) => void }) {
   const WebView = require('react-native-webview').WebView;
   const ref = useRef<any>(null);
-  const first = useRef(mapHtml(markers, { pickable }));
+  const lastFit = useRef(fitKey);
+  const first = useRef(mapHtml(markers, { pickable, lines }));
   useEffect(() => {
-    try { ref.current?.postMessage(JSON.stringify({ markers, refit: false })); } catch { /* the map is optional */ }
-  }, [JSON.stringify(markers)]);
+    const refit = lastFit.current !== fitKey; lastFit.current = fitKey;
+    try { ref.current?.postMessage(JSON.stringify({ markers, lines, refit })); } catch { /* the map is optional */ }
+  }, [JSON.stringify(markers), JSON.stringify(lines || []), fitKey]);
   return (
     <View style={{ height, borderRadius: 16, overflow: 'hidden', backgroundColor: '#E9EEE8' }}>
       <WebView

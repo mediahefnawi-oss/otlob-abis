@@ -249,7 +249,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
               {o.status === 'arrived' && <Btn title="تم تسليم الطلب للعميل" icon="checkmark-done" variant="green" onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(o.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => act('deliver') })} />}
             </>
           )}
-          {canChat && !isStaff && o.status !== 'delivered' && <OrderChatCard orderId={o.id} me={me} messages={db.messages} onOpen={() => navigation.navigate('Chat', { orderId: o.id })} />}
+          {canChat && !isStaff && o.status !== 'delivered' && <OrderChatCard orderId={o.id} me={me} messages={db.messages} onOpen={() => navigation.navigate('Chat', { orderId: o.id, focus: true })} />}
           {canChat && isStaff && <Btn title="عرض المحادثة" icon="chatbubbles" variant="dark" onPress={() => navigation.navigate('Chat', { orderId: o.id })} />}
           {me.role === 'customer' && o.customerId === me.id && o.status === 'quoted' && (
             <Card style={{ gap: 10, borderWidth: 1.5, borderColor: C.gold, backgroundColor: C.goldSoft }}>
@@ -485,10 +485,8 @@ export function InvoiceScreen({ navigation, route }: any) {
 /* ---------------- Chat ---------------- */
 /** A small live chat inside the order screen: the last messages, a box to write in, and a button for the full conversation. */
 function OrderChatCard({ orderId, me, messages, onOpen }: { orderId: string; me: any; messages: any[]; onOpen: () => void }) {
-  const [text, setText] = useState('');
   const msgs = messages.filter((m) => m.orderId === orderId).sort((a, b) => a.createdAt - b.createdAt);
   const last = msgs.slice(-3);
-  const send = () => { const t = text.trim(); if (!t) return; sendMessage(orderId, t, me); setText(''); };
   return (
     <Card style={{ gap: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -503,14 +501,11 @@ function OrderChatCard({ orderId, me, messages, onOpen }: { orderId: string; me:
           <T size={13}>{m.text}</T>
         </View>
       ))}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <TextInput
-          maxFontSizeMultiplier={1.1} value={text} onChangeText={setText} placeholder="اكتب رسالة..." placeholderTextColor="#9AA8A2"
-          onSubmitEditing={send} returnKeyType="send"
-          style={{ flex: 1, backgroundColor: '#F3F4EE', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, fontFamily: FONT.regular, fontSize: 13, textAlign: 'right' }}
-        />
-        <Pressable onPress={send} style={{ backgroundColor: C.green, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}><Icon name="send" size={16} color="#fff" /></Pressable>
-      </View>
+      {/* typing happens on the full chat screen, where the box always rises above the keyboard (a box inside this scrolling page was hidden behind it) */}
+      <Pressable onPress={onOpen} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1, backgroundColor: '#F3F4EE', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 11 }}><T size={13} color="#9AA8A2">اكتب رسالة...</T></View>
+        <View style={{ backgroundColor: C.green, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}><Icon name="send" size={16} color="#fff" /></View>
+      </Pressable>
     </Card>
   );
 }
@@ -576,6 +571,7 @@ export function ChatScreen({ navigation, route }: any) {
                 placeholderTextColor="#9AA8A2"
                 onSubmitEditing={() => send()}
                 returnKeyType="send"
+                autoFocus={!!route.params.focus}
                 style={[{ flex: 1, backgroundColor: '#F3F4EE', borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontFamily: FONT.regular, fontSize: 14, textAlign: 'right' }, Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null]}
               />
               <Pressable onPress={() => send()} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: text.trim() ? C.dark : '#C9D1CC', alignItems: 'center', justifyContent: 'center' }}>

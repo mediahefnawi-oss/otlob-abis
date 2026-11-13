@@ -1066,6 +1066,10 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     if (!allowed) throw fail(403, 'غير مسموح بالمشاركة في هذه المحادثة');
     const u = await pool.query('SELECT name, role FROM users WHERE id=$1', [me]);
     const r = await pool.query('INSERT INTO messages(order_id, sender_user_id, sender_name, sender_role, body) VALUES($1,$2,$3,$4,$5) RETURNING *', [id, me, u.rows[0].name, u.rows[0].role, body]);
+    // phone notification to everyone else on the order (the other side must not have to open the order to find the message)
+    const label = { courier: 'المندوب', customer: 'العميل', provider: 'المتجر', admin: 'الإدارة', supervisor: 'الإدارة' }[u.rows[0].role] || '';
+    const others = [x.customer_user_id, x.courier_user_id, x.powner].filter(v => v && Number(v) !== me);
+    notify([...new Set(others.map(Number))], `${u.rows[0].name}${label ? ` (${label})` : ''} 💬`, body.length > 110 ? body.slice(0, 107) + '...' : body, `chat-${id}`).catch(() => {});
     res.status(201).json({ message: messageJson(r.rows[0]) });
   }));
 

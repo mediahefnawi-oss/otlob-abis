@@ -1,0 +1,47 @@
+// order chat: the other side gets a phone notification; the courier sees his own position on the tracking endpoint
+const { Pool } = require('./shim');
+let pass = 0, bad = 0; const ok = (c, m) => { if (c) pass++; else { bad++; console.log('  FAIL:', m); } };
+const routes = {}; const app = {};
+for (const m of ['get', 'post', 'patch', 'put', 'delete']) app[m] = (p, ...c) => { routes[`${m.toUpperCase()} ${p}`] = c; };
+const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const positiveId = v => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : null; };
+const pass1 = (req, res, next) => next();
+(async () => {
+  const pool = new Pool(); const q = (t, p) => pool.query(t, p); const notes = [];
+  const deps = { pool, auth: pass1, authAny: pass1, roles: () => pass1, asyncRoute, positiveId, maintenanceState: async () => ({ enabled: true }), loadSettings: async () => ({}), cleanUser: x => x, pushToUsers: async (ids, p) => { notes.push({ ids: ids.map(Number), p }); } };
+  require('../src/orders.js')(app, deps); require('../src/tracking.js')(app, deps);
+  const call = async (key, as, params, body) => {
+    const chain = routes[key]; const out = { status: 200, json: null };
+    const req = { auth: as, params, body: body || {}, query: {} };
+    const res = { status(c) { out.status = c; return this; }, json(j) { out.json = j; return this; } };
+    let err = null; chain[chain.length - 1](req, res, e => { err = e; });
+    const t0 = Date.now(); while (!err && out.json === null && Date.now() - t0 < 8000) await new Promise(r => setTimeout(r, 2));
+    if (err) { out.status = err.http || 500; out.json = { error: err.message }; } return out;
+  };
+  const u = async (n, role) => (await q("INSERT INTO users(name, phone, password_hash, role, status, available) VALUES($1,$2,'x',$3,'active',TRUE) RETURNING id", [n, '011' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'), role])).rows[0].id;
+  const cust = await u('محمد', 'customer'), cb = await u('أحمد السيد', 'courier'), po = await u('ص', 'provider'), other = await u('تاني', 'courier');
+  const p = (await q("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open,lat,lng) VALUES($1,'restaurant','مطعم','01000000000','active',TRUE,31.0,29.95) RETURNING id", [po])).rows[0].id;
+  const oid = (await q("INSERT INTO orders(customer_user_id, provider_id, courier_user_id, status, total, data) VALUES($1,$2,$3,'on_the_way',70,$4) RETURNING id", [cust, p, cb, JSON.stringify({ destLat: 31.01, destLng: 29.96, providerOwnerId: String(po), history: [] })])).rows[0].id;
+  await q("INSERT INTO courier_locations(courier_id,lat,lng,updated_at) VALUES($1,31.005,29.955,NOW()) ON CONFLICT (courier_id) DO UPDATE SET lat=31.005,lng=29.955,updated_at=NOW()", [cb]);
+  const C = { sub: String(cust), role: 'customer' }, K = { sub: String(cb), role: 'courier' }, O = { sub: String(other), role: 'courier' };
+  console.log('A) courier writes -> customer and shop get a push, the courier does not');
+  let r = await call('POST /api/orders/:id/messages', K, { id: String(oid) }, { text: 'أنا قدام العمارة' });
+  ok(r.status === 201, 'created ' + r.status); await new Promise(x => setTimeout(x, 30));
+  ok(notes.length === 1, 'one push'); const n = notes[0] || { ids: [], p: {} };
+  ok(n.ids.includes(Number(cust)) && n.ids.includes(Number(po)) && !n.ids.includes(Number(cb)), 'to customer + shop, not to the sender');
+  ok(n.p.title.includes('أحمد السيد') && n.p.title.includes('المندوب') && n.p.body === 'أنا قدام العمارة', 'title names the sender, body is the text');
+  console.log('B) customer writes -> courier gets a push');
+  notes.length = 0; r = await call('POST /api/orders/:id/messages', C, { id: String(oid) }, { text: 'نازل حالا' }); await new Promise(x => setTimeout(x, 30));
+  ok(notes.length === 1 && notes[0].ids.includes(Number(cb)) && !notes[0].ids.includes(Number(cust)), 'to the courier only (and shop)');
+  console.log('C) a stranger cannot write, nothing is pushed');
+  notes.length = 0; r = await call('POST /api/orders/:id/messages', O, { id: String(oid) }, { text: 'x' }); ok(r.status === 403 && !notes.length, 'refused ' + r.status);
+  console.log('D) long text is shortened');
+  notes.length = 0; await call('POST /api/orders/:id/messages', C, { id: String(oid) }, { text: 'ا'.repeat(500) }); await new Promise(x => setTimeout(x, 30)); ok(notes[0] && notes[0].p.body.length <= 110, 'short body');
+  console.log('E) tracking: the courier sees his own position, never another courier\'s');
+  await q("UPDATE app_settings SET map = '{\"enabled\":true,\"required\":true}'::jsonb WHERE id=1").catch(() => {});
+  r = await call('GET /api/orders/:id/tracking', K, { id: String(oid) }); ok(r.status === 200 && r.json.courier && Math.abs(r.json.courier.lat - 31.005) < 1e-6, 'own position: ' + JSON.stringify(r.json).slice(0, 160));
+  r = await call('GET /api/orders/:id/tracking', O, { id: String(oid) }); ok(r.status === 403, 'other courier refused');
+  r = await call('GET /api/orders/:id/tracking', C, { id: String(oid) }); ok(r.status === 200 && r.json.courier, 'customer sees the courier');
+  console.log(bad ? `FAILED ${bad}` : 'ALL OK', 'pass=' + pass);
+  await pool.end(); process.exit(bad ? 1 : 0);
+})().catch(e => { console.error('CRASH', e); process.exit(2); });

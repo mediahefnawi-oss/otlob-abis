@@ -5,7 +5,8 @@ import { T, Card, Btn, Header, Empty, toast, callPhone, IconBubble, IconBtn, Tog
 import MapView from './MapView';
 import { getPosition, startCourierTracking, stopCourierTracking } from '../lib/location';
 import { apiMyLocation, apiSetMyLocation, apiSetShopLocation, apiOrderTracking, apiStaffCourierLocations, GeoPoint, OrderTracking, StaffCourierPos } from '../lib/api';
-import type { MapMarker } from '../lib/mapHtml';
+import type { MapMarker, MapLine } from '../lib/mapHtml';
+import { fetchRoute, travelled, arrivalAt, RouteRes } from '../lib/route';
 import { setMyHome, useStore, setCartDest, useMapOn, setMapMode } from '../lib/store';
 import { Pressable, Linking } from 'react-native';
 
@@ -87,34 +88,92 @@ export function MyLocationCard({ kind }: { kind: 'customer' | 'shop' }) {
 
 const ago = (t: number) => { const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 1 ? 'الآن' : m < 60 ? `منذ ${m} د` : 'منذ فترة'; };
 
-/** Inside the order screen: appears once a courier has the order, then follows him live until delivery. */
+/** Inside the order screen: appears once a courier has the order, then follows him live until delivery.
+ *  Customer and courier see the same road line (shop → home), the travelled part in green, the time left, the distance and the arrival time. */
 export function OrderMapCard({ orderId, active, role, courierName, courierPhone }: { orderId: string; active: boolean; role: string; courierName?: string; courierPhone?: string }) {
   const [t, setT] = useState<OrderTracking | null>(null);
+  const [full, setFull] = useState<RouteRes | null>(null);
+  const [live, setLive] = useState<RouteRes | null>(null);
+  const [fit, setFit] = useState(0);
   const mapOn = useMapOn();
   usePoll(async () => { if (active && mapOn) setT(await apiOrderTracking(orderId)); }, 8000, [orderId, active, mapOn]);
+
+  const toShop = !!t && !['picked_up', 'on_the_way', 'arrived'].includes(t.status);
+  const target: GeoPoint | null = t ? (toShop ? (t.shop || t.dest) : t.dest) : null;
+  const shopK = t?.shop ? `${t.shop.lat},${t.shop.lng}` : '';
+  const destK = t?.dest ? `${t.dest.lat},${t.dest.lng}` : '';
+  // the planned road from the shop to the customer (once)
+  useEffect(() => {
+    let dead = false;
+    if (t?.shop && t?.dest) fetchRoute(t.shop, t.dest).then((r) => { if (!dead) { setFull(r); setFit((x) => x + 1); } });
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopK, destK]);
+  // what is left for the courier (again after every new position)
+  const cLat = t?.courier ? Math.round(t.courier.lat * 20000) : null; const cLng = t?.courier ? Math.round(t.courier.lng * 20000) : null;
+  const tgtK = target ? `${target.lat},${target.lng}` : '';
+  useEffect(() => {
+    let dead = false;
+    if (t?.courier && t.courier.fresh && target) fetchRoute(t.courier, target).then((r) => { if (!dead) setLive(r); });
+    else setLive(null);
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cLat, cLng, tgtK, t?.courier?.fresh]);
+
   if (!active || !mapOn || !t) return null;
   const markers: MapMarker[] = [];
   if (t.shop) markers.push({ ...t.shop, kind: 'shop' });
   if (t.dest) markers.push({ ...t.dest, kind: 'dest' });
-  if (t.courier) markers.push({ lat: t.courier.lat, lng: t.courier.lng, kind: 'courier', label: courierName });
+  if (t.courier) markers.push({ lat: t.courier.lat, lng: t.courier.lng, kind: 'courier', label: role === 'courier' ? 'أنت' : courierName });
   if (!markers.length) return null;
-  const toShop = !['picked_up', 'on_the_way', 'arrived'].includes(t.status);
+
+  const lines: MapLine[] = [];
+  if (full) lines.push({ kind: 'base', pts: full.pts });
+  else if (t.shop && t.dest) lines.push({ kind: 'base', pts: [[t.shop.lat, t.shop.lng], [t.dest.lat, t.dest.lng]] });
+  if (t.courier && t.courier.fresh && target) {
+    if (!toShop && full) lines.push({ kind: 'done', pts: travelled(full.pts, t.courier) });
+    lines.push({ kind: 'todo', pts: live ? [[t.courier.lat, t.courier.lng], ...live.pts] : [[t.courier.lat, t.courier.lng], [target.lat, target.lng]] });
+  }
+
+  const fresh = !!t.courier && t.courier.fresh;
+  const min = fresh ? (live ? live.min : t.etaMin) : null;
+  const dist = fresh ? (live ? live.km : t.distanceKm) : null;
+  const progress = !toShop && full && live && full.km > 0 ? Math.max(0.03, Math.min(1, 1 - live.km / full.km)) : null;
+  const who = role === 'courier' ? (toShop ? 'رايح للمحل' : 'رايح للعميل') : (toShop ? 'المندوب في طريقه للمحل' : 'المندوب في الطريق إليك');
+  const lead = role === 'courier' ? 'وصولك المتوقع' : 'يوصل';
+  const directions = () => { if (target) Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${target.lat},${target.lng}&travelmode=driving`).catch(() => toast('تعذر فتح الخرائط', 'err')); };
   return (
     <Card style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <IconBubble icon="map" color={C.orange} bg={C.orangeSoft} size={40} />
         <View style={{ flex: 1 }}>
           <T w="black" size={15}>تتبع الطلب على الخريطة</T>
-          <T size={12} color={C.sub}>
-            {t.courier
-              ? (t.courier.fresh ? (t.distanceKm != null ? `${role === 'customer' && toShop ? 'المندوب في طريقه للمحل' : toShop ? 'المندوب في طريقه للمحل' : 'المندوب في الطريق إليك'} • ${t.distanceKm} كم • حوالي ${t.etaMin} دقيقة` : 'المندوب على الخريطة') : `آخر ظهور للمندوب ${ago(t.courier.at)}`)
-              : 'موقع المندوب غير متاح الآن'}
-          </T>
+          <T size={12} color={C.sub}>{t.courier ? (fresh ? who : `آخر ظهور ${role === 'courier' ? 'لموقعك' : 'للمندوب'} ${ago(t.courier.at)}`) : 'موقع المندوب غير متاح الآن'}</T>
         </View>
         {!!courierPhone && role !== 'courier' && <IconBtn icon="call" bg={C.greenSoft} color={C.green} onPress={() => callPhone(courierPhone)} />}
       </View>
-      <MapView markers={markers} height={240} />
-      <T size={10.5} color={C.sub}>الوقت تقديري بخط مستقيم، وقد يختلف حسب الطريق</T>
+      <MapView markers={markers} lines={lines} fitKey={fit} height={290} />
+      {min != null && (
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4 }}>
+              <T w="black" size={30} color={C.green}>{min}</T>
+              <T w="bold" size={13} style={{ marginBottom: 4 }}>دقيقة</T>
+            </View>
+            <View style={{ flex: 1 }}>
+              <T size={12.5} color={C.sub}>{lead} <T w="black" size={12.5}>{arrivalAt(min)}</T></T>
+              {dist != null && <T size={12.5} color={C.sub}>باقي {dist} كم{live ? '' : ' (بخط مستقيم)'}</T>}
+            </View>
+          </View>
+          {progress != null && (
+            <View style={{ height: 6, borderRadius: 3, backgroundColor: C.line, overflow: 'hidden' }}>
+              <View style={{ height: 6, width: `${Math.round(progress * 100)}%`, backgroundColor: C.green, borderRadius: 3, alignSelf: 'flex-end' }} />
+            </View>
+          )}
+        </View>
+      )}
+      {role === 'courier' && !!target && <Btn title="افتح الاتجاهات في خرائط جوجل" icon="navigate" variant="soft" onPress={directions} />}
+      {!live && fresh && <T size={10.5} color={C.sub}>الوقت تقديري، وقد يختلف حسب الطريق</T>}
     </Card>
   );
 }

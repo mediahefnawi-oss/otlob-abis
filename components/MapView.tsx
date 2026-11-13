@@ -1,15 +1,17 @@
 import React, { useEffect, useRef } from 'react';
 import { View } from 'react-native';
-import { mapHtml, MapMarker } from '../lib/mapHtml';
+import { mapHtml, MapMarker, MapLine } from '../lib/mapHtml';
 
 /** Web: the same Leaflet page inside an iframe. */
-export default function MapView({ markers, height = 220, pickable, onPick }: { markers: MapMarker[]; height?: number; pickable?: boolean; onPick?: (p: { lat: number; lng: number }) => void }) {
+export default function MapView({ markers, lines, fitKey, height = 220, pickable, onPick }: { markers: MapMarker[]; lines?: MapLine[]; fitKey?: string | number; height?: number; pickable?: boolean; onPick?: (p: { lat: number; lng: number }) => void }) {
   const ref = useRef<any>(null);
-  const first = useRef(mapHtml(markers, { pickable }));
+  const lastFit = useRef(fitKey);
+  const first = useRef(mapHtml(markers, { pickable, lines }));
   useEffect(() => {
     const w = ref.current?.contentWindow;
-    if (w) { try { w.postMessage(JSON.stringify({ markers, refit: false }), '*'); } catch { /* the map is optional */ } }
-  }, [JSON.stringify(markers)]);
+    if (w) { const refit = lastFit.current !== fitKey; lastFit.current = fitKey;
+      try { w.postMessage(JSON.stringify({ markers, lines, refit }), '*'); } catch { /* the map is optional */ } }
+  }, [JSON.stringify(markers), JSON.stringify(lines || []), fitKey]);
   useEffect(() => {
     const on = (e: any) => { try { const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; if (d && d.picked && onPick) onPick(d.picked); } catch { /* not ours */ } };
     window.addEventListener('message', on);
