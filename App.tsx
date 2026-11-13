@@ -11,7 +11,7 @@ import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { C } from './lib/theme';
 import { initStore, useStore, useMe, useAppGate, availableCouriers, setStoreErrorHandler, setStoreNoticeHandler, enterGuest, exitGuest, isGuestId } from './lib/store';
-import { GuestLoginSheet, GuestAccountScreen } from './components/GuestGate';
+import { GuestLoginSheet, GuestAccountScreen, GuestBlockScreen } from './components/GuestGate';
 import { Overlays, Logo, toast } from './components/ui';
 import { SoundGate } from './components/SoundGate';
 import { LocationGate } from './components/LocationGate';
@@ -168,10 +168,10 @@ function Root() {
         <Stack.Screen name="Category" component={CategoryScreen} />
         <Stack.Screen name="Provider" component={ProviderScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
-        <Stack.Screen name="CustomOrder" component={CustomOrderScreen} />
-        <Stack.Screen name="RequestOrder" component={RequestOrderScreen} />
-        <Stack.Screen name="LabRequest" component={LabRequestScreen} />
-        <Stack.Screen name="Booking" component={BookingScreen} />
+        <Stack.Screen name="CustomOrder" component={isGuestId(me.id) ? GuestBlockScreen : CustomOrderScreen} />
+        <Stack.Screen name="RequestOrder" component={isGuestId(me.id) ? GuestBlockScreen : RequestOrderScreen} />
+        <Stack.Screen name="LabRequest" component={isGuestId(me.id) ? GuestBlockScreen : LabRequestScreen} />
+        <Stack.Screen name="Booking" component={isGuestId(me.id) ? GuestBlockScreen : BookingScreen} />
         <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
         <Stack.Screen name="ApptDetail" component={ApptDetailScreen} />
         <Stack.Screen name="Invoice" component={InvoiceScreen} />

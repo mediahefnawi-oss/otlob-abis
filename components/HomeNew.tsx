@@ -15,7 +15,7 @@ import { useStore, useMe, cartAdd, cartClear, setCartDest, updateProfile } from 
 import { storage } from '../lib/storage';
 import { getPosition } from '../lib/location';
 import { apiAddresses, apiAddressAdd, apiAddressDelete, catIconUrl, SavedAddress } from '../lib/api';
-import { TYPES, isMakerTpl, typeKeys, serviceDefs, errandDef } from '../lib/format';
+import { TYPES, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { Provider, ProviderType } from '../lib/types';
 
 const RECENT_KEY = 'abis_recent_q';
@@ -100,9 +100,9 @@ export function HomeNew({ navigation, rc }: { navigation: any; rc: React.ReactEl
       <Appear key={k} i={i} style={{ width: '23.4%' }}>
         <Pressable onPress={() => navigation.navigate('Category', { type: k })} style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden', ...shadow }, pressed && { transform: [{ scale: 0.96 }] }]}>
           {img
-            ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1.05 }} resizeMode="cover" />
+            ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1.2 }} resizeMode="cover" />
             : (
-              <LinearGradient colors={['#0E5A33', '#06361F']} style={{ width: '100%', aspectRatio: 1.05, alignItems: 'center', justifyContent: 'center' }}>
+              <LinearGradient colors={['#0E5A33', '#06361F']} style={{ width: '100%', aspectRatio: 1.2, alignItems: 'center', justifyContent: 'center' }}>
                 <Icon name={TYPES[k].icon} size={30} color={C.gold} />
               </LinearGradient>
             )}
@@ -113,7 +113,7 @@ export function HomeNew({ navigation, rc }: { navigation: any; rc: React.ReactEl
       </Appear>
     );
   };
-  const gridCats = cats.filter((k) => !isMakerTpl(k));
+  const gridCats = cats; // the makers (صُنّاع أبيس) sit in the tiles like every other service
   const rows: ProviderType[][] = [];
   for (let i = 0; i < gridCats.length; i += 4) rows.push(gridCats.slice(i, i + 4));
 
@@ -195,23 +195,6 @@ export function HomeNew({ navigation, rc }: { navigation: any; rc: React.ReactEl
                     </View>
                   ))}
                 </View>
-
-                {cats.filter((k) => isMakerTpl(k)).map((k, i) => (
-                  <Appear key={k} i={i + 3} style={{ marginTop: 12 }}>
-                    <Pressable onPress={() => navigation.navigate('Category', { type: k })}>
-                      <LinearGradient colors={[C.dark3, C.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 20, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 2, borderColor: C.gold, ...shadow }}>
-                        <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                          {(db.settings.catIconV?.[k] || 0) > 0 ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: 48, height: 48 }} resizeMode="cover" /> : <Text style={{ fontSize: 25 }}>{TYPES[k].emoji}</Text>}
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <T w="black" size={16} color="#fff">{TYPES[k].label}</T>
-                          <T size={11.5} color={C.gold}>{serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس'}</T>
-                        </View>
-                        <Icon name="arrow-back" size={18} color={C.gold} />
-                      </LinearGradient>
-                    </Pressable>
-                  </Appear>
-                ))}
 
                 {!!last && (
                   <Appear style={{ marginTop: 12 }}>

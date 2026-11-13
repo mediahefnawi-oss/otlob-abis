@@ -3,7 +3,7 @@ import { View, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '../lib/theme';
 import { T, Btn, Field, Sheet, Icon, Card, Header, openWhats, toast } from './ui';
-import { login, cartAdd, onGuestPrompt, GuestPending, useStore } from '../lib/store';
+import { login, cartAdd, onGuestPrompt, requireLogin, GuestPending, useStore } from '../lib/store';
 import { navigationRef } from '../lib/nav';
 import { DEFAULT_CREDITS } from '../lib/format';
 
@@ -88,4 +88,14 @@ export function GuestAccountScreen({ navigation, title = 'حسابي' }: { navig
       </ScrollView>
     </View>
   );
+}
+
+/** Screens that only make sense with an account (a written request, a booking, a lab request, a custom errand): a guest who opens one goes back and the sign-in sheet opens. */
+export function GuestBlockScreen({ navigation }: any) {
+  useEffect(() => {
+    if (navigation.canGoBack()) navigation.goBack(); else navigation.navigate('Main');
+    const t = setTimeout(() => requireLogin(), 250);
+    return () => clearTimeout(t);
+  }, []);
+  return <View style={{ flex: 1, backgroundColor: C.bg }} />;
 }
