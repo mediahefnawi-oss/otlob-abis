@@ -547,7 +547,7 @@ export async function initStore() {
   } catch {}
   // Fetch maintenance state before the first screen, but never hang the splash if the server is slow: the screen opens from the saved copy after 1.5 s and the news arrives behind it.
   const first = closedByHoursNow(state.db.users.find((u) => u.id === state.userId)?.role) ? meCheck : Promise.all([meCheck, syncRemote()]);
-  await Promise.race([first.catch(() => {}), new Promise((r) => setTimeout(r, firstRun ? 4000 : 1500))]);
+  await Promise.race([first.catch(() => {}), new Promise((r) => setTimeout(r, firstRun ? 2000 : 1500))]);
   setState({ ready: true });
 
   // Live sync. Shops and couriers must hear about new orders right away (every ~4s); customers can wait (~8s),

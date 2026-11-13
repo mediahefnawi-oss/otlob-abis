@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
@@ -214,6 +214,9 @@ export default function App() {
     ...Ionicons.font,
     Cairo_400Regular, Cairo_600SemiBold, Cairo_700Bold, Cairo_800ExtraBold,
   });
+  // on the web the fonts are big downloads: after a second show the app with the phone's own font, and the real one swaps in when it arrives
+  const [fontWait, setFontWait] = useState(false);
+  useEffect(() => { if (Platform.OS !== 'web') return; const t = setTimeout(() => setFontWait(true), 1000); return () => clearTimeout(t); }, []);
   const { ready, db: appDb } = useStore();
   const wide = useWide();
   setScaleConfig(appDb.settings.ui?.phone, appDb.settings.ui?.desktop); // the owner's size choice
@@ -231,7 +234,7 @@ export default function App() {
     }
   }, []);
 
-  if (!fontsLoaded || !ready) {
+  if (!(fontsLoaded || fontWait) || !ready) {
     return (
       <View style={{ flex: 1, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', gap: 20 }}>
         <Logo width={240} />
