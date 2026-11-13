@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, ScrollView, KeyboardAvoidingView, Platform, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, ScrollView, KeyboardAvoidingView, Platform, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,8 +17,6 @@ import { Linking } from 'react-native';
 
 export function WelcomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
-  // on a short screen (a browser with two toolbars, a small phone) everything is packed closer so nothing overlaps the picture
-  const tight = useWindowDimensions().height < 700;
   const { db } = useStore();
   const loginV = db.settings.loginImageV || 0; // the owner can replace this picture from the control panel
   const logoV = db.settings.welcomeLogoV || 0; // ... and the logo, the support number and the lines at the bottom too
@@ -29,30 +27,30 @@ export function WelcomeScreen({ navigation }: any) {
     <View style={{ flex: 1, backgroundColor: C.dark }}>
       <Image
         source={loginV > 0 ? { uri: loginImageUrl(loginV) } : require('../assets/brand/scene.png')}
-        style={[StyleSheet.absoluteFill, { top: loginV > 0 ? 0 : '28%' }]} contentFit="cover" contentPosition={loginV > 0 ? { top: '22%' } : 'bottom'}
+        style={[StyleSheet.absoluteFill, { top: loginV > 0 ? 0 : '28%' }]} contentFit="cover" contentPosition={loginV > 0 ? 'center' : 'bottom'}
       />
       <LinearGradient colors={[C.dark, 'rgba(0,33,26,0.55)', 'rgba(0,33,26,0.2)', 'rgba(0,33,26,0.92)']} locations={[0, 0.35, 0.6, 1]} style={StyleSheet.absoluteFill} />
-      <View style={{ flex: 1, paddingTop: insets.top + (tight ? 8 : 30), paddingBottom: insets.bottom + (tight ? 4 : 8), paddingHorizontal: 24, alignItems: 'center', maxWidth: 520, width: '100%', alignSelf: 'center' }}>
+      <View style={{ flex: 1, paddingTop: insets.top + 30, paddingBottom: insets.bottom + 8, paddingHorizontal: 24, alignItems: 'center', maxWidth: 520, width: '100%', alignSelf: 'center' }}>
         <Animated.View entering={Platform.OS === 'web' ? FadeIn.duration(700) : undefined} style={{ alignItems: 'center' }}>
-          {logoV > 0 ? <Image source={{ uri: welcomeLogoUrl(logoV) }} style={tight ? { width: 220, height: 103 } : { width: 280, height: 131 }} contentFit="contain" /> : <Logo width={tight ? 220 : 280} />}
-          <T w="bold" size={tight ? 15 : 17} color="#fff" align="center" style={{ marginTop: tight ? 0 : 6 }}>كل اللي محتاجه في أبيس.. لحد باب بيتك</T>
+          {logoV > 0 ? <Image source={{ uri: welcomeLogoUrl(logoV) }} style={{ width: 280, height: 131 }} contentFit="contain" /> : <Logo width={280} />}
+          <T w="bold" size={17} color="#fff" align="center" style={{ marginTop: 6 }}>كل اللي محتاجه في أبيس.. لحد باب بيتك</T>
         </Animated.View>
         <View style={{ flex: 1 }} />
-        <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(500) : undefined} style={{ alignSelf: 'stretch', gap: tight ? 7 : 10 }}>
+        <Animated.View entering={Platform.OS === 'web' ? FadeInDown.delay(500) : undefined} style={{ alignSelf: 'stretch', gap: 10 }}>
           <Btn title="ابدأ الآن" icon="arrow-back" onPress={() => navigation.navigate('Login')} />
           <Btn title="إنشاء حساب عميل جديد" variant="ghost" onPress={() => navigation.navigate('Register', { role: 'customer' })} />
           <View style={{ flexDirection: 'row', gap: 10 }}>
-            <Pressable onPress={() => navigation.navigate('Register', { role: 'provider' })} style={[styles.joinBtn, tight && { paddingVertical: 8 }]}>
+            <Pressable onPress={() => navigation.navigate('Register', { role: 'provider' })} style={styles.joinBtn}>
               <Icon name="storefront" size={18} color={C.gold} />
               <T w="bold" size={12.5} color="#fff">سجّل كمقدم خدمة</T>
             </Pressable>
-            <Pressable onPress={() => navigation.navigate('Register', { role: 'courier' })} style={[styles.joinBtn, tight && { paddingVertical: 8 }]}>
+            <Pressable onPress={() => navigation.navigate('Register', { role: 'courier' })} style={styles.joinBtn}>
               <Icon name="bicycle" size={18} color={C.gold} />
               <T w="bold" size={12.5} color="#fff">انضم كمندوب</T>
             </Pressable>
           </View>
           {Platform.OS === 'web' && !!db.settings.apkUrl && (
-            <Pressable onPress={() => Linking.openURL(db.settings.apkUrl as string)} style={[styles.joinBtn, { flex: 0, alignSelf: 'stretch' }, tight && { paddingVertical: 7 }]}>
+            <Pressable onPress={() => Linking.openURL(db.settings.apkUrl as string)} style={[styles.joinBtn, { flex: 0, alignSelf: 'stretch' }]}>
               <Icon name="download" size={18} color={C.gold} />
               <T w="bold" size={12.5} color="#fff">حمّل تطبيق الأندرويد</T>
             </Pressable>

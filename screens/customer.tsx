@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { DeliveryPin } from '../components/Location';
 import { OfferBadge, TodayOffers, ShopOfferTag } from '../components/Offers';
 import { ShopRatingsSheet } from '../components/Ratings';
-import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
+import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -29,6 +29,7 @@ import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
 import { RegionClosedBanner } from '../components/Regions';
 import { AddressPicker } from '../components/AddressBook';
+import { HomeNew } from '../components/HomeNew';
 import { SchedulePicker } from '../components/Schedule';
 import { PoolCard } from '../components/Pool';
 import { VoiceRecorder } from '../components/Voice';
@@ -55,7 +56,13 @@ export const useRC = () => {
 /* ---------------- Home ---------------- */
 const rows3 = <X,>(l: X[]): X[][] => { const r: X[][] = []; for (let i = 0; i < l.length; i += 3) r.push(l.slice(i, i + 3)); return r; };
 
+/** The owner's switch "homeNew" picks the new home; switched off, the old one below is shown exactly as before. */
 export function HomeScreen({ navigation }: any) {
+  const { db } = useStore();
+  const rc = useRC();
+  return db.settings.features?.homeNew ? <HomeNew navigation={navigation} rc={rc} /> : <HomeOld navigation={navigation} />;
+}
+function HomeOld({ navigation }: any) {
   const rc = useRC();
   const { db, cart } = useStore();
   const me = useMe()!;
@@ -359,6 +366,8 @@ export function ProviderScreen({ navigation, route }: any) {
   const [rateOpen, setRateOpen] = useState(false);
   const [sel, setSel] = useState<Product | null>(null);
   const insets = useSafeAreaInsets();
+  const nu = !!db.settings.features?.providerNew; // the owner's switch: the new shop page (cover, floating card, tabs, 2-column products)
+  const { width: scrW } = useWindowDimensions();
   // an ad that points at one item opens its sheet
   useEffect(() => { const pid = route.params?.product; if (pid) { const x = db.products.find((y) => y.id === pid); if (x) setSel(x); } }, [route.params?.product, db.products.length]);
   // a medical lab has no menu: the customer goes straight to the request form
@@ -380,6 +389,37 @@ export function ProviderScreen({ navigation, route }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
+      {nu ? (
+        <View>
+          <LinearGradient colors={['#0E5A33', C.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ height: 128 + insets.top, paddingTop: insets.top + 8, paddingHorizontal: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <IconBtn icon="arrow-forward" onPress={() => navigation.goBack()} color={C.dark} bg="#fff" />
+            <HeartButton kind="provider" id={p.id} light />
+          </LinearGradient>
+          <View style={{ marginTop: -50, marginHorizontal: 12, backgroundColor: '#fff', borderRadius: 22, borderWidth: 1.5, borderColor: '#E3DEC9', padding: 14, gap: 10, ...shadow }}>
+            <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+              <ProviderLogo p={p} size={58} zoomable />
+              <View style={{ flex: 1, gap: 2 }}>
+                <T w="black" size={18} numberOfLines={2}>{p.name}</T>
+                <T size={12} color={C.green} w="bold" numberOfLines={1}>{t.single}{p.specialty ? ` • ${p.specialty}` : ''}</T>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Pressable onPress={() => setRateOpen(true)} hitSlop={8} style={{ flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: '#F3F1E6', borderRadius: 9, paddingHorizontal: 9, paddingVertical: 4 }}>
+                <Icon name="star" size={13} color={C.gold} /><T w="bold" size={12}>{p.rating ? p.rating.toFixed(1) : 'جديد'}{p.ratingCount ? ` (${p.ratingCount})` : ''}</T>
+              </Pressable>
+              <View style={{ backgroundColor: p.open ? C.greenSoft : C.redSoft, borderRadius: 9, paddingHorizontal: 9, paddingVertical: 4 }}>
+                <T w="bold" size={12} color={p.open ? C.green : C.red}>{p.open ? '✓ مفتوح دلوقتي' : 'مغلق حالياً'}</T>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.goldDeep} /><T size={12} w="bold">{p.eta} دقيقة</T></View>}
+              {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.goldDeep} /><T size={12} w="bold">توصيل {feeFor(p)} ج.م</T></View>}
+              <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center', flexShrink: 1 }}><Icon name="location" size={14} color={C.goldDeep} /><T size={12} color={C.sub} numberOfLines={1} style={{ flexShrink: 1 }}>{[p.regionName ? (mineArea ? 'في منطقتك' : `منطقة ${p.regionName}`) : '', p.address].filter(Boolean).join(' — ') || 'أبيس'}</T></View>
+            </View>
+            {!!p.desc && <T size={12} color={C.sub} numberOfLines={2}>{p.desc}</T>}
+          </View>
+        </View>
+      ) : (
       <Header title={p.name} onBack={() => navigation.goBack()} subtitle={t.single} right={<HeartButton kind="provider" id={p.id} light />}>
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 14, alignItems: 'center' }}>
           <ProviderLogo p={p} size={66} zoomable />
@@ -394,6 +434,7 @@ export function ProviderScreen({ navigation, route }: any) {
           </View>
         </View>
       </Header>
+      )}
       <ShopRatingsSheet providerId={p.id} name={p.name} visible={rateOpen} onClose={() => setRateOpen(false)} />
       <ProductSheet p={sel} inCart={sel ? qty(sel.id) : 0} canOrder={!blocked} bg={t.soft} onClose={() => setSel(null)} />
       {closed && (
@@ -429,13 +470,26 @@ export function ProviderScreen({ navigation, route }: any) {
         </View>
       ) : null}
       <FlatList
+        key={nu && !isBooking(p.type) ? 'g2' : 'g1'}
+        numColumns={nu && !isBooking(p.type) ? 2 : 1}
+        columnWrapperStyle={nu && !isBooking(p.type) ? { gap: 12 } : undefined}
         style={requestOnly ? { display: 'none' } : undefined}
         data={shown}
         keyExtractor={(x) => x.id}
         contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 100 }}
         ListHeaderComponent={
           !isBooking(p.type) ? (
+            nu ? (
+              <View style={{ marginHorizontal: -16, marginTop: -6, marginBottom: 4, borderBottomWidth: 1.5, borderBottomColor: C.line }}>
+                <FlatList horizontal data={cats} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 22, paddingHorizontal: 16 }} renderItem={({ item }) => (
+                  <Pressable onPress={() => setCat(item)} style={{ paddingVertical: 11, borderBottomWidth: 3, borderBottomColor: cat === item ? C.gold : 'transparent' }}>
+                    <T w="black" size={13.5} color={cat === item ? C.dark : C.sub}>{item}</T>
+                  </Pressable>
+                )} />
+              </View>
+            ) : (
             <FlatList horizontal data={cats} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 6 }} renderItem={({ item }) => <Chip label={item} active={cat === item} onPress={() => setCat(item)} />} />
+            )
           ) : (
             <View style={{ gap: 8 }}>
               <SectionTitle title="الأطباء المتاحون" />
@@ -460,6 +514,32 @@ export function ProviderScreen({ navigation, route }: any) {
               </Card>
             </Appear>
           ) : (
+            nu ? (
+              <Appear i={index} style={{ flex: 1 }}>
+                <Pressable onPress={() => setSel(item)} style={{ opacity: item.available ? 1 : 0.5, gap: 6 }}>
+                  <View>
+                    <View style={{ borderRadius: 18, overflow: 'hidden', backgroundColor: '#F5F3EA', borderWidth: 1, borderColor: '#E7E2D0', alignItems: 'center', justifyContent: 'center', paddingVertical: 8 }}>
+                      <ProductPhoto p={item} size={Math.max(90, Math.floor((Math.min(scrW, 560) - 32 - 12) / 2) - 24)} bg="#F5F3EA" />
+                    </View>
+                    <View style={{ position: 'absolute', left: 8, bottom: 8 }}>
+                      {item.available && !blocked ? (
+                        qty(item.id) > 0
+                          ? <Stepper qty={qty(item.id)} onAdd={() => cartAdd(item.id, 1)} onSub={() => cartAdd(item.id, -1)} />
+                          : <Pressable onPress={() => cartAdd(item.id, 1)} hitSlop={6} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center', ...shadow }}><Icon name="add" size={22} color={C.dark} /></Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                  <OfferBadge p={item} />
+                  <T w="black" size={13.5} numberOfLines={2}>{item.name}</T>
+                  {item.available && !blocked ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <T w="bold" size={13} color={item.oldPrice ? C.red : C.text}>{money(item.price)}</T>
+                      {!!item.oldPrice && <T size={11.5} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{money(item.oldPrice)}</T>}
+                    </View>
+                  ) : <Pill label={item.available ? (noRoute && !closed ? 'التوصيل غير متاح' : 'مغلق') : 'غير متوفر'} color={C.red} soft={C.redSoft} />}
+                </Pressable>
+              </Appear>
+            ) : (
             <Appear i={index}>
               <Card onPress={() => setSel(item)} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: item.available ? 1 : 0.5 }}>
                 <ProductPhoto p={item} size={56} bg={t.soft} />
@@ -479,6 +559,7 @@ export function ProviderScreen({ navigation, route }: any) {
                 )}
               </Card>
             </Appear>
+            )
           )
         }
       />

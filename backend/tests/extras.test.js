@@ -38,6 +38,8 @@ const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////
   const get = k => r.json.features.find(f => f.key === k);
   eq(get('menu').on, false, 'menu starts OFF'); eq(get('chat').on, false, 'chat starts OFF'); eq(get('pool').on, false, 'pool starts OFF'); eq(get('voice').on, false, 'voice starts OFF');
   eq(get('bot').on, true, 'the support helper that already runs stays ON');
+  for (const k of ['homeNew', 'homeChips', 'searchSuggest', 'reorder', 'providerNew', 'guestBrowse']) eq(get(k).on, false, k + ' starts OFF');
+  for (const k of ['homeNew', 'providerNew', 'guestBrowse']) { eq((await call('PATCH /api/admin/features', A, { key: k, on: true })).status, 200, k + ' can be turned on'); r = await call('GET /api/admin/features', A); eq(get(k).on, true, k + ' is on'); await call('PATCH /api/admin/features', A, { key: k, on: false }); r = await call('GET /api/admin/features', A); eq(get(k).on, false, k + ' back OFF'); }
   eq((await call('PATCH /api/admin/features', A, { key: 'menu', on: true })).status, 200, 'turn menu on');
   eq(get('menu').on, false, 'old copy unchanged'); r = await call('GET /api/admin/features', A); eq(get('menu').on, true, 'menu is on now');
   eq((await call('PATCH /api/admin/features', A, { key: 'nope', on: true })).status, 400, 'unknown switch refused');

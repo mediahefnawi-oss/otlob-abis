@@ -24,6 +24,12 @@ const FEATURES = {
   dailyReport: { label: 'تقرير يومي للمالك', on: false },
   lateAlert: { label: 'تنبيه تأخر الطلب', on: false },
   winback: { label: 'رسالة «وحشتنا» للعميل المنقطع', on: false },
+  homeNew: { label: 'الرئيسية الجديدة (هيدر بالعنوان وأقسام بالصور) — مقفولة = الرئيسية القديمة', on: false },
+  homeChips: { label: 'الرئيسية الجديدة: تصنيفات سريعة (الأقرب، الأعلى تقييماً...)', on: false },
+  searchSuggest: { label: 'الرئيسية الجديدة: اقتراحات البحث وآخر ما بحث عنه', on: false },
+  reorder: { label: 'الرئيسية الجديدة: كارت «اطلب تاني»', on: false },
+  providerNew: { label: 'صفحة المتجر الجديدة (غلاف وكارت عايم وتبويبات وعمودين) — مقفولة = الصفحة القديمة', on: false },
+  guestBrowse: { label: 'التصفح بدون تسجيل (التسجيل يظهر عند الطلب)', on: false },
   bot: { label: 'بوت الدعم', on: true },
   // old features: ON by default so nothing changes until the owner switches one off
   coupons: { label: 'الكوبونات وأكواد الخصم', on: true },

@@ -92,6 +92,30 @@ export const useMe = (): User | null => {
   return s.userId ? s.db.users.find((u) => u.id === s.userId) || null : null;
 };
 
+/* ---------- guest browsing (the owner's switch "guestBrowse"): a visitor looks around without an account ---------- */
+export const GUEST_ID = 'guest';
+export const isGuestId = (id?: string | null) => id === GUEST_ID;
+const GUEST_ADDR_KEY = 'abis_guest_addr';
+export function enterGuest() {
+  if (state.userId) return;
+  storage.getItem(GUEST_ADDR_KEY).then((addr) => {
+    if (state.userId) return;
+    const g: User = { id: GUEST_ID, name: 'ضيف', phone: '', pass: '', role: 'customer', address: addr || '', status: 'active', regionId: null, createdAt: Date.now() } as User;
+    setState({ db: { ...state.db, users: [...state.db.users.filter((u) => u.id !== GUEST_ID), g] }, userId: GUEST_ID });
+  }).catch(() => {});
+}
+export function exitGuest() { if (state.userId === GUEST_ID) setState({ userId: null }); }
+/** what the guest wanted to do when the sign-in sheet opened (an item to add to the cart), done right after he signs in */
+export type GuestPending = { productId: string; delta: number } | null;
+let guestListener: ((pending: GuestPending) => void) | null = null;
+export function onGuestPrompt(fn: ((pending: GuestPending) => void) | null) { guestListener = fn; }
+export function requireLogin(pending: GuestPending = null) { if (guestListener) guestListener(pending); }
+const guestStop = (): Result<never> | null => {
+  if (state.userId !== GUEST_ID) return null;
+  requireLogin();
+  return { ok: false, error: 'سجّل دخولك الأول عشان تكمل' };
+};
+
 let writeTimer: any = null;
 const persist = () => {
   if (writeTimer) clearTimeout(writeTimer);
@@ -620,6 +644,12 @@ export function updateUser(id: string, patch: Partial<User>) {
 }
 
 export async function updateProfile(patch: { name?: string; address?: string; regionId?: string | null; phone2?: string | null }): Promise<Result> {
+  if (state.userId === GUEST_ID) {
+    // a guest keeps his address on this phone only
+    if (typeof patch.address === 'string') storage.setItem(GUEST_ADDR_KEY, patch.address).catch(() => {});
+    setState({ db: { ...state.db, users: state.db.users.map((u) => (u.id === GUEST_ID ? { ...u, ...(typeof patch.address === 'string' ? { address: patch.address } : {}), ...(patch.regionId !== undefined ? { regionId: patch.regionId } : {}) } : u)) } });
+    return { ok: true };
+  }
   try {
     const { user } = await apiUpdateProfile(patch);
     mirrorUser(user);
@@ -645,6 +675,7 @@ const saveCart = (cart: CartLine[]) => {
   storage.setItem(CART_KEY, JSON.stringify(cart)).catch(() => {});
 };
 export function cartAdd(productId: string, delta: number) {
+  if (state.userId === GUEST_ID && delta > 0) { requireLogin({ productId, delta }); return; }
   const cur = state.cart.find((l) => l.productId === productId);
   let next: CartLine[];
   if (!cur) next = delta > 0 ? [...state.cart, { productId, qty: delta }] : state.cart;
@@ -692,6 +723,7 @@ export function cartDetails(db: DB, cart: CartLine[]) {
 }
 
 export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string; coupon?: string; scheduledFor?: number; pool?: boolean }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
+  { const g = guestStop(); if (g) return g as any; }
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
@@ -739,6 +771,7 @@ export async function courierQuote(orderId: string, subtotal: number, fee: numbe
   }
 }
 export async function placeCustomOrder(me: User, info: { text: string; phone: string; address: string; voice?: { audio: string; seconds: number } | null }): Promise<Result<{ orderId: string }>> {
+  { const g = guestStop(); if (g) return g as any; }
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (info.text.trim().length < 3 && !info.voice) return { ok: false, error: 'اكتب ما تريد طلبه' };
   { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
@@ -915,6 +948,7 @@ export async function bookAppointment(
   me: User,
   info: { doctor: Product; date: string; time: string; patientName: string; phone: string; notes: string }
 ): Promise<Result<{ id: string }>> {
+  { const g = guestStop(); if (g) return g as any; }
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   const prov = state.db.providers.find((p) => p.id === info.doctor.providerId);
   if (!prov || prov.status !== 'active' || !prov.open) return { ok: false, error: 'العيادة لا تستقبل حجوزات حالياً' };
@@ -941,6 +975,7 @@ export async function bookAppointment(
 
 /* ---------- clinics that set the time themselves ---------- */
 export async function requestClinicSlot(me: User, info: { doctor: Product; patientName: string; phone: string; notes: string }): Promise<Result<{ id: string }>> {
+  { const g = guestStop(); if (g) return g as any; }
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (info.patientName.trim().length < 3) return { ok: false, error: 'اكتب اسم المريض' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
@@ -973,6 +1008,7 @@ export async function labRequest(
   me: User,
   info: { provider: Provider; reason: string; rx?: string | null; patientName: string; phone: string }
 ): Promise<Result<{ id: string }>> {
+  { const g = guestStop(); if (g) return g as any; }
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المعمل لا يستقبل طلبات حالياً' };
   if (info.reason.trim().length < 3 && !info.rx) return { ok: false, error: 'اكتب سبب الكشف أو ارفع الروشتة' };
@@ -1468,6 +1504,7 @@ export async function placeRequestOrder(
   me: User,
   info: { provider: Provider; text: string; image?: string | null; voice?: { audio: string; seconds: number } | null; phone: string; address: string }
 ): Promise<Result<{ orderId: string }>> {
+  { const g = guestStop(); if (g) return g as any; }
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المتجر مغلق حالياً' };
   { const pe = pinError(); if (pe) return { ok: false, error: pe }; }

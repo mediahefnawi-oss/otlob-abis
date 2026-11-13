@@ -23,7 +23,7 @@ async function ensure(user: string) {
 function useFav(): Fav | null {
   const { db } = useStore();
   const me = useMe();
-  const on = !!db.settings.features?.favorites && me?.role === 'customer';
+  const on = !!db.settings.features?.favorites && me?.role === 'customer' && me.id !== 'guest';
   const [f, setF] = useState<Fav | null>(cache);
   useEffect(() => { if (!on || !me) return; subs.add(setF); ensure(me.id); return () => { subs.delete(setF); }; }, [on, me?.id]);
   return on ? f : null;

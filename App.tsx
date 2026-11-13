@@ -10,7 +10,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { C } from './lib/theme';
-import { initStore, useStore, useMe, useAppGate, availableCouriers, setStoreErrorHandler, setStoreNoticeHandler } from './lib/store';
+import { initStore, useStore, useMe, useAppGate, availableCouriers, setStoreErrorHandler, setStoreNoticeHandler, enterGuest, exitGuest, isGuestId } from './lib/store';
+import { GuestLoginSheet, GuestAccountScreen } from './components/GuestGate';
 import { Overlays, Logo, toast } from './components/ui';
 import { SoundGate } from './components/SoundGate';
 import { LocationGate } from './components/LocationGate';
@@ -74,7 +75,12 @@ function Main({ navigation }: any) {
   let tabs: TabDef[] = [];
   if (me.role === 'customer') {
     const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)).length;
-    tabs = [
+    tabs = isGuestId(me.id) ? [
+      { key: 'home', label: 'الرئيسية', icon: 'home', render: () => <HomeScreen navigation={navigation} /> },
+      { key: 'orders', label: 'طلباتي', icon: 'receipt', render: () => <GuestAccountScreen navigation={navigation} title="طلباتي" /> },
+      { key: 'support', label: 'الدعم', icon: 'headset', render: () => <GuestAccountScreen navigation={navigation} title="الدعم" /> },
+      { key: 'profile', label: 'حسابي', icon: 'person', render: () => <GuestAccountScreen navigation={navigation} /> },
+    ] : [
       { key: 'home', label: 'الرئيسية', icon: 'home', render: () => <HomeScreen navigation={navigation} /> },
       { key: 'orders', label: 'طلباتي', icon: 'receipt', badge: active, render: () => <CustomerOrdersScreen navigation={navigation} /> },
       { key: 'support', label: 'الدعم', icon: 'headset', badge: supUnread, render: () => <SupportScreen navigation={{ canGoBack: () => false }} /> },
@@ -127,6 +133,13 @@ function Root() {
   const me = useMe();
   const gate = useAppGate(me?.role ?? null); // manual stop or opening hours; the owner is never blocked
   const isAdmin = me?.role === 'admin';
+  // guest browsing (the owner's switch): with no account the app opens as a visitor; switched off while a visitor is inside, he goes back to the welcome page
+  const guestOn = !!db.settings.features?.guestBrowse;
+  useEffect(() => {
+    if (!ready) return;
+    if (!me && guestOn && !gate.blocked) enterGuest();
+    else if (me && isGuestId(me.id) && !guestOn) exitGuest();
+  }, [ready, me?.id, guestOn, gate.blocked]);
 
   let screens: React.ReactNode;
   if (gate.blocked) {
@@ -150,6 +163,8 @@ function Root() {
     screens = (
       <>
         <Stack.Screen name="Main" component={Main} />
+        {isGuestId(me.id) && <Stack.Screen name="Login" component={LoginScreen} />}
+        {isGuestId(me.id) && <Stack.Screen name="Register" component={RegisterScreen} />}
         <Stack.Screen name="Category" component={CategoryScreen} />
         <Stack.Screen name="Provider" component={ProviderScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
@@ -182,6 +197,7 @@ function Root() {
         {screens}
       </Stack.Navigator>
       <RxAutoOpen />
+      {!!me && isGuestId(me.id) && <GuestLoginSheet />}
     </NavigationContainer>
   );
 }
