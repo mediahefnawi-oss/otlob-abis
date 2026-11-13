@@ -16,6 +16,7 @@ import { RegionClosedBanner, RegionPicker } from './Regions';
 import { useStore, useMe, cartAdd, cartClear, setCartDest, updateProfile } from '../lib/store';
 import { storage } from '../lib/storage';
 import { getPosition } from '../lib/location';
+import { PremiumBar } from './Premium';
 import { apiAddresses, apiAddressAdd, apiAddressDelete, catIconUrl, homeCoverUrl, SavedAddress } from '../lib/api';
 import { TYPES, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { Provider, ProviderType } from '../lib/types';
@@ -285,6 +286,7 @@ export function HomeNew({ navigation, rc }: { navigation: any; rc: React.ReactEl
         )}
       </ScrollView>
 
+      <PremiumBar navigation={navigation} bottom={cartCount > 0 && !searching ? 82 : 12} />
       {cartCount > 0 && !searching && (
         <Pressable onPress={() => navigation.navigate('Cart')} style={{ position: 'absolute', bottom: 14, left: 16, right: 16, backgroundColor: C.dark, borderRadius: 18, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, ...shadow }}>
           <View style={{ backgroundColor: C.gold, borderRadius: 12, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}><T w="black" size={13} color={C.dark} align="center">{cartCount}</T></View>

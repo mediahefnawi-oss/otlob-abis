@@ -52,6 +52,7 @@ async function evaluate(db, { code, userId, groups, forUpdate = false }) {
   if (new Date(cp.starts_at).getTime() > now) throw fail(400, 'هذا الكود لم يبدأ بعد');
   if (new Date(cp.ends_at).getTime() <= now) throw fail(400, 'انتهت صلاحية هذا الكود');
   if (cp.user_id != null && Number(cp.user_id) !== Number(userId)) throw fail(400, 'هذا الكود غير مخصص لحسابك');
+  if (cp.premium_only) { const pb = await require('./premium').benefits(db, userId); if (!pb.member || !pb.offers) throw fail(400, 'هذا الكود للمشتركين في أبيس بريميم بس'); }
   const ids = cp.provider_ids ? cp.provider_ids.map(String) : null;
   // a shop with a running offer keeps its offer: the offer and a code never stack (one discount only)
   const forShops = groups.filter(g => !ids || ids.includes(String(g.providerId)));
@@ -110,7 +111,7 @@ const couponJson = x => ({
   startsAt: new Date(x.starts_at).getTime(), endsAt: new Date(x.ends_at).getTime(),
   providerIds: x.provider_ids ? x.provider_ids.map(String) : null, userId: x.user_id ? String(x.user_id) : null, userName: x.uname || null,
   perUser: x.per_user != null ? Number(x.per_user) : null, maxUses: x.max_uses != null ? Number(x.max_uses) : null, uses: Number(x.uses || 0), given: Number(x.given || 0),
-  active: !!x.active, source: x.source,
+  active: !!x.active, source: x.source, premiumOnly: !!x.premium_only,
 });
 
 function registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId }) {
@@ -164,9 +165,10 @@ function registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId }
     else if (b.perUser !== undefined) { perUser = Math.floor(Number(b.perUser)); if (!(perUser >= 1 && perUser <= 100)) throw fail(400, 'عدد مرات الاستخدام لكل عميل غير صحيح'); }
     let maxUses = null;
     if (b.maxUses != null && b.maxUses !== '') { maxUses = Math.floor(Number(b.maxUses)); if (!(maxUses >= 1 && maxUses <= 1000000)) throw fail(400, 'إجمالي الاستخدامات غير صحيح'); }
+    const premiumOnly = b.premiumOnly === true;
     const insert = c => pool.query(
-      'INSERT INTO coupons(code, kind, value, max_discount, starts_at, ends_at, provider_ids, user_id, per_user, max_uses) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-      [c, kind, value, maxDiscount, starts, ends, providerIds, userId, perUser, maxUses]);
+      'INSERT INTO coupons(code, kind, value, max_discount, starts_at, ends_at, provider_ids, user_id, per_user, max_uses, premium_only) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      [c, kind, value, maxDiscount, starts, ends, providerIds, userId, perUser, maxUses, premiumOnly]);
     try {
       if (code) await insert(code);
       else for (let i = 0; ; i++) { try { await insert(genCode('OFF')); break; } catch (e) { if (!dup(e) || i > 8) throw e; } }

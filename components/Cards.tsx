@@ -9,6 +9,7 @@ import { C } from '../lib/theme';
 import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel, isBooking } from '../lib/format';
 import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill, FlagPill } from './ui';
 import { RatingLine, useRatingStars } from './Stars';
+import { ProBadge } from './Premium';
 import { LabPill, fmt12 } from './Lab';
 import { ShopOfferTag } from './Offers';
 
@@ -93,6 +94,7 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
           </T>
           <T size={11.5} color={C.sub}>طلب ‎#{o.number} • {fmtDateTime(o.createdAt)}</T>
         </View>
+        {!!o.premium && perspective !== 'customer' && <ProBadge small />}
         <OrderPill s={o.status} />
       </View>
       {!!o.scheduledFor && !['delivered', 'cancelled', 'rejected'].includes(o.status) && (
@@ -127,7 +129,7 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
         </View>
       )}
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <T w="black" size={15} style={{ flex: 1 }}>{money(perspective === 'courier' ? o.deliveryFee : o.total)}</T>
+        <T w="black" size={15} style={{ flex: 1 }}>{money(perspective === 'courier' ? (o.courierFee ?? o.deliveryFee) : o.total)}</T>
         {perspective === 'courier' && <T size={11.5} color={C.sub}>عمولة التوصيل</T>}
         {perspective !== 'courier' && o.courierName && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>

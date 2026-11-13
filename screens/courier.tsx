@@ -27,7 +27,7 @@ const PAGE = 15;
 function useCourierLists() {
   const { db } = useStore();
   const me = useMe()!;
-  const offers = db.orders.filter((o) => !o.courierId && ['pending', 'accepted', 'ready'].includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
+  const offers = db.orders.filter((o) => !o.courierId && ['pending', 'accepted', 'ready'].includes(o.status)).sort((a, b) => Number(!!b.premium) - Number(!!a.premium) || b.updatedAt - a.updatedAt); // a subscriber's order (when the owner's priority switch is on) is first in line
   const mine = db.orders.filter((o) => o.courierId === me.id && LIVE.includes(o.status)).sort((a, b) => b.updatedAt - a.updatedAt);
   const done = db.orders.filter((o) => o.courierId === me.id && o.status === 'delivered').sort((a, b) => b.updatedAt - a.updatedAt);
   return { me, offers, mine, done };
@@ -37,7 +37,7 @@ function useCourierLists() {
 export function CourierWorkScreen({ go }: any) {
   const { me, offers, mine, done } = useCourierLists();
   const doneToday = done.filter((o) => isToday(o.updatedAt));
-  const earn = doneToday.reduce((s, o) => s + o.deliveryFee, 0);
+  const earn = doneToday.reduce((s, o) => s + (o.courierFee ?? o.deliveryFee), 0);
   const on = !!me.available;
 
   const toggle = () => {
@@ -109,7 +109,7 @@ export function CourierOrdersScreen({ navigation }: any) {
   const [seg, setSeg] = useState<'offers' | 'mine' | 'done'>(segBus.seg);
   const [limit, setLimit] = useState(PAGE);
   const on = !!me.available;
-  const total = done.reduce((s, o) => s + o.deliveryFee, 0);
+  const total = done.reduce((s, o) => s + (o.courierFee ?? o.deliveryFee), 0);
 
   useEffect(() => {
     const l = (s: 'offers' | 'mine' | 'done') => { setSeg(s); setLimit(PAGE); };
@@ -200,7 +200,7 @@ export function CourierHistoryScreen({ navigation }: any) {
   const { db } = useStore();
   const me = useMe()!;
   const done = db.orders.filter((o) => o.courierId === me.id && o.status === 'delivered').sort((a, b) => b.updatedAt - a.updatedAt);
-  const total = done.reduce((s, o) => s + o.deliveryFee, 0);
+  const total = done.reduce((s, o) => s + (o.courierFee ?? o.deliveryFee), 0);
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="سجل التوصيل" subtitle="طلباتك المكتملة وأرباحك">

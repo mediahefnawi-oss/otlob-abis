@@ -717,3 +717,18 @@ CREATE INDEX IF NOT EXISTS idx_winback_user ON winback_log(user_id, sent_at DESC
 
 -- 20261214: the owner's home blocks (lists of shops picked by hand, banners between them)
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS home_blocks JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- 20261215: "أبيس بريميم" (a subscription the owner activates by hand) and codes only for subscribers
+ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTAMPTZ;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS premium JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS premium_only BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS premium_log (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  admin_id BIGINT,
+  action TEXT NOT NULL,
+  days INT,
+  until TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_premium_log_user ON premium_log(user_id, created_at DESC);

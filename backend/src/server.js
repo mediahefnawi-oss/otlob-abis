@@ -106,7 +106,7 @@ async function maintenanceState(role) {
   return { enabled: false, message: hours.renderMessage(h, next), phase };
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const cleanUser = row => ({ id: String(row.id), name: row.name, phone: row.phone, phone2: row.phone2 || '', role: row.role, address: row.address, ...(row.home_lat != null && row.home_lng != null ? { homeLat: Number(row.home_lat), homeLng: Number(row.home_lng) } : {}), status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supportChat: row.role === 'supervisor' ? !!row.support_chat : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
+const cleanUser = row => ({ premiumUntil: row.premium_until ? new Date(row.premium_until).getTime() : 0, id: String(row.id), name: row.name, phone: row.phone, phone2: row.phone2 || '', role: row.role, address: row.address, ...(row.home_lat != null && row.home_lng != null ? { homeLat: Number(row.home_lat), homeLng: Number(row.home_lng) } : {}), status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supportChat: row.role === 'supervisor' ? !!row.support_chat : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
 const positiveId = value => {
   const n = Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
@@ -176,7 +176,7 @@ const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
-const SCHEMA_VERSION = 20261214;
+const SCHEMA_VERSION = 20261215;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -742,6 +742,8 @@ async function loadSettingsBase() {
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
+  let premiumPub = null;
+  try { premiumPub = require('./premium').publicView(x.premium, extrasLib.mergeFeatures(x.features)); } catch { premiumPub = null; }
   let homeBlocks = [];
   try {
     const hv = {}; const hi = await pool.query("SELECT substr(key,4) AS id, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'hb\\_%'");
@@ -750,7 +752,7 @@ async function loadSettingsBase() {
   } catch { /* column not migrated yet */ }
   let homeCoverV = 0;
   try { const hc = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='home_cover'"); if (hc.rowCount) homeCoverV = Number(hc.rows[0].v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, homeCoverV, homeBlocks, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', features: extrasLib.mergeFeatures(x.features), privacy: { on: x.privacy_hide !== false, minutes: x.privacy_minutes != null ? Number(x.privacy_minutes) : 1 }, ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, homeCoverV, homeBlocks, premium: premiumPub, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', features: extrasLib.mergeFeatures(x.features), privacy: { on: x.privacy_hide !== false, minutes: x.privacy_minutes != null ? Number(x.privacy_minutes) : 1 }, ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 // the clock part is never cached: the app uses it to know when to open / close without asking again
 async function loadSettings() {
@@ -1100,6 +1102,7 @@ services.register(app, { pool, auth, roles, asyncRoute });
 require('./mapmode').registerMapModeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
+require('./premium').register(app, { pool, auth, roles, asyncRoute, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); authMemo.clear(); }, pushToUsers });
 require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 extrasLib.register(app, { pool, auth, roles, asyncRoute, positiveId, services, pushToUsers, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });

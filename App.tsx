@@ -40,6 +40,7 @@ import { SupportInbox, useSupportUnread } from './components/SupportChat';
 import { AdminOffersScreen } from './components/Offers';
 import { AdminCouponsScreen } from './components/Coupons';
 import { AdminFeaturesScreen } from './components/Features';
+import { PremiumScreen } from './components/Premium';
 import { AdminLogScreen } from './components/AdminLog';
 import { AdminRatingsScreen } from './components/Ratings';
 import { CouriersMapScreen, useCourierTracking } from './components/Location';
@@ -185,6 +186,7 @@ function Root() {
         <Stack.Screen name="AdminOffers" component={AdminOffersScreen} />
         <Stack.Screen name="AdminCoupons" component={AdminCouponsScreen} />
         <Stack.Screen name="AdminFeatures" component={AdminFeaturesScreen} />
+        <Stack.Screen name="Premium" component={PremiumScreen} />
         <Stack.Screen name="AdminLog" component={AdminLogScreen} />
         <Stack.Screen name="AdminRatings" component={AdminRatingsScreen} />
       </>

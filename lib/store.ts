@@ -138,6 +138,7 @@ const isServerId = (id: string) => /^\d+$/.test(id);
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : `حدث خطأ غير متوقع. حاول مرة أخرى${e && (e as any).message ? ` (${String((e as any).message).slice(0, 80)})` : ''}`);
 
 const fromServer = (s: ServerUser, old?: User): User => ({
+  premiumUntil: Number(s.premiumUntil) || 0,
   vehicle: s.vehicle || old?.vehicle,
   available: !!s.available,
   availableSince: s.availableSince,
@@ -161,7 +162,7 @@ const fromServer = (s: ServerUser, old?: User): User => ({
 function mirrorUser(s: ServerUser) {
   const old = state.db.users.find((u) => u.id === s.id);
   const next = fromServer(s, old);
-  const same = old && old.name === next.name && old.phone === next.phone && (old.phone2 || '') === (next.phone2 || '') && old.role === next.role
+  const same = old && (old.premiumUntil || 0) === (next.premiumUntil || 0) && old.name === next.name && old.phone === next.phone && (old.phone2 || '') === (next.phone2 || '') && old.role === next.role
     && old.address === next.address && old.status === next.status && (old.regionId ?? null) === (next.regionId ?? null)
     && old.available === next.available && old.vehicle === next.vehicle && (old.accountFlag || '') === (next.accountFlag || '') && (old.flagNote || '') === (next.flagNote || '') && !!old.supportChat === !!next.supportChat;
   if (same) return;
@@ -175,7 +176,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.homeCoverV || 0, x.homeBlocks || null, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null, x.features || null]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.homeCoverV || 0, x.homeBlocks || null, x.premium || null, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null, x.features || null]);
 
 let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
@@ -192,6 +193,7 @@ function applySettings(c: CentralSettings) {
     catIconV: c.catIconV || {},
     homeCoverV: c.homeCoverV || 0,
     homeBlocks: Array.isArray(c.homeBlocks) ? c.homeBlocks : [],
+    premium: c.premium || null,
     apkUrl: c.apkUrl || '',
     update: c.update || { version: '', message: '', required: false },
     welcomeLogoV: c.welcomeLogoV || 0,
@@ -722,6 +724,26 @@ export function cartDetails(db: DB, cart: CartLine[]) {
   const delivery = list.reduce((s, g) => s + g.provider.deliveryFee, 0);
   const subtotal = list.reduce((s, g) => s + g.subtotal, 0);
   return { groups: list, delivery, subtotal, total: subtotal + delivery };
+}
+
+/** Is this customer a subscriber right now (the owner's master switch is on and the subscription has not ended)? */
+export const isMember = (db: DB, me?: User | null) => !!(db.settings.premium?.on && me && (me.premiumUntil || 0) > Date.now());
+/**
+ * What a subscriber's cart looks like: the same rules the server applies (it alone decides the real price): free delivery for a shop whose products reach the amount,
+ * a percent off a shop that has no offer when no discount code is used, and no free delivery for a shared "شير اللقمة" delivery.
+ */
+export function premiumEstimate(db: DB, me: User | null | undefined, det: ReturnType<typeof cartDetails>, couponOff: number, pooled: boolean) {
+  const pm = db.settings.premium;
+  if (!pm || !isMember(db, me)) return { member: false, discount: 0, delivery: det.delivery, freeCount: 0 };
+  let discount = 0, delivery = 0, freeCount = 0;
+  det.groups.forEach((g) => {
+    let fee = g.provider.deliveryFee;
+    const hasOffer = g.items.some((it) => !!db.products.find((p) => p.id === it.productId)?.offer);
+    if (pm.discountPct > 0 && !hasOffer && !(couponOff > 0)) discount += Math.min(g.subtotal, Math.round(g.subtotal * pm.discountPct) / 100);
+    if (pm.freeAbove != null && fee > 0 && !pooled && g.subtotal >= pm.freeAbove) { fee = 0; freeCount++; }
+    delivery += fee;
+  });
+  return { member: true, discount: Math.round(discount * 100) / 100, delivery, freeCount };
 }
 
 export async function placeOrder(me: User, info: { name: string; phone: string; address: string; notes: string; coupon?: string; scheduledFor?: number; pool?: boolean }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {

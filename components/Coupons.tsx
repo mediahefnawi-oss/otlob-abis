@@ -32,6 +32,7 @@ export function AdminCouponsScreen({ navigation }: any) {
   const [days, setDays] = useState('7');
   const [shops, setShops] = useState<string[]>([]);
   const [perUser, setPerUser] = useState<number | null>(1);
+  const [premOnly, setPremOnly] = useState(false);
   const [maxUses, setMaxUses] = useState('');
   const shopList = db.providers.filter((p) => p.status === 'active' && p.type !== 'clinic' && p.type !== 'lab').slice(0, 80);
   useEffect(() => { apiCoupons().then((r) => setList(r.coupons)).catch((e) => { setList([]); toast(e?.message || 'تعذر التحميل', 'err'); }); }, []);
@@ -42,12 +43,12 @@ export function AdminCouponsScreen({ navigation }: any) {
     catch (e: any) { toast(e?.message || 'تعذر التنفيذ', 'err'); return false; }
     finally { setBusy(false); }
   };
-  const reset = () => { setCode(''); setKind('amount'); setValue(''); setCap(''); setLater(false); setStartDate(''); setDays('7'); setShops([]); setPerUser(1); setMaxUses(''); };
+  const reset = () => { setCode(''); setKind('amount'); setValue(''); setCap(''); setLater(false); setStartDate(''); setDays('7'); setShops([]); setPerUser(1); setMaxUses(''); setPremOnly(false); };
   const publish = async () => {
     const ok = await run(() => apiCouponCreate({
       code: code.trim() || undefined, kind, value: Number(value), maxDiscount: kind === 'percent' && cap ? Number(cap) : undefined,
       days: Number(days), startDate: later ? startDate.trim() : undefined, providerIds: shops.length ? shops : undefined,
-      perUser, maxUses: maxUses ? Number(maxUses) : undefined,
+      perUser, maxUses: maxUses ? Number(maxUses) : undefined, premiumOnly: premOnly || undefined,
     }), 'تم نشر الكود ✅');
     if (ok) { setOpen(false); reset(); }
   };
@@ -74,7 +75,7 @@ export function AdminCouponsScreen({ navigation }: any) {
                 {fmtDate(c.startsAt)} ← {fmtDate(c.endsAt)} • {c.providerIds ? `${c.providerIds.length} متجر محدد` : 'كل المتاجر'}
               </T>
               <T size={12} color={C.sub}>
-                استُخدم {c.uses}{c.maxUses ? ` / ${c.maxUses}` : ''} مرة • {c.perUser ? (c.perUser === 1 ? 'مرة لكل عميل' : `${c.perUser} مرات لكل عميل`) : 'بدون حد لكل عميل'}
+                {c.premiumOnly ? '⭐ بريميم • ' : ''}استُخدم {c.uses}{c.maxUses ? ` / ${c.maxUses}` : ''} مرة • {c.perUser ? (c.perUser === 1 ? 'مرة لكل عميل' : `${c.perUser} مرات لكل عميل`) : 'بدون حد لكل عميل'}
                 {c.given > 0 ? ` • إجمالي الخصم ${money(c.given)}` : ''}
               </T>
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
@@ -114,6 +115,7 @@ export function AdminCouponsScreen({ navigation }: any) {
             <Chip label="مرتين" active={perUser === 2} onPress={() => setPerUser(2)} />
             <Chip label="بدون حد" active={perUser === null} onPress={() => setPerUser(null)} />
           </View>
+          <Chip label={premOnly ? '⭐ لمشتركي بريميم فقط' : 'لكل العملاء'} active={premOnly} onPress={() => setPremOnly(!premOnly)} />
           <Field label="إجمالي الاستخدامات لكل العملاء (اختياري)" icon="people" value={maxUses} onChangeText={setMaxUses} keyboardType="number-pad" />
           <Btn title="نشر الكود" icon="checkmark-circle" loading={busy} disabled={!Number(value) || !Number(days) || (later && !startDate.trim())} onPress={publish} />
         </ScrollView>

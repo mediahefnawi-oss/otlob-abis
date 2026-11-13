@@ -150,11 +150,17 @@ export const IconBtn = ({ icon, onPress, color = '#fff', bg = 'rgba(255,255,255,
 
 /* ---------- layout ---------- */
 export function Header({
-  title, subtitle, onBack, right, children,
-}: { title: string; subtitle?: string; onBack?: () => void; right?: ReactNode; children?: ReactNode }) {
+  title, subtitle, onBack, right, children, bgImage,
+}: { title: string; subtitle?: string; onBack?: () => void; right?: ReactNode; children?: ReactNode; bgImage?: string }) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: C.dark }]}>
+    <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: C.dark }, !!bgImage && { overflow: 'hidden' }]}>
+      {!!bgImage && (
+        <>
+          <Image source={{ uri: bgImage }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} contentFit="cover" />
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,33,26,0.45)' }} />
+        </>
+      )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         {onBack && <IconBtn icon="arrow-forward" onPress={onBack} />}
         <View style={{ flex: 1 }}>

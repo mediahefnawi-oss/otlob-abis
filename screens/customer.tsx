@@ -18,9 +18,10 @@ import { ProductPhoto } from '../components/Quote';
 import { CouponBox } from '../components/Coupons';
 import { ProductSheet } from '../components/ProductSheet';
 import {
-  useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, requestClinicSlot, deliveryOpen, feeFor, kmInfoFor } from '../lib/store';
+  useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, requestClinicSlot, deliveryOpen, feeFor, kmInfoFor, premiumEstimate } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
-import { catIconUrl, providerCoverUrl } from '../lib/api';
+import { catIconUrl, providerCoverUrl, homeCoverUrl } from '../lib/api';
+import { PremiumBar } from '../components/Premium';
 import { AdsCarousel } from '../components/Ads';
 import { FavoritesRow, HeartButton } from '../components/Favorites';
 import { MenuGallery } from '../components/Menu';
@@ -97,7 +98,13 @@ function HomeOld({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <View style={{ backgroundColor: C.dark, paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 26, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 }}>
+      <View style={{ backgroundColor: C.dark, paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 26, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: 'hidden' }}>
+        {!!db.settings.features?.covers && (db.settings.homeCoverV || 0) > 0 && (
+          <>
+            <Image source={{ uri: homeCoverUrl(db.settings.homeCoverV!) }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,33,26,0.5)' }} />
+          </>
+        )}
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ flex: 1, gap: 2 }}>
             <T size={12} color="#9FB5AC">أهلاً {me.name.split(' ')[0]} 👋</T>
@@ -275,6 +282,7 @@ function HomeOld({ navigation }: any) {
         </ScrollView>
       )}
 
+      <PremiumBar navigation={navigation} bottom={cartCount > 0 && !q ? 82 : 12} />
       {cartCount > 0 && !q && (
         <Pressable
           onPress={() => navigation.navigate('Cart')}
@@ -380,7 +388,7 @@ export function ProviderScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const nu = !!db.settings.features?.providerNew; // the owner's switch: the new shop page (cover, floating card, tabs)
   const starsOn = useRatingStars();
-  const hasCover = nu && !!db.settings.features?.covers && (p?.coverV || 0) > 0; // the owner's cover picture of this place
+  const hasCover = !!db.settings.features?.covers && (p?.coverV || 0) > 0; // the owner's cover picture of this place
   // an ad that points at one item opens its sheet
   useEffect(() => { const pid = route.params?.product; if (pid) { const x = db.products.find((y) => y.id === pid); if (x) setSel(x); } }, [route.params?.product, db.products.length]);
   // a medical lab has no menu: the customer goes straight to the request form
@@ -434,7 +442,7 @@ export function ProviderScreen({ navigation, route }: any) {
           </View>
         </View>
       ) : (
-      <Header title={p.name} onBack={() => navigation.goBack()} subtitle={t.single} right={<HeartButton kind="provider" id={p.id} light />}>
+      <Header title={p.name} bgImage={hasCover ? providerCoverUrl(p) : undefined} onBack={() => navigation.goBack()} subtitle={t.single} right={<HeartButton kind="provider" id={p.id} light />}>
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 14, alignItems: 'center' }}>
           <ProviderLogo p={p} size={66} zoomable />
           <View style={{ flex: 1, gap: 4 }}>
@@ -580,6 +588,7 @@ export function CartScreen({ navigation }: any) {
   const [pool, setPool] = useState(false);
   const cpLines = cart.map((l) => ({ productId: l.productId, qty: l.qty }));
   const off = cp ? Math.min(cp.discount, det.subtotal) : 0;
+  const pe = premiumEstimate(db, me, det, off, pool && !sched && det.groups.length === 1 && det.delivery > 0);
   const qty = (id: string) => cart.find((l) => l.productId === id)?.qty || 0;
   const descOf = (id: string) => db.products.find((x) => x.id === id)?.desc || '';
 
@@ -653,9 +662,10 @@ export function CartScreen({ navigation }: any) {
             <Card style={{ gap: 8, backgroundColor: C.dark }}>
               <View style={{ flexDirection: 'row' }}><T color="#C9D8D2" style={{ flex: 1 }}>قيمة الطلبات</T><T w="bold" color="#fff">{money(det.subtotal)}</T></View>
               {off > 0 && <View style={{ flexDirection: 'row' }}><T color="#7FE0B0" style={{ flex: 1 }}>خصم الكود {cp!.code}</T><T w="bold" color="#7FE0B0">- {money(off)}</T></View>}
-              <View style={{ flexDirection: 'row' }}><T color="#C9D8D2" style={{ flex: 1 }}>رسوم التوصيل</T><T w="bold" color="#fff">{money(det.delivery)}</T></View>
+              {pe.discount > 0 && <View style={{ flexDirection: 'row' }}><T color="#7FE0B0" style={{ flex: 1 }}>⭐ خصم بريميم</T><T w="bold" color="#7FE0B0">- {money(pe.discount)}</T></View>}
+              <View style={{ flexDirection: 'row' }}><T color="#C9D8D2" style={{ flex: 1 }}>رسوم التوصيل{pe.freeCount > 0 ? ' (بريميم)' : ''}</T><T w="bold" color={pe.delivery < det.delivery ? '#7FE0B0' : '#fff'}>{pe.delivery === 0 && pe.freeCount > 0 ? 'مجاني' : money(pe.delivery)}</T></View>
               <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.15)' }} />
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}><T w="black" size={17} color={C.gold} style={{ flex: 1 }}>الإجمالي</T><T w="black" size={20} color={C.gold}>{money(det.total - off)}</T></View>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}><T w="black" size={17} color={C.gold} style={{ flex: 1 }}>الإجمالي</T><T w="black" size={20} color={C.gold}>{money(det.total - off - pe.discount - (det.delivery - pe.delivery))}</T></View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
                 <Icon name="cash" size={16} color={C.gold} />
                 <T size={12} color="#C9D8D2">الدفع كاش عند الاستلام</T>

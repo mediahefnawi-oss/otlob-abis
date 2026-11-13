@@ -64,7 +64,8 @@ async function call(key, { as, body, query, params } = {}) {
   r = await call('GET /api/orders/:id/tracking', { as: C2, params: { id: oLive } }); eq(r.status, 403, 'another customer refused');
   r = await call('GET /api/orders/:id/tracking', { as: SH, params: { id: oLive } }); ok(r.json.courier, 'order shop sees courier');
   r = await call('GET /api/orders/:id/tracking', { as: SH2, params: { id: oLive } }); eq(r.status, 403, 'other shop refused');
-  r = await call('GET /api/orders/:id/tracking', { as: CO, params: { id: oLive } }); eq(r.json.courier, null, 'courier gets no courier marker');
+  r = await call('GET /api/orders/:id/tracking', { as: CO, params: { id: oLive } }); ok(r.json.courier && r.json.courier.fresh, 'the courier of the order sees his own position on his own order');
+  { const other = (await q("INSERT INTO users(name, phone, password_hash, role, status) VALUES('مندوب تاني','01077700000','x','courier','active') ON CONFLICT (phone) DO UPDATE SET name=EXCLUDED.name RETURNING id")).rows[0].id; r = await call('GET /api/orders/:id/tracking', { as: { sub: String(other), role: 'courier', status: 'active' }, params: { id: oLive } }); eq(r.status, 403, 'another courier cannot see this order or its courier'); }
   r = await call('GET /api/orders/:id/tracking', { as: CO2, params: { id: oLive } }); eq(r.status, 403, 'other courier refused');
   r = await call('GET /api/orders/:id/tracking', { as: A, params: { id: oLive } }); ok(r.json.courier, 'owner sees');
   r = await call('GET /api/orders/:id/tracking', { as: S1, params: { id: oLive } }); ok(r.json.courier, 'supervisor of the area sees');

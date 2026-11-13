@@ -206,8 +206,8 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           ) : (
             <>
           <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>{isCustom ? 'المشتريات' : 'المجموع'}</T><T w="bold">{money(o.subtotal)}</T></View>
-          {!!o.discount && <View style={{ flexDirection: 'row' }}><T color={C.green} style={{ flex: 1 }}>خصم الكود {o.couponCode}</T><T w="bold" color={C.green}>- {money(o.discount)}</T></View>}
-          <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>التوصيل</T><T w="bold">{money(o.deliveryFee)}</T></View>
+          {!!o.discount && <View style={{ flexDirection: 'row' }}><T color={C.green} style={{ flex: 1 }}>{o.couponCode === 'PREMIUM' ? 'خصم بريميم' : `خصم الكود ${o.couponCode}`}</T><T w="bold" color={C.green}>- {money(o.discount)}</T></View>}
+          <View style={{ flexDirection: 'row' }}><T color={C.sub} style={{ flex: 1 }}>التوصيل{o.courierFee != null ? ' (بريميم)' : ''}</T><T w="bold" color={o.courierFee != null ? C.green : undefined}>{o.courierFee != null ? 'مجاني' : money(o.deliveryFee)}</T></View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <T w="black" size={16} style={{ flex: 1 }}>الإجمالي</T>
             <T w="black" size={18} color={C.goldDeep}>{money(o.total)}</T>
@@ -357,7 +357,7 @@ export function InvoiceScreen({ navigation, route }: any) {
         if (p.requestText) lines.push(`  📝 ${p.requestText}`);
         if (p.readyDate) lines.push(`  📅 جاهز للتسليم: ${readyLabel(p.readyDate, p.readyTime)}`);
         p.items.forEach((i) => lines.push(`  • ${i.qty}× ${i.name} = ${money(i.price * i.qty)}`));
-        if (p.discount) lines.push(`  خصم الكود ${p.couponCode}: -${money(p.discount)}`);
+        if (p.discount) lines.push(`  ${p.couponCode === 'PREMIUM' ? 'خصم بريميم' : `خصم الكود ${p.couponCode}`}: -${money(p.discount)}`);
         lines.push(`  التوصيل: ${money(p.deliveryFee)}`, '');
       });
       lines.push(`الإجمالي: ${money(total)}`);
@@ -448,7 +448,7 @@ export function InvoiceScreen({ navigation, route }: any) {
                         ))}
                         <View style={{ height: 1, backgroundColor: C.line }} />
                         {p.providerType !== 'custom' && <View style={{ flexDirection: 'row' }}><T size={12.5} color={C.sub} style={{ flex: 1 }}>المجموع</T><T w="semi" size={12.5}>{money(p.subtotal)}</T></View>}
-                        {!!p.discount && <View style={{ flexDirection: 'row' }}><T size={12.5} color={C.green} style={{ flex: 1 }}>خصم الكود {p.couponCode}</T><T w="semi" size={12.5} color={C.green}>- {money(p.discount)}</T></View>}
+                        {!!p.discount && <View style={{ flexDirection: 'row' }}><T size={12.5} color={C.green} style={{ flex: 1 }}>{p.couponCode === 'PREMIUM' ? 'خصم بريميم' : `خصم الكود ${p.couponCode}`}</T><T w="semi" size={12.5} color={C.green}>- {money(p.discount)}</T></View>}
                         <View style={{ flexDirection: 'row' }}><T size={12.5} color={C.sub} style={{ flex: 1 }}>التوصيل</T><T w="semi" size={12.5}>{money(p.deliveryFee)}</T></View>
                         <View style={{ flexDirection: 'row' }}><T w="bold" size={13.5} style={{ flex: 1 }}>إجمالي {p.providerName}</T><T w="black" size={14}>{money(p.subtotal - (p.discount || 0) + p.deliveryFee)}</T></View>
                       </View>
@@ -687,6 +687,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Item icon="key" label="تغيير كلمة المرور" onPress={() => setPw(true)} />
           <View style={{ height: 1, backgroundColor: C.line }} />
+          {me.role === 'customer' && !!db.settings.features?.premium && <><Item icon="star" label="أبيس بريميم" onPress={() => navigation.navigate('Premium')} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
           {me.role === 'customer' && <><Item icon="ticket" label="أكواد الخصم الخاصة بي" onPress={() => setCpn(true)} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
           <Item icon="logo-whatsapp" label="الدعم الفني واتساب" sub="01004379508 — أحمد حفناوي" onPress={() => openWhats('01004379508', `مرحباً، أنا ${me.name}`)} />
           <View style={{ height: 1, backgroundColor: C.line }} />

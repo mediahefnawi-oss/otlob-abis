@@ -1,4 +1,4 @@
-import type { HomeBlock } from './types';
+import type { HomeBlock, PremiumPublic } from './types';
 import { storage } from './storage';
 import type { Hours } from './hours';
 import * as SecureStore from 'expo-secure-store';
@@ -104,6 +104,7 @@ export type CentralSettings = {
   appIconV?: number;
   homeCoverV?: number;
   homeBlocks?: HomeBlock[];
+  premium?: PremiumPublic | null;
   catIconV?: Record<string, number>;
   apkUrl?: string;
   update?: { version: string; message: string; required: boolean };
@@ -199,7 +200,7 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; homeLat?: number; homeLng?: number; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean };
+export type ServerUser = { premiumUntil?: number; id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; homeLat?: number; homeLng?: number; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');
@@ -408,9 +409,9 @@ export const apiSetPrivacy = (b: { on?: boolean; minutes?: number }) => apiReque
 /* ---------------- discount codes ---------------- */
 export type Coupon = {
   id: string; code: string; kind: 'amount' | 'percent'; value: number; maxDiscount: number | null; startsAt: number; endsAt: number;
-  providerIds: string[] | null; userId: string | null; userName: string | null; perUser: number | null; maxUses: number | null; uses: number; given: number; active: boolean; source: string;
+  providerIds: string[] | null; userId: string | null; userName: string | null; perUser: number | null; maxUses: number | null; uses: number; given: number; active: boolean; source: string; premiumOnly?: boolean;
 };
-export type CouponInput = { code?: string; kind: 'amount' | 'percent'; value: number; maxDiscount?: number; days: number; startDate?: string; providerIds?: string[]; perUser?: number | null; maxUses?: number };
+export type CouponInput = { code?: string; kind: 'amount' | 'percent'; value: number; maxDiscount?: number; days: number; startDate?: string; providerIds?: string[]; perUser?: number | null; maxUses?: number; premiumOnly?: boolean };
 export const apiCoupons = () => apiRequest<{ coupons: Coupon[] }>('/api/admin/coupons');
 export const apiCouponCreate = (b: CouponInput) => apiRequest<{ coupons: Coupon[] }>('/api/admin/coupons', { method: 'POST', body: JSON.stringify(b) });
 export const apiCouponActive = (id: string, active: boolean) => apiRequest<{ coupons: Coupon[] }>(`/api/admin/coupons/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) });
@@ -487,3 +488,12 @@ export const apiPinProvider = (providerId: string, rank: number | null) => apiRe
 export async function apiPoolSuggest(providerId: string) {
   return apiRequest<{ on: boolean; waiting: number; max?: number; minutes?: number }>(`/api/pool/suggest?providerId=${encodeURIComponent(providerId)}`);
 }
+
+/* ---------------- "أبيس بريميم" (owner) ---------------- */
+export type PremiumCfg = { price: number; days: number; discountPct: number; freeAbove: number; transfer: string; promo: string; lines: string[] };
+export type PremiumSub = { id: string; name: string; phone: string; until: number; active: boolean; daysLeft: number };
+export type PremiumView = { cfg: PremiumCfg; subscribers: PremiumSub[]; activeCount: number; cost30: { freeDelivery: number; discount: number; orders: number }; activated?: { name: string; until: number } };
+export const apiPremium = () => apiRequest<PremiumView>('/api/admin/premium');
+export const apiPremiumSave = (cfg: PremiumCfg) => apiRequest<PremiumView>('/api/admin/premium', { method: 'PUT', body: JSON.stringify(cfg) });
+export const apiPremiumActivate = (phone: string, days: number) => apiRequest<PremiumView>('/api/admin/premium/activate', { method: 'POST', body: JSON.stringify({ phone, days }) });
+export const apiPremiumCancel = (phone: string) => apiRequest<PremiumView>('/api/admin/premium/cancel', { method: 'POST', body: JSON.stringify({ phone }) });

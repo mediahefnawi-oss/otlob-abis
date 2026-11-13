@@ -100,7 +100,7 @@ async function onOrderDelivered(db, o) {
       if (rule && amount > 0) await db.query(INSERT_ORDER_ENTRY, ['provider', o.id, o.provider_id, null, base, amount, rule.id, JSON.stringify(snapshot(rule))]);
     }
     if (o.courier_user_id) {
-      const base = Number(d.deliveryFee) || 0;
+      const base = Number(d.premiumFree ? d.normalFee : d.deliveryFee) || 0; // a subscriber's free delivery: the courier still earns (and the platform's cut is still taken from) the normal price
       const rule = await ruleFor(db, 'courier', when, type, o.provider_id, o.courier_user_id);
       const amount = computeAmount(rule, base);
       if (rule && amount > 0) await db.query(INSERT_ORDER_ENTRY, ['courier', o.id, o.provider_id || null, o.courier_user_id, base, amount, rule.id, JSON.stringify(snapshot(rule))]);

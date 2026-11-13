@@ -12,6 +12,7 @@ const kmFee = require('./kmfee');
 const tracking = require('./tracking');
 const mapMode = require('./mapmode');
 const couponsLib = require('./coupons');
+const premiumLib = require('./premium');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
 const poolLib = require('./pool');
@@ -35,7 +36,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), discount: d.discount > 0 ? num(d.discount) : undefined, couponCode: d.discount > 0 ? d.couponCode : undefined, giftCode: d.giftCode || undefined, deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
       courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
-      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, staffDismissed: d.staffDismissed ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined,
+      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], premium: d.premium ? true : undefined, courierFee: d.premiumFree && d.normalFee != null ? num(d.normalFee) : undefined, autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, staffDismissed: d.staffDismissed ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined,
     };
   };
   const invoiceJson = r => ({
@@ -394,6 +395,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         (SELECT updated_at::text FROM site_images WHERE key='login') AS li,
         (SELECT updated_at::text FROM site_images WHERE key='welcome_logo') AS wl,
         (SELECT MAX(updated_at)::text||':'||COUNT(*) FROM site_images WHERE key LIKE 'cat\\_%') AS ci,
+        (SELECT MAX(updated_at)::text||':'||COUNT(*) FROM site_images WHERE key='home_cover' OR key LIKE 'hb\\_%' OR key LIKE 'pcover\\_%') AS cv,
         (SELECT COUNT(*) FROM users WHERE role='courier' AND status='active' AND available=TRUE) AS c,
         (SELECT COALESCE(SUM(hashtextextended(x.id::text||x.status||x.updated_at::text,0)::numeric),0)::text FROM appointments x WHERE x.status IN ('pending','confirmed') AND x.appointment_date >= CURRENT_DATE - 1) AS sl`, p);
     return crypto.createHash('md5').update(JSON.stringify([auth.role, auth.status, r.rows[0]])).digest('hex');
@@ -527,19 +529,23 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         ? await couponsLib.evaluate(db, { code: b.coupon, userId: Number(req.auth.sub), forUpdate: true, groups: [...groups.values()].map(g => ({ providerId: g.p.provider_id, subtotal: g.subtotal, hasOffer: g.hasOffer })) })
         : null;
       const discounts = [];
+      const ben = await premiumLib.benefits(db, Number(req.auth.sub)); // "أبيس بريميم": a subscriber's free delivery / percent off, decided here and nowhere else
       for (const g of groups.values()) {
         const disc = ev ? (ev.perGroup.get(String(g.p.provider_id)) || 0) : 0;
-        const fee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee, Number(req.auth.sub), dest);
+        const normalFee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee, Number(req.auth.sub), dest);
+        const px = premiumLib.priceGroup({ subtotal: g.subtotal, couponDisc: disc, hasOffer: g.hasOffer, fee: normalFee, pooled: wantPool && !scheduledFor }, ben);
+        const fee = px.fee;
+        const allDisc = Math.round((disc + px.discount) * 100) / 100;
         const d = {
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
           ...(scheduledFor ? { scheduledFor } : {}),
           ...(wantPool && fee > 0 && region && services.tplOf(g.p.ptype) !== 'booking' ? { pool: { want: true, fullFee: fee } } : {}),
-          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, ...(disc > 0 ? { discount: disc, couponCode: ev.coupon.code } : {}), deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
+          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, ...(allDisc > 0 ? { discount: allDisc, couponCode: disc > 0 ? ev.coupon.code : 'PREMIUM' } : {}), ...(ben.priority ? { premium: true } : {}), ...(px.free ? { premiumFree: true, normalFee } : {}), deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
           // every shop decides first: it must press accept or reject (a maker also picks the ready day and hour); nothing starts by itself
           history: [{ status: 'pending', at: Date.now() }],
         };
         const r = await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
-          [Number(req.auth.sub), g.p.provider_id, 'pending', Math.round((g.subtotal - disc + fee) * 100) / 100, region ? region.id : null, JSON.stringify(d)]);
+          [Number(req.auth.sub), g.p.provider_id, 'pending', Math.round((g.subtotal - allDisc + fee) * 100) / 100, region ? region.id : null, JSON.stringify(d)]);
         orders.push(r.rows[0]);
         discounts.push(disc);
       }
@@ -609,7 +615,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const fee = 0; // the courier who takes the errand sets the price of the goods and his delivery fee
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: CUSTOM_NAME, providerType: 'custom', providerOwnerId: '', items: [],
-        customText: text.slice(0, 1000), ...(voice ? { hasVoice: true, voiceSecs: voice.seconds } : {}), subtotal: 0, deliveryFee: fee, errandQuote: 'open', regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub), dest)),
+        customText: text.slice(0, 1000), ...(voice ? { hasVoice: true, voiceSecs: voice.seconds } : {}), subtotal: 0, deliveryFee: fee, errandQuote: 'open', regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub), dest)), ...((await premiumLib.benefits(db, Number(req.auth.sub))).priority ? { premium: true } : {}),
         history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
       };
       let o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,NULL,\'accepted\',$2,$3,$4) RETURNING *',
@@ -656,7 +662,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const fee = await deliveryFeeFor(db, prov, region, prov.delivery_fee, Number(req.auth.sub), dest);
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
-        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub), dest)),
+        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub), dest)), ...((await premiumLib.benefits(db, Number(req.auth.sub))).priority ? { premium: true } : {}),
         request: { text, hasImage: !!image }, ...(voice ? { hasVoice: true, voiceSecs: voice.seconds } : {}), history: [{ status: 'pending', at: Date.now() }],
       };
       const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',
@@ -708,17 +714,19 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       if (!row.data || !row.data.request) throw fail(400, 'هذا ليس طلباً مكتوباً');
       if (!['pending', 'quoted'].includes(row.status)) throw fail(409, 'حالة الطلب لا تسمح بالتسعير الآن');
       const isMaker = services.tplOf(row.data.providerType) === 'maker';
-      const fee = Number(row.data.deliveryFee) || 0;
+      const fee = Number(row.data.normalFee != null ? row.data.normalFee : row.data.deliveryFee) || 0; // the delivery price before any subscriber's free delivery
       const unavailable = !!b.unavailable;
       if (isMaker && !unavailable) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(readyDate) || Number.isNaN(Date.parse(readyDate)) || readyDate < today) throw fail(400, 'حدد يوم التسليم (اليوم أو بعده)');
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(readyTime)) throw fail(400, 'حدد ساعة التسليم بشكل صحيح');
       }
       const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
-      const total = unavailable ? 0 : subtotal + fee;
+      // a subscriber's price (switch "premium"): free delivery from the minimum amount and a percent off what the shop priced
+      const px = unavailable ? { discount: 0, fee: 0, free: false } : premiumLib.priceGroup({ subtotal, fee }, await premiumLib.benefits(db, row.customer_user_id));
+      const total = unavailable ? 0 : Math.round((subtotal - px.discount + px.fee) * 100) / 100;
       const part = {
         orderId: String(row.id), providerId: String(row.provider_id), providerName: row.data.providerName, providerType: row.data.providerType,
-        items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, deliveryFee: unavailable ? 0 : fee, requestText: row.data.request.text || '',
+        items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, deliveryFee: unavailable ? 0 : px.fee, ...(px.discount > 0 ? { discount: px.discount, couponCode: 'PREMIUM' } : {}), requestText: row.data.request.text || '',
         ...(isMaker && !unavailable ? { readyDate, readyTime } : {}),
       };
       const invData = { number: `INV-${row.order_number}`, customerName: row.data.customerName, phone: row.data.phone, address: row.data.address, parts: [part], unavailable, note };
@@ -726,7 +734,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       if (invoiceId) await db.query('UPDATE invoices SET total=$1, data=$2 WHERE id=$3', [total, JSON.stringify(invData), invoiceId]);
       else invoiceId = (await db.query('INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,\'delivery\',$3,$4) RETURNING id',
         [row.customer_user_id, row.id, total, JSON.stringify(invData)])).rows[0].id;
-      const d = { ...row.data, ...(req.auth.role === 'supervisor' ? { staffHandled: true } : {}), items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, invoiceId: String(invoiceId), groupId: String(invoiceId), quoteNote: note, ...(isMaker && !unavailable ? { readyDate, readyTime } : {}) };
+      const d = { ...row.data, ...(req.auth.role === 'supervisor' ? { staffHandled: true } : {}), items: unavailable ? [] : lines, subtotal: unavailable ? 0 : subtotal, discount: px.discount > 0 ? px.discount : undefined, couponCode: px.discount > 0 ? 'PREMIUM' : undefined, normalFee: fee, deliveryFee: unavailable ? 0 : px.fee, premiumFree: px.free ? true : undefined, invoiceId: String(invoiceId), groupId: String(invoiceId), quoteNote: note, ...(isMaker && !unavailable ? { readyDate, readyTime } : {}) };
       const r = await db.query('UPDATE orders SET status=$1, total=$2, data=$3, updated_at=NOW() WHERE id=$4 RETURNING *', [unavailable ? 'unavailable' : 'quoted', total, JSON.stringify({ ...d, history: [...(d.history || []), { status: unavailable ? 'unavailable' : 'quoted', at: Date.now() }] }), row.id]);
       await sysMsg(db, row.id, unavailable
         ? (isMaker ? `اعتذر الصانع عن تنفيذ الطلب${note ? `: ${note}` : ''}` : `للأسف الأصناف المطلوبة غير متوفرة حالياً${note ? `: ${note}` : ''}`)
@@ -858,16 +866,17 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       let patch = { ...d, rejectReason: undefined, cancelledBy: undefined, staffHandled: undefined, readyDate: undefined, readyTime: undefined };
       // the delivery price follows the new shop's area (a route without a price is closed)
       const fee = await deliveryFeeFor(db, prov, row.region_id ? { id: row.region_id } : null, num(row.data.deliveryFee), row.customer_user_id, row.data.destLat != null && row.data.destLng != null ? { lat: Number(row.data.destLat), lng: Number(row.data.destLng) } : null);
-      if (isReq) patch = { ...patch, invoiceId: undefined, subtotal: 0, deliveryFee: fee };
+      if (isReq) patch = { ...patch, invoiceId: undefined, subtotal: 0, deliveryFee: fee, normalFee: undefined, discount: undefined, couponCode: undefined, premiumFree: undefined };
       else {
-        // the order keeps its items and prices
-        total = num(row.data.subtotal) + fee;
-        patch = { ...patch, deliveryFee: fee };
+        // the order keeps its items, prices and discount; a subscriber's free delivery stays free (the new route's price is remembered)
+        const charged = row.data.premiumFree ? 0 : fee;
+        total = Math.round((num(row.data.subtotal) - num(row.data.discount) + charged) * 100) / 100;
+        patch = { ...patch, deliveryFee: charged, ...(row.data.premiumFree ? { normalFee: fee } : {}) };
         if (row.data.invoiceId) {
           const iv = await db.query('SELECT * FROM invoices WHERE id=$1 FOR UPDATE', [Number(row.data.invoiceId)]);
           if (iv.rowCount) {
             const idata = iv.rows[0].data || {};
-            const parts = (idata.parts || []).map(pt => String(pt.orderId) === String(row.id) ? { ...pt, providerId: String(prov.id), providerName: prov.name, providerType: prov.type, deliveryFee: fee } : pt);
+            const parts = (idata.parts || []).map(pt => String(pt.orderId) === String(row.id) ? { ...pt, providerId: String(prov.id), providerName: prov.name, providerType: prov.type, deliveryFee: charged } : pt);
             await db.query('UPDATE invoices SET total=total-$1+$2, data=$3 WHERE id=$4', [num(row.total), total, JSON.stringify({ ...idata, parts }), iv.rows[0].id]);
           }
         }
