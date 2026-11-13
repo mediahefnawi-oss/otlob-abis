@@ -48,5 +48,25 @@ async function call(key, { as, body, query, params } = {}) {
   ok(g.sent !== undefined && g.headers['Content-Type'] === 'image/png', 'public GET returns the picture');
   const d = await call('DELETE /api/admin/cat-icon/:type', { as: adm, params: { type: 'maker' } });
   ok(d.status === 200 && d.json.v === 0, 'owner removes it');
+  // covers: one fixed home picture + one per provider
+  await pool.query("DELETE FROM site_images WHERE key IN ('home_cover') OR key LIKE 'pcover\\_%'");
+  const h1 = await call('PUT /api/admin/home-cover', { as: adm, body: { image: png } });
+  ok(h1.status === 200 && h1.json.v > 0, 'owner saves the home cover: ' + JSON.stringify(h1.json));
+  ok((await call('PUT /api/admin/home-cover', { as: cu, body: { image: png } })).status === 403, 'customer cannot set the home cover');
+  ok((await call('PUT /api/admin/home-cover', { as: adm, body: { image: 'data:text/html;base64,AAAA' } })).status === 400, 'non-image cover refused');
+  const hg = await call('GET /api/home-cover', {});
+  ok(hg.sent !== undefined && hg.headers['Content-Type'] === 'image/png', 'public GET returns the home cover');
+  const hd = await call('DELETE /api/admin/home-cover', { as: adm });
+  ok(hd.status === 200 && hd.json.v === 0, 'owner removes the home cover');
+  ok((await call('GET /api/home-cover', {})).status === 404, 'removed cover is gone');
+  const pid = (await pool.query("INSERT INTO providers(owner_user_id,type,name,phone,status,is_open) VALUES(1,'restaurant','مطعم كافر','01000000000','active',TRUE) RETURNING id")).rows[0].id;
+  const p1 = await call('PUT /api/admin/provider-cover/:id', { as: adm, params: { id: String(pid) }, body: { image: png } });
+  ok(p1.status === 200 && p1.json.v > 0, 'owner saves a provider cover: ' + JSON.stringify(p1.json));
+  ok((await call('PUT /api/admin/provider-cover/:id', { as: adm, params: { id: '999999' }, body: { image: png } })).status === 404, 'unknown provider refused');
+  ok((await call('PUT /api/admin/provider-cover/:id', { as: adm, params: { id: 'abc' }, body: { image: png } })).status === 400, 'bad id refused');
+  const pg = await call('GET /api/provider-cover/:id', { params: { id: String(pid) } });
+  ok(pg.sent !== undefined, 'public GET returns the provider cover');
+  ok((await call('DELETE /api/admin/provider-cover/:id', { as: adm, params: { id: String(pid) } })).json.v === 0, 'owner removes the provider cover');
+  await pool.query('DELETE FROM providers WHERE id=$1', [pid]);
   console.log(`cat icon tests: ${pass} passed, ${failN} failed`); process.exit(failN ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

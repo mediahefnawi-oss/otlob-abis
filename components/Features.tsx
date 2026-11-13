@@ -3,6 +3,8 @@ import { View, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Card, Btn, Header, Toggle, Empty, Field, Chip, toast, confirmDialog } from './ui';
 import { refresh } from '../lib/store';
+import { CoversManager } from './Covers';
+import { BlocksManager } from './HomeBlocks';
 import { CourierPhotoReview } from './CourierPhoto';
 import { ChatReportsList } from './Chat';
 import { apiWipePreview, apiWipe, WipeCounts, apiDailyReport, apiFeatures, apiSetFeature, FeatureRow } from '../lib/api';
@@ -32,6 +34,10 @@ const HINT: Record<string, string> = {
   coupons: 'أكواد الخصم في السلة. لو قفلتها العميل مش هيشوف خانة الكود',
   ratings: 'العميل يقيّم المحل والمندوب بعد التسليم',
   support: 'شات العميل والمحل والمندوب مع الدعم الفني',
+  covers: 'صورة كافر ثابتة ورا الهيدر في الرئيسية الجديدة، وصورة كافر لكل مقدم خدمة في صفحته (مع «صفحة المقدم الجديدة»). ترفع الصور من كارت «صور الكافر» في آخر الصفحة.',
+  homeBlocks: 'قوائم محلات بتختارها بإيدك ولوحات إعلانية بين القوائم في الرئيسية الجديدة. بترتّبهم وتعدّلهم من كارت «ترتيب الرئيسية» في آخر الصفحة.',
+  ratingStars: 'التقييم يظهر نجوم (★★★★☆) مع الرقم وعدد العملاء اللي قيّموا، على كارت المحل وفي صفحته. بالضغط على التقييم تظهر آراء العملاء.',
+  homeAddress: 'العنوان في الرئيسية القديمة يبقى زرار: العميل يضغط عليه ويغيّر عنوانه ومنطقته (زي الرئيسية الجديدة)',
 };
 const BASIC = ['coupons', 'ratings', 'support', 'bot'];
 
@@ -134,6 +140,8 @@ export function AdminFeaturesScreen({ navigation }: any) {
             <T size={11.5} color={C.sub}>بيوصلك التقرير كإشعار كل يوم الساعة 10 مساءً بتوقيت القاهرة.</T>
           </Card>
         )}
+        <BlocksManager />
+        <CoversManager />
         {(rows || []).some((f) => f.key === 'dataWipe' && f.on) && <DataWipeCard />}
         {(rows || []).some((f) => f.key === 'chat' && f.on) && <ChatReportsList />}
         {(rows || []).some((f) => f.key === 'courierPhoto' && f.on) && <CourierPhotoReview />}

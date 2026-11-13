@@ -167,7 +167,7 @@ function providerVisibility(viewer, values) {
 }
 const services = require('./services');
 const hours = require('./hours');
-const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), ...(p.lat != null && p.lng != null ? { lat: Number(p.lat), lng: Number(p.lng) } : {}), status: p.status, open: p.is_open, orderMode: p.order_mode || '', chatOff: !!p.chat_disabled, pinRank: p.pin_rank == null ? null : Number(p.pin_rank), orders30: Number(p.orders30) || 0, menuCount: Number(p.menu_count) || 0, createdAt: new Date(p.created_at).getTime() });
+const providerJson = p => ({ ...p.metadata, featured: !!(p.metadata && p.metadata.featured), regionId: p.owner_region_id ? String(p.owner_region_id) : '', regionName: p.region_name || '', logoV: p.logo_v ? Number(p.logo_v) : 0, coverV: p.cover_v ? Number(p.cover_v) : 0, id: String(p.id), ownerId: String(p.owner_user_id), type: p.type, name: p.name, desc: p.description, address: p.address, phone: p.phone, deliveryFee: Number(p.delivery_fee), ...(p.lat != null && p.lng != null ? { lat: Number(p.lat), lng: Number(p.lng) } : {}), status: p.status, open: p.is_open, orderMode: p.order_mode || '', chatOff: !!p.chat_disabled, pinRank: p.pin_rank == null ? null : Number(p.pin_rank), orders30: Number(p.orders30) || 0, menuCount: Number(p.menu_count) || 0, createdAt: new Date(p.created_at).getTime() });
 const roles = (...allowed) => (req, res, next) => { if (!req.auth || !allowed.includes(req.auth.role)) return res.status(403).json({ error: 'ليس لديك صلاحية لتنفيذ هذا الإجراء' }); next(); };
 
 // Bump this whenever sql/schema.sql changes. Serverless instances start often; the heavy DDL must not run on every start
@@ -176,7 +176,7 @@ const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
-const SCHEMA_VERSION = 20261213;
+const SCHEMA_VERSION = 20261214;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -742,7 +742,15 @@ async function loadSettingsBase() {
   try { const ai = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='app_icon'"); if (ai.rowCount) appIconV = Number(ai.rows[0].v); } catch { /* table not migrated yet */ }
   const catIconV = {};
   try { const ci = await pool.query("SELECT substr(key,5) AS t, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'cat\\_%'"); for (const row of ci.rows) catIconV[row.t] = Number(row.v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', features: extrasLib.mergeFeatures(x.features), privacy: { on: x.privacy_hide !== false, minutes: x.privacy_minutes != null ? Number(x.privacy_minutes) : 1 }, ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  let homeBlocks = [];
+  try {
+    const hv = {}; const hi = await pool.query("SELECT substr(key,4) AS id, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'hb\\_%'");
+    for (const row of hi.rows) hv[row.id] = Number(row.v);
+    homeBlocks = extrasLib.blocksView(x.home_blocks, hv);
+  } catch { /* column not migrated yet */ }
+  let homeCoverV = 0;
+  try { const hc = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='home_cover'"); if (hc.rowCount) homeCoverV = Number(hc.rows[0].v); } catch { /* table not migrated yet */ }
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, homeCoverV, homeBlocks, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', features: extrasLib.mergeFeatures(x.features), privacy: { on: x.privacy_hide !== false, minutes: x.privacy_minutes != null ? Number(x.privacy_minutes) : 1 }, ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 // the clock part is never cached: the app uses it to know when to open / close without asking again
 async function loadSettings() {
@@ -854,7 +862,7 @@ app.patch('/api/admin/users/:id/status', auth, roles('admin'), asyncRoute(async(
 async function listProviders(viewer, type) {
   await services.ensure(pool);
   const values = [];
-  let sql = `SELECT p.*, u.region_id AS owner_region_id, g.name AS region_name, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v, (SELECT COUNT(*) FROM menu_images mi WHERE mi.provider_id=p.id) AS menu_count, (SELECT COUNT(*) FROM orders od WHERE od.provider_id=p.id AND od.status='delivered' AND od.created_at > NOW() - INTERVAL '30 days') AS orders30 FROM providers p LEFT JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE ${providerVisibility(viewer, values)}`;
+  let sql = `SELECT p.*, u.region_id AS owner_region_id, g.name AS region_name, (SELECT (EXTRACT(EPOCH FROM l.updated_at)*1000)::bigint FROM provider_logos l WHERE l.provider_id=p.id) AS logo_v, (SELECT (EXTRACT(EPOCH FROM c.updated_at)*1000)::bigint FROM site_images c WHERE c.key='pcover_'||p.id) AS cover_v, (SELECT COUNT(*) FROM menu_images mi WHERE mi.provider_id=p.id) AS menu_count, (SELECT COUNT(*) FROM orders od WHERE od.provider_id=p.id AND od.status='delivered' AND od.created_at > NOW() - INTERVAL '30 days') AS orders30 FROM providers p LEFT JOIN users u ON u.id=p.owner_user_id LEFT JOIN regions g ON g.id=u.region_id WHERE ${providerVisibility(viewer, values)}`;
   if (type) { values.push(String(type)); sql += ` AND p.type=$${values.length}`; }
   sql += ' ORDER BY p.created_at DESC LIMIT 500';  // (re-sorted below when the "ordering" switch is on)
   const hide = !viewer || viewer.role === 'customer'; // a maker's address is for couriers and staff only; customers see the area

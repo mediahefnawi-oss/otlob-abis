@@ -714,3 +714,6 @@ CREATE TABLE IF NOT EXISTS winback_log (
   sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_winback_user ON winback_log(user_id, sent_at DESC);
+
+-- 20261214: the owner's home blocks (lists of shops picked by hand, banners between them)
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS home_blocks JSONB NOT NULL DEFAULT '[]'::jsonb;

@@ -78,6 +78,7 @@ export interface Provider {
   open: boolean;
   specialty?: string;
   logoV?: number; // 0 / missing = no logo; changes whenever the logo changes
+  coverV?: number; // 0 / missing = no cover picture (the owner uploads it); changes whenever it changes
   regionId?: string; // the area the place registered in (its owner's area)
   regionName?: string; // the customer's area
   providerRegionName?: string; // the shop's area (courier: from area X to area Y)
@@ -271,6 +272,8 @@ export interface Settings {
   supportName: string;
   loginImageV?: number; // 0 / missing = the original picture
   appIconV?: number; // 0 / missing = the built-in icon
+  homeBlocks?: HomeBlock[]; // the owner's lists of shops and banners shown in the new home
+  homeCoverV?: number; // the owner's one fixed cover picture behind the home header (0 = none)
   catIconV?: Record<string, number>; // the owner's picture for each service icon on the home screen (type -> version)
   apkUrl?: string; // download link of the Android app
   update?: { version: string; message: string; required: boolean }; // a newer app version the owner announced
@@ -310,3 +313,6 @@ export interface CartLine {
   productId: string;
   qty: number;
 }
+
+/** A block of the new home arranged by the owner: a list of shops picked by hand, or a banner (picture + optional link). */
+export type HomeBlock = { id: string; type: 'list' | 'banner'; title: string; providerIds: string[]; link: string; active: boolean; imgV: number };

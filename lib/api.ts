@@ -1,3 +1,4 @@
+import type { HomeBlock } from './types';
 import { storage } from './storage';
 import type { Hours } from './hours';
 import * as SecureStore from 'expo-secure-store';
@@ -101,6 +102,8 @@ export type CentralSettings = {
   supportName: string;
   loginImageV?: number;
   appIconV?: number;
+  homeCoverV?: number;
+  homeBlocks?: HomeBlock[];
   catIconV?: Record<string, number>;
   apkUrl?: string;
   update?: { version: string; message: string; required: boolean };
@@ -311,6 +314,9 @@ export async function apiOrderImage(orderId: string | number) {
 export type ServerAd = { id: string; title: string; link: string; active: boolean; sortOrder: number; v: number };
 export const appIconUrl = (v: number) => `${API_BASE}/api/app-icon?v=${v}`;
 export const catIconUrl = (type: string, v: number) => `${API_BASE}/api/cat-icon/${encodeURIComponent(type)}?v=${v}`;
+export const homeCoverUrl = (v: number) => `${API_BASE}/api/home-cover?v=${v}`;
+export const providerCoverUrl = (p: { id: string; coverV?: number }) => (p.coverV ? `${API_BASE}/api/provider-cover/${encodeURIComponent(p.id)}?v=${p.coverV}` : '');
+export const homeBlockImageUrl = (b: { id: string; imgV?: number }) => (b.imgV ? `${API_BASE}/api/home-block-image/${encodeURIComponent(b.id)}?v=${b.imgV}` : '');
 export const welcomeLogoUrl = (v: number) => `${API_BASE}/api/welcome-logo?v=${v}`;
 export const loginImageUrl = (v: number) => `${API_BASE}/api/login-image?v=${v}`;
 export const adImageUrl = (ad: { id: string; v: number }) => `${API_BASE}/api/ads/${encodeURIComponent(ad.id)}/image?v=${ad.v}`;

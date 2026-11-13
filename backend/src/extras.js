@@ -29,6 +29,10 @@ const FEATURES = {
   searchSuggest: { label: 'الرئيسية الجديدة: اقتراحات البحث وآخر ما بحث عنه', on: false },
   reorder: { label: 'الرئيسية الجديدة: كارت «اطلب تاني»', on: false },
   providerNew: { label: 'صفحة المتجر الجديدة (غلاف وكارت عايم وتبويبات وعمودين) — مقفولة = الصفحة القديمة', on: false },
+  covers: { label: 'صور الكافر (الرئيسية الجديدة + صفحة مقدم الخدمة)', on: false },
+  homeAddress: { label: 'شريط العنوان في الرئيسية القديمة', on: false },
+  homeBlocks: { label: 'قوائم ولوحات إعلانية في الرئيسية الجديدة (ترتيب الرئيسية)', on: false },
+  ratingStars: { label: 'التقييم بالنجوم وعدد المقيّمين', on: false },
   guestBrowse: { label: 'التصفح بدون تسجيل (التسجيل يظهر عند الطلب)', on: false },
   bot: { label: 'بوت الدعم', on: true },
   // old features: ON by default so nothing changes until the owner switches one off
@@ -78,6 +82,27 @@ function orderShops(list) {
     || (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 }
 
+/** The owner's home blocks, cleaned: a "list" (shops picked by hand) or a "banner" (a picture with an optional link). */
+const BLOCK_MAX = 20;
+function cleanBlocks(input, old = []) {
+  if (!Array.isArray(input) || input.length > BLOCK_MAX) return null;
+  const known = new Set((Array.isArray(old) ? old : []).map(b => b.id));
+  const seen = new Set(); const out = [];
+  for (const b of input) {
+    if (!b || (b.type !== 'list' && b.type !== 'banner')) return null;
+    let id = String(b.id || '');
+    if (!/^[a-z0-9]{4,16}$/.test(id) || seen.has(id)) id = require('crypto').randomBytes(5).toString('hex');
+    seen.add(id);
+    const ids = Array.isArray(b.providerIds) ? [...new Set(b.providerIds.map(String).filter(x => /^[0-9]{1,12}$/.test(x)))].slice(0, 20) : [];
+    out.push({ id, type: b.type, title: String(b.title || '').trim().slice(0, 60), providerIds: b.type === 'list' ? ids : [], link: b.type === 'banner' ? String(b.link || '').trim().slice(0, 300) : '', active: b.active !== false });
+  }
+  return { blocks: out, removed: [...known].filter(id => !seen.has(id)) };
+}
+function blocksView(raw, versions = {}) {
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.filter(b => b && (b.type === 'list' || b.type === 'banner')).map(b => ({ ...b, imgV: versions[b.id] || 0 }));
+}
+
 const effectiveMode = (row, feats) => (feats.menu && MODES.includes(row.order_mode) ? row.order_mode : '');
 
 function register(app, { pool, auth, roles, asyncRoute, positiveId, services, clearCaches, pushToUsers }) {
@@ -107,6 +132,54 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
     clearCaches();
     const f = await featuresOf(pool);
     res.json({ features: Object.keys(FEATURES).map(k => ({ key: k, label: FEATURES[k].label, on: f[k] })) });
+  }));
+
+  /* ---------- home blocks: lists of shops picked by hand and banners between them (owner) ---------- */
+  const blockImg = id => /^[a-z0-9]{4,16}$/.test(String(id || '')) ? `hb_${id}` : null;
+  const loadBlocks = async () => { const r = await pool.query('SELECT home_blocks FROM app_settings WHERE id=1'); return r.rowCount ? r.rows[0].home_blocks || [] : []; };
+  const blocksOut = async () => {
+    const hv = {}; const hi = await pool.query("SELECT substr(key,4) AS id, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'hb\\_%'");
+    for (const row of hi.rows) hv[row.id] = Number(row.v);
+    return blocksView(await loadBlocks(), hv);
+  };
+  app.get('/api/admin/home-blocks', ...admin, guard(async (_req, res) => { res.json({ blocks: await blocksOut() }); }));
+  app.put('/api/admin/home-blocks', ...admin, guard(async (req, res) => {
+    const old = await loadBlocks();
+    const c = cleanBlocks((req.body || {}).blocks, old);
+    if (!c) throw fail(400, 'القائمة غير صالحة (أقصى عدد ' + BLOCK_MAX + ' كتلة)');
+    for (const b of c.blocks) { if (b.type === 'banner' && b.link) { const chk = await checkAppLink(pool, b.link); if (chk && chk.error) throw fail(400, chk.error); if (!chk && !/^https?:\/\//.test(b.link)) throw fail(400, 'الرابط لازم يبدأ بـ https://'); } }
+    await pool.query('UPDATE app_settings SET home_blocks=$1::jsonb, updated_at=NOW() WHERE id=1', [JSON.stringify(c.blocks)]);
+    if (c.removed.length) await pool.query('DELETE FROM site_images WHERE key = ANY($1)', [c.removed.map(id => `hb_${id}`)]);
+    clearCaches();
+    res.json({ blocks: await blocksOut() });
+  }));
+  app.get('/api/home-block-image/:id', guard(async (req, res) => {
+    const k = blockImg(req.params.id);
+    if (!k) return res.status(404).end();
+    const r = await pool.query('SELECT image, mime FROM site_images WHERE key=$1', [k]);
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable'); // the link changes (?v=) with the picture
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(r.rows[0].image);
+  }));
+  app.put('/api/admin/home-blocks/:id/image', ...admin, guard(async (req, res) => {
+    const k = blockImg(req.params.id);
+    if (!k) throw fail(400, 'معرّف غير صالح');
+    if (!(await loadBlocks()).some(b => b.id === req.params.id && b.type === 'banner')) throw fail(404, 'اللوحة غير موجودة. احفظ الترتيب الأول');
+    const s = String((req.body || {}).image || '');
+    const m = /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/.exec(s);
+    if (!m || s.length > 2200000) throw fail(400, 'ارفع صورة صالحة (PNG أو JPG) بحجم أصغر');
+    const r = await pool.query("INSERT INTO site_images(key, image, mime, updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT (key) DO UPDATE SET image=EXCLUDED.image, mime=EXCLUDED.mime, updated_at=NOW() RETURNING (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v", [k, Buffer.from(m[2], 'base64'), m[1]]);
+    clearCaches();
+    res.json({ v: Number(r.rows[0].v) });
+  }));
+  app.delete('/api/admin/home-blocks/:id/image', ...admin, guard(async (req, res) => {
+    const k = blockImg(req.params.id);
+    if (!k) throw fail(400, 'معرّف غير صالح');
+    await pool.query('DELETE FROM site_images WHERE key=$1', [k]);
+    clearCaches();
+    res.json({ v: 0 });
   }));
 
   /* ---------- move a shop to another section / set how it takes orders ---------- */
@@ -322,4 +395,4 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, services, cl
   }));
 }
 
-module.exports = { orderShops, register, FEATURES, mergeFeatures, featuresOf, featureOn, effectiveMode, MODES, checkAppLink };
+module.exports = { cleanBlocks, blocksView, orderShops, register, FEATURES, mergeFeatures, featuresOf, featureOn, effectiveMode, MODES, checkAppLink };

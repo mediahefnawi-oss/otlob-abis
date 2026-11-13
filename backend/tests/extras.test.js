@@ -38,8 +38,8 @@ const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////
   const get = k => r.json.features.find(f => f.key === k);
   eq(get('menu').on, false, 'menu starts OFF'); eq(get('chat').on, false, 'chat starts OFF'); eq(get('pool').on, false, 'pool starts OFF'); eq(get('voice').on, false, 'voice starts OFF');
   eq(get('bot').on, true, 'the support helper that already runs stays ON');
-  for (const k of ['homeNew', 'homeChips', 'searchSuggest', 'reorder', 'providerNew', 'guestBrowse']) eq(get(k).on, false, k + ' starts OFF');
-  for (const k of ['homeNew', 'providerNew', 'guestBrowse']) { eq((await call('PATCH /api/admin/features', A, { key: k, on: true })).status, 200, k + ' can be turned on'); r = await call('GET /api/admin/features', A); eq(get(k).on, true, k + ' is on'); await call('PATCH /api/admin/features', A, { key: k, on: false }); r = await call('GET /api/admin/features', A); eq(get(k).on, false, k + ' back OFF'); }
+  for (const k of ['homeNew', 'homeChips', 'searchSuggest', 'reorder', 'providerNew', 'guestBrowse', 'covers', 'homeAddress', 'homeBlocks', 'ratingStars']) eq(get(k).on, false, k + ' starts OFF');
+  for (const k of ['homeNew', 'providerNew', 'guestBrowse', 'covers', 'homeAddress', 'homeBlocks', 'ratingStars']) { eq((await call('PATCH /api/admin/features', A, { key: k, on: true })).status, 200, k + ' can be turned on'); r = await call('GET /api/admin/features', A); eq(get(k).on, true, k + ' is on'); await call('PATCH /api/admin/features', A, { key: k, on: false }); r = await call('GET /api/admin/features', A); eq(get(k).on, false, k + ' back OFF'); }
   eq((await call('PATCH /api/admin/features', A, { key: 'menu', on: true })).status, 200, 'turn menu on');
   eq(get('menu').on, false, 'old copy unchanged'); r = await call('GET /api/admin/features', A); eq(get('menu').on, true, 'menu is on now');
   eq((await call('PATCH /api/admin/features', A, { key: 'nope', on: true })).status, 400, 'unknown switch refused');
@@ -142,6 +142,35 @@ const PIC = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////
   eq((await call('GET /api/favorites', C3)).json.providers.length, 0, 'another customer has his own list');
   eq((await call('DELETE /api/favorites/:kind/:id', C, {}, { kind: 'provider', id: String(rest) })).status, 200, 'remove');
   eq((await call('GET /api/favorites', C)).json.providers.length, 0, 'gone');
+
+  console.log('Z) home blocks');
+  const png = 'data:image/png;base64,' + Buffer.from('89504e470d0a1a0a', 'hex').toString('base64');
+  eq(extras.cleanBlocks([{ type: 'x' }]), null, 'bad block type refused');
+  eq(extras.cleanBlocks(new Array(21).fill({ type: 'list' })), null, 'too many blocks refused');
+  r = await call('PUT /api/admin/home-blocks', A, { blocks: [{ type: 'list', title: 'الأكثر طلباً', providerIds: [String(rest), 'abc', String(rest), String(store)] }, { type: 'banner', title: 'عرض', link: 'https://example.com/x' }, { type: 'banner', title: 'bad', link: 'javascript:alert(1)' }] });
+  eq(r.status, 400, 'a banner link must be https');
+  r = await call('PUT /api/admin/home-blocks', A, { blocks: [{ type: 'list', title: 'الأكثر طلباً', providerIds: [String(rest), 'abc', String(rest), String(store)] }, { type: 'banner', title: 'عرض', link: 'https://example.com/x' }] });
+  eq(r.status, 200, 'owner saves the blocks');
+  eq(r.json.blocks.length, 2, 'two blocks');
+  eq(JSON.stringify(r.json.blocks[0].providerIds), JSON.stringify([String(rest), String(store)]), 'list shops cleaned (no duplicates, no junk)');
+  eq(r.json.blocks[0].active, true, 'active by default');
+  const bid = r.json.blocks[1].id;
+  eq(/^[a-z0-9]{4,16}$/.test(bid), true, 'banner got an id');
+  r = await call('PUT /api/admin/home-blocks/:id/image', A, { image: png }, { id: bid });
+  eq(r.status, 200, 'banner picture saved');
+  r = await call('PUT /api/admin/home-blocks/:id/image', A, { image: 'data:text/html;base64,AAAA' }, { id: bid });
+  eq(r.status, 400, 'non-image refused');
+  r = await call('PUT /api/admin/home-blocks/:id/image', A, { image: png }, { id: 'zzzzzzzz' });
+  eq(r.status, 404, 'picture for an unknown block refused');
+  r = await call('GET /api/home-block-image/:id', null, null, { id: bid });
+  eq(r.status, 200, 'public picture');
+  r = await call('GET /api/admin/home-blocks', A);
+  eq(r.json.blocks[1].imgV > 0, true, 'picture version listed');
+  r = await call('PUT /api/admin/home-blocks', A, { blocks: [r.json.blocks[0]] });
+  eq(r.status, 200, 'banner removed');
+  r = await call('GET /api/home-block-image/:id', null, null, { id: bid });
+  eq(r.status, 404, 'removed banner picture is deleted');
+  await q("UPDATE app_settings SET home_blocks='[]'::jsonb WHERE id=1");
 
   console.log('H) saved addresses');
   await call('PATCH /api/admin/features', A, { key: 'addresses', on: false });

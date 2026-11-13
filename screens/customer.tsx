@@ -20,7 +20,7 @@ import { ProductSheet } from '../components/ProductSheet';
 import {
   useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, requestClinicSlot, deliveryOpen, feeFor, kmInfoFor } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
-import { catIconUrl } from '../lib/api';
+import { catIconUrl, providerCoverUrl } from '../lib/api';
 import { AdsCarousel } from '../components/Ads';
 import { FavoritesRow, HeartButton } from '../components/Favorites';
 import { MenuGallery } from '../components/Menu';
@@ -29,7 +29,8 @@ import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
 import { RegionClosedBanner } from '../components/Regions';
 import { AddressPicker } from '../components/AddressBook';
-import { HomeNew } from '../components/HomeNew';
+import { HomeNew, AddressSheet } from '../components/HomeNew';
+import { RatingLine, useRatingStars } from '../components/Stars';
 import { SchedulePicker } from '../components/Schedule';
 import { PoolCard } from '../components/Pool';
 import { VoiceRecorder } from '../components/Voice';
@@ -70,6 +71,8 @@ function HomeOld({ navigation }: any) {
   const [gridW, setGridW] = useState(0);
   const tw = gridW > 0 ? Math.floor(gridW * 0.313) : 110;
   const [q, setQ] = useState('');
+  const [addrOpen, setAddrOpen] = useState(false);
+  const addrOn = !!db.settings.features?.homeAddress; // switch "homeAddress": the address in the header can be tapped and changed
   const insets = useSafeAreaInsets();
   const provs = db.providers.filter((p) => p.status === 'active');
   const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
@@ -98,10 +101,18 @@ function HomeOld({ navigation }: any) {
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ flex: 1, gap: 2 }}>
             <T size={12} color="#9FB5AC">أهلاً {me.name.split(' ')[0]} 👋</T>
+            {addrOn ? (
+              <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Icon name="location" size={15} color={C.gold} />
+                <T w="bold" size={12.5} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'اضغط لتحديد عنوانك'}</T>
+                <Icon name="chevron-down" size={15} color={C.gold} />
+              </Pressable>
+            ) : (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
               <Icon name="location" size={15} color={C.gold} />
               <T w="bold" size={12.5} color="#fff" numberOfLines={1} style={{ flex: 1 }}>{me.address || 'أبيس'}</T>
             </View>
+            )}
           </View>
           <Logo width={110} />
         </View>
@@ -276,6 +287,7 @@ function HomeOld({ navigation }: any) {
           <T w="black" color={C.gold}>{money(cartDetails(db, cart).subtotal)}</T>
         </Pressable>
       )}
+      {addrOn && <AddressSheet visible={addrOpen} onClose={() => setAddrOpen(false)} />}
     </View>
   );
 }
@@ -366,7 +378,9 @@ export function ProviderScreen({ navigation, route }: any) {
   const [rateOpen, setRateOpen] = useState(false);
   const [sel, setSel] = useState<Product | null>(null);
   const insets = useSafeAreaInsets();
-  const nu = !!db.settings.features?.providerNew; // the owner's switch: the new shop page (cover, floating card, tabs, 2-column products)
+  const nu = !!db.settings.features?.providerNew; // the owner's switch: the new shop page (cover, floating card, tabs)
+  const starsOn = useRatingStars();
+  const hasCover = nu && !!db.settings.features?.covers && (p?.coverV || 0) > 0; // the owner's cover picture of this place
   // an ad that points at one item opens its sheet
   useEffect(() => { const pid = route.params?.product; if (pid) { const x = db.products.find((y) => y.id === pid); if (x) setSel(x); } }, [route.params?.product, db.products.length]);
   // a medical lab has no menu: the customer goes straight to the request form
@@ -390,7 +404,13 @@ export function ProviderScreen({ navigation, route }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       {nu ? (
         <View>
-          <LinearGradient colors={['#0E5A33', C.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ height: 70 + insets.top, paddingTop: insets.top + 6, paddingHorizontal: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <LinearGradient colors={['#0E5A33', C.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ height: (hasCover ? 130 : 70) + insets.top, paddingTop: insets.top + 6, paddingHorizontal: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', overflow: 'hidden' }}>
+            {hasCover && (
+              <>
+                <Image source={{ uri: providerCoverUrl(p) }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,33,26,0.28)' }} />
+              </>
+            )}
             <IconBtn icon="arrow-forward" onPress={() => navigation.goBack()} color={C.dark} bg="#fff" />
             <HeartButton kind="provider" id={p.id} light />
           </LinearGradient>
@@ -402,7 +422,7 @@ export function ProviderScreen({ navigation, route }: any) {
                 <T size={11.5} color={C.green} w="bold" numberOfLines={1}>{t.single}{p.specialty ? ` • ${p.specialty}` : ''}</T>
               </View>
               <Pressable onPress={() => setRateOpen(true)} hitSlop={8} style={{ flexDirection: 'row', gap: 3, alignItems: 'center', backgroundColor: '#F3F1E6', borderRadius: 9, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Icon name="star" size={12} color={C.gold} /><T w="bold" size={11.5}>{p.rating ? p.rating.toFixed(1) : 'جديد'}{p.ratingCount ? ` (${p.ratingCount})` : ''}</T>
+                {starsOn ? <RatingLine p={p} size={11.5} /> : <><Icon name="star" size={12} color={C.gold} /><T w="bold" size={11.5}>{p.rating ? p.rating.toFixed(1) : 'جديد'}{p.ratingCount ? ` (${p.ratingCount})` : ''}</T></>}
               </Pressable>
             </View>
             <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -420,7 +440,7 @@ export function ProviderScreen({ navigation, route }: any) {
           <View style={{ flex: 1, gap: 4 }}>
             <T size={12.5} color="#C9D8D2" numberOfLines={2}>{p.desc}</T>
             <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
-              <Pressable onPress={() => setRateOpen(true)} hitSlop={8} style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}{p.ratingCount ? ` (${p.ratingCount})` : ''}</T></Pressable>
+              <Pressable onPress={() => setRateOpen(true)} hitSlop={8} style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>{starsOn ? <RatingLine p={p} light /> : <><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}{p.ratingCount ? ` (${p.ratingCount})` : ''}</T></>}</Pressable>
               {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
               {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {feeFor(p)} ج.م</T></View>}
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{[p.regionName ? (mineArea ? 'في منطقتك' : `منطقة ${p.regionName}`) : '', p.address].filter(Boolean).join(' — ') || 'أبيس'}</T></View>

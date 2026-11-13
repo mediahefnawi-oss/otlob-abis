@@ -9,12 +9,14 @@ import { ProviderLogo } from './Brand';
 import { AreaTag } from './Cards';
 import { AdsCarousel } from './Ads';
 import { FavoritesRow } from './Favorites';
+import { HomeBlocksView } from './HomeBlocks';
+import { RatingLine } from './Stars';
 import { TodayOffers, ShopOfferTag } from './Offers';
 import { RegionClosedBanner, RegionPicker } from './Regions';
 import { useStore, useMe, cartAdd, cartClear, setCartDest, updateProfile } from '../lib/store';
 import { storage } from '../lib/storage';
 import { getPosition } from '../lib/location';
-import { apiAddresses, apiAddressAdd, apiAddressDelete, catIconUrl, SavedAddress } from '../lib/api';
+import { apiAddresses, apiAddressAdd, apiAddressDelete, catIconUrl, homeCoverUrl, SavedAddress } from '../lib/api';
 import { TYPES, typeKeys, serviceDefs, errandDef } from '../lib/format';
 import { Provider, ProviderType } from '../lib/types';
 
@@ -119,7 +121,13 @@ export function HomeNew({ navigation, rc }: { navigation: any; rc: React.ReactEl
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <View style={{ backgroundColor: C.dark, paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 20, borderBottomLeftRadius: 26, borderBottomRightRadius: 26 }}>
+      <View style={{ backgroundColor: C.dark, paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 20, borderBottomLeftRadius: 26, borderBottomRightRadius: 26, overflow: 'hidden' }}>
+        {!!f.covers && (db.settings.homeCoverV || 0) > 0 && (
+          <>
+            <Image source={{ uri: homeCoverUrl(db.settings.homeCoverV!) }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,33,26,0.5)' }} />
+          </>
+        )}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Pressable onPress={() => setAddrOpen(true)} style={{ flex: 1, gap: 1 }} hitSlop={6}>
             <T size={11} color="#9FB5AC">التوصيل إلى</T>
@@ -238,6 +246,8 @@ export function HomeNew({ navigation, rc }: { navigation: any; rc: React.ReactEl
                   </Appear>
                 )}
 
+                {!!f.homeBlocks && <HomeBlocksView navigation={navigation} tw={tw} />}
+
                 {nearby.length > 0 && (
                   <View style={{ marginTop: 14 }}>
                     <SectionTitle title="بالقرب منك" />
@@ -261,7 +271,7 @@ export function HomeNew({ navigation, rc }: { navigation: any; rc: React.ReactEl
                         <Card key={item.id} onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4 }}>
                           <ProviderLogo p={item} size={tw - 18} />
                           <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Icon name="star" size={13} color={C.gold} /><T w="bold" size={12}>{item.rating.toFixed(1)}</T><T size={11.5} color={C.sub}>• {item.eta} د</T></View>
+                          {f.ratingStars ? <RatingLine p={item} size={10.5} /> : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Icon name="star" size={13} color={C.gold} /><T w="bold" size={12}>{item.rating.toFixed(1)}</T><T size={11.5} color={C.sub}>• {item.eta} د</T></View>}
                           <AreaTag p={item} />
                           <ShopOfferTag providerId={item.id} compact />
                         </Card>
@@ -289,7 +299,7 @@ export function HomeNew({ navigation, rc }: { navigation: any; rc: React.ReactEl
 }
 
 /** "عنوان التوصيل": my location button, saved addresses (when that switch is on), and the address typed by hand. The chosen one is saved on the account. */
-function AddressSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+export function AddressSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { db } = useStore();
   const me = useMe()!;
   const savedOn = !!db.settings.features?.addresses;

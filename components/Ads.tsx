@@ -9,7 +9,7 @@ import { adImageUrl } from '../lib/api';
 import { pickImage, canPickImage } from '../lib/pickImage';
 
 /** "app:provider:12" opens that shop, "app:product:34" opens the shop with that item; anything else is a web link. */
-function openAdLink(link: string, db: any, nav: any) {
+export function openAdLink(link: string, db: any, nav: any) {
   const m = /^app:(provider|product):(\d+)$/.exec(link);
   if (!m) { Linking.openURL(link).catch(() => {}); return; }
   if (m[1] === 'provider') {

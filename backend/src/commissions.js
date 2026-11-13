@@ -725,6 +725,49 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     });
     res.json({ type: t, v: 0 });
   }));
+  /* ---------- covers: one fixed picture behind the home header (same for everyone) and one picture per provider ---------- */
+  const COVER_MAX = 2200000;
+  const coverKey = (kind, id) => kind === 'home' ? 'home_cover' : kind === 'provider' && /^[0-9]{1,12}$/.test(String(id || '')) ? `pcover_${id}` : null;
+  const sendCover = (kind) => asyncRoute(async (req, res) => {
+    const k = coverKey(kind, req.params.id);
+    if (!k) return res.status(404).end();
+    const r = await pool.query('SELECT image, mime FROM site_images WHERE key=$1', [k]);
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable'); // the link changes (?v=) with the picture
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(r.rows[0].image);
+  });
+  const setCover = (kind) => guard(async (req, res) => {
+    const k = coverKey(kind, req.params.id);
+    if (!k) throw fail(400, 'معرّف غير صالح');
+    if (kind === 'provider') { const pr = await pool.query('SELECT 1 FROM providers WHERE id=$1', [req.params.id]); if (!pr.rowCount) throw fail(404, 'مقدم الخدمة غير موجود'); }
+    const s = String((req.body || {}).image || '');
+    const m = /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/.exec(s);
+    if (!m || s.length > COVER_MAX) throw fail(400, 'ارفع صورة صالحة (PNG أو JPG) بحجم أصغر');
+    const v = await withTx(async db => {
+      const r = await db.query("INSERT INTO site_images(key, image, mime, updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT (key) DO UPDATE SET image=EXCLUDED.image, mime=EXCLUDED.mime, updated_at=NOW() RETURNING (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v",
+        [k, Buffer.from(m[2], 'base64'), m[1]]);
+      await audit(db, me(req), 'cover.set', 'site_image', k, null, { bytes: Buffer.byteLength(m[2], 'base64') });
+      return Number(r.rows[0].v);
+    });
+    res.json({ v });
+  });
+  const delCover = (kind) => guard(async (req, res) => {
+    const k = coverKey(kind, req.params.id);
+    if (!k) throw fail(400, 'معرّف غير صالح');
+    await withTx(async db => {
+      await db.query('DELETE FROM site_images WHERE key=$1', [k]);
+      await audit(db, me(req), 'cover.remove', 'site_image', k, null, null);
+    });
+    res.json({ v: 0 });
+  });
+  app.get('/api/home-cover', sendCover('home'));
+  app.get('/api/provider-cover/:id', sendCover('provider'));
+  app.put('/api/admin/home-cover', ...admin, setCover('home'));
+  app.delete('/api/admin/home-cover', ...admin, delCover('home'));
+  app.put('/api/admin/provider-cover/:id', ...admin, setCover('provider'));
+  app.delete('/api/admin/provider-cover/:id', ...admin, delCover('provider'));
   /* ---------- the logo on the first screen (the owner can replace it; PNG keeps its transparent background) ---------- */
   app.get('/api/welcome-logo', asyncRoute(async (_req, res) => {
     const r = await pool.query("SELECT image, mime FROM site_images WHERE key='welcome_logo'");

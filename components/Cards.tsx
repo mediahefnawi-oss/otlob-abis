@@ -8,6 +8,7 @@ import { Provider, Order, Appointment, Invoice } from '../lib/types';
 import { C } from '../lib/theme';
 import { TYPES, money, fmtDateTime, prettyIso, SPEC_EMOJI, readyLabel, isBooking } from '../lib/format';
 import { Card, T, Icon, EmojiBubble, OrderPill, ApptPill, Pill, FlagPill } from './ui';
+import { RatingLine, useRatingStars } from './Stars';
 import { LabPill, fmt12 } from './Lab';
 import { ShopOfferTag } from './Offers';
 
@@ -28,6 +29,7 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
   const t = TYPES[p.type];
   const closed = !p.open;
   const isOwner = useMe()?.role === 'admin'; // the pin mark is for the owner only: customers just see the order
+  const starsOn = useRatingStars();
   return (
     <Card onPress={onPress} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', opacity: closed ? 0.75 : 1 }}>
       <ProviderLogo p={p} size={62} />
@@ -40,10 +42,12 @@ export function ProviderCard({ p, onPress }: { p: Provider; onPress: () => void 
         {!!p.regionName && <AreaTag p={p} />}
         <ShopOfferTag providerId={p.id} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 }}>
+          {starsOn ? <RatingLine p={p} /> : (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <Icon name="star" size={13} color={C.gold} />
             <T w="bold" size={12}>{p.rating ? p.rating.toFixed(1) : 'جديد'}</T>
           </View>
+          )}
           {isBooking(p.type) ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
               <Icon name="pulse" size={13} color={t.color} />

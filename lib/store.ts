@@ -15,7 +15,7 @@ import {
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
-  Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region, Ad, ServiceDef,
+  Settings, CartLine, AccountStatus, ProviderType, OrderItem, Region, Ad, ServiceDef, HomeBlock,
 } from './types';
 import { buildSeed } from './seed';
 import { applyTheme } from './theme';
@@ -175,7 +175,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null, x.features || null]);
+  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.homeCoverV || 0, x.homeBlocks || null, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null, x.features || null]);
 
 let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
@@ -190,6 +190,8 @@ function applySettings(c: CentralSettings) {
     loginImageV: c.loginImageV || 0,
     appIconV: c.appIconV || 0,
     catIconV: c.catIconV || {},
+    homeCoverV: c.homeCoverV || 0,
+    homeBlocks: Array.isArray(c.homeBlocks) ? c.homeBlocks : [],
     apkUrl: c.apkUrl || '',
     update: c.update || { version: '', message: '', required: false },
     welcomeLogoV: c.welcomeLogoV || 0,
@@ -290,7 +292,7 @@ const toProvider = (x: any): Provider => ({
   id: String(x.id), ownerId: String(x.ownerId), type: x.type, name: x.name, desc: x.desc || '', address: x.address || '',
   phone: x.phone || '', emoji: x.emoji || EMOJI[x.type as ProviderType] || '🏪', rating: Number(x.rating) || 0, ratingCount: Number(x.ratingCount) || 0,
   eta: x.eta ?? (isBooking(x.type) ? '' : '30-45'), deliveryFee: Number(x.deliveryFee) || 0, status: x.status,
-  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, orderMode: ['cart', 'request', 'menu'].includes(x.orderMode) ? x.orderMode : '', chatOff: !!x.chatOff, pinRank: x.pinRank == null ? null : Number(x.pinRank), bookMode: x.bookMode === 'clinic' ? 'clinic' : undefined, menuCount: Number(x.menuCount) || 0, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
+  open: !!x.open, specialty: x.specialty || undefined, logoV: Number(x.logoV) || 0, coverV: Number(x.coverV) || 0, regionId: x.regionId ? String(x.regionId) : undefined, regionName: x.regionName || undefined, featured: !!x.featured, orderMode: ['cart', 'request', 'menu'].includes(x.orderMode) ? x.orderMode : '', chatOff: !!x.chatOff, pinRank: x.pinRank == null ? null : Number(x.pinRank), bookMode: x.bookMode === 'clinic' ? 'clinic' : undefined, menuCount: Number(x.menuCount) || 0, lat: x.lat != null ? Number(x.lat) : undefined, lng: x.lng != null ? Number(x.lng) : undefined, createdAt: Number(x.createdAt) || Date.now(),
 });
 const toProduct = (x: any): Product => ({
   id: String(x.id), providerId: String(x.providerId), kind: x.kind === 'doctor' ? 'doctor' : 'item', name: x.name,
@@ -1603,6 +1605,39 @@ export async function setCatIcon(type: string, image: string | null): Promise<Re
   try {
     const r = await apiJson<{ type: string; v: number }>(`/api/admin/cat-icon/${encodeURIComponent(type)}`, image ? 'PUT' : 'DELETE', image ? { image } : undefined);
     mutate((db) => { db.settings = { ...db.settings, catIconV: { ...(db.settings.catIconV || {}), [type]: r.v } }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+
+/** Owner: the one fixed cover picture behind the home header (same for everyone); null removes it. */
+export async function setHomeCover(image: string | null): Promise<Result> {
+  try {
+    const r = await apiJson<{ v: number }>('/api/admin/home-cover', image ? 'PUT' : 'DELETE', image ? { image } : undefined);
+    mutate((db) => { db.settings = { ...db.settings, homeCoverV: r.v }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner: save the whole arrangement of home blocks (order, names, shops, links). */
+export async function saveHomeBlocks(blocks: HomeBlock[]): Promise<Result> {
+  try {
+    const r = await apiJson<{ blocks: HomeBlock[] }>('/api/admin/home-blocks', 'PUT', { blocks });
+    mutate((db) => { db.settings = { ...db.settings, homeBlocks: r.blocks }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner: the picture of one banner block (the arrangement must be saved first); null removes it. */
+export async function setBlockImage(id: string, image: string | null): Promise<Result> {
+  try {
+    const r = await apiJson<{ v: number }>(`/api/admin/home-blocks/${encodeURIComponent(id)}/image`, image ? 'PUT' : 'DELETE', image ? { image } : undefined);
+    mutate((db) => { db.settings = { ...db.settings, homeBlocks: (db.settings.homeBlocks || []).map((b) => (b.id === id ? { ...b, imgV: r.v } : b)) }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner: the cover picture of one provider's page; null removes it. */
+export async function setProviderCover(providerId: string, image: string | null): Promise<Result> {
+  try {
+    const r = await apiJson<{ v: number }>(`/api/admin/provider-cover/${encodeURIComponent(providerId)}`, image ? 'PUT' : 'DELETE', image ? { image } : undefined);
+    mutate((db) => { db.providers = db.providers.map((p) => (p.id === providerId ? { ...p, coverV: r.v } : p)); });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
