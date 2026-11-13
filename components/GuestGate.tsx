@@ -94,8 +94,8 @@ export function GuestAccountScreen({ navigation, title = 'حسابي' }: { navig
 export function GuestBlockScreen({ navigation }: any) {
   useEffect(() => {
     if (navigation.canGoBack()) navigation.goBack(); else navigation.navigate('Main');
-    const t = setTimeout(() => requireLogin(), 250);
-    return () => clearTimeout(t);
+    // not cleared on unmount: going back unmounts this screen at once, and the sheet must still open
+    setTimeout(() => requireLogin(), 250);
   }, []);
   return <View style={{ flex: 1, backgroundColor: C.bg }} />;
 }
