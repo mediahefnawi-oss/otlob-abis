@@ -98,11 +98,13 @@ export const isGuestId = (id?: string | null) => id === GUEST_ID;
 const GUEST_ADDR_KEY = 'abis_guest_addr';
 export function enterGuest() {
   if (state.userId) return;
-  storage.getItem(GUEST_ADDR_KEY).then((addr) => {
+  const open = (addr: string | null) => {
     if (state.userId) return;
     const g: User = { id: GUEST_ID, name: 'ضيف', phone: '', pass: '', role: 'customer', address: addr || '', status: 'active', regionId: null, createdAt: Date.now() } as User;
     setState({ db: { ...state.db, users: [...state.db.users.filter((u) => u.id !== GUEST_ID), g] }, userId: GUEST_ID });
-  }).catch(() => {});
+  };
+  // a saved address is a nicety: if reading it fails the visitor still gets in
+  storage.getItem(GUEST_ADDR_KEY).then(open, () => open(null));
 }
 export function exitGuest() { if (state.userId === GUEST_ID) setState({ userId: null }); }
 /** what the guest wanted to do when the sign-in sheet opened (an item to add to the cart), done right after he signs in */

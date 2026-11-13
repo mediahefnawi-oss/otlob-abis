@@ -696,7 +696,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     const r = await pool.query('SELECT image, mime FROM site_images WHERE key=$1', [`cat_${t}`]);
     if (!r.rowCount) return res.status(404).end();
     res.set('Content-Type', r.rows[0].mime);
-    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=300');
     res.set('Cross-Origin-Resource-Policy', 'cross-origin');
     res.send(r.rows[0].image);
   }));

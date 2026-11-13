@@ -150,6 +150,9 @@ function Root() {
         {!me && <Stack.Screen name="Login" component={LoginScreen} />}
       </>
     );
+  } else if (!me && guestOn) {
+    // the visitor is being let in a moment from now: show nothing instead of flashing the welcome page (and loading its big picture)
+    screens = <Stack.Screen name="Entering" component={EnteringScreen} />;
   } else if (!me) {
     screens = (
       <>
@@ -203,6 +206,8 @@ function Root() {
     </NavigationContainer>
   );
 }
+
+function EnteringScreen() { return <View style={{ flex: 1, backgroundColor: C.dark }} />; }
 
 export default function App() {
   const [fontsLoaded] = useFonts({

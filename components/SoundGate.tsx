@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, Platform } from 'react-native';
-import { C } from '../lib/theme';
-import { T, Icon, toast } from './ui';
+import { Platform } from 'react-native';
+import { toast } from './ui';
+import { CenterNotice } from './CenterNotice';
 import { useMe } from '../lib/store';
 import { soundReady, soundSupported, subscribeSound, enableSound, playNewOrderSound } from '../lib/alerts';
 import { PushState, pushState, enablePush, autoEnablePush, openPushSettings } from '../lib/push';
@@ -30,24 +30,26 @@ export function SoundGate() {
   const needSound = soundSupported() && !ready;
   const needPush = push === 'off' || (native && push === 'denied');
   if (!needSound && !needPush) return null;
+  const [hide, setHide] = useState(false);
+  const act = async () => {
+    if (native && push === 'denied') { await openPushSettings(); return; }
+    const ok = await enableSound();
+    if (needPush) {
+      const r = await enablePush();
+      if (!r.ok && r.error) toast(r.error, 'err'); else if (r.ok && !soundSupported()) toast('تم تفعيل الإشعارات 🔔');
+    }
+    if (ok) { playNewOrderSound(); toast('تم تفعيل التنبيهات 🔔'); }
+    refresh();
+  };
+  const denied = native && push === 'denied';
   return (
-    <Pressable
-      onPress={async () => {
-        if (native && push === 'denied') { await openPushSettings(); return; }
-        const ok = await enableSound();
-        if (needPush) {
-          const r = await enablePush();
-          if (!r.ok && r.error) toast(r.error, 'err'); else if (r.ok && !soundSupported()) toast('تم تفعيل الإشعارات 🔔');
-        }
-        if (ok) { playNewOrderSound(); toast('تم تفعيل التنبيهات 🔔'); }
-        refresh();
-      }}
-      style={{ backgroundColor: C.gold, paddingVertical: 10, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-    >
-      <Icon name="notifications" size={18} color={C.dark} />
-      <T w="bold" size={13} color={C.dark} style={{ flex: 1 }}>
-        {native && push === 'denied' ? 'الإشعارات مقفولة: اضغط لفتح الإعدادات وفعّلها' : `اضغط هنا لتفعيل $${needSound && needPush ? 'صوت وإشعارات' : needSound ? 'صوت تنبيه' : 'إشعارات'} الطلبات الجديدة`}
-      </T>
-    </Pressable>
+    <CenterNotice
+      visible={!hide}
+      icon="notifications"
+      title={denied ? 'الإشعارات مقفولة' : 'فعّل التنبيهات'}
+      message={denied ? 'فعّلها من إعدادات الجهاز' : 'عشان توصلك الطلبات فوراً'}
+      primary={{ label: denied ? 'فتح الإعدادات' : 'تفعيل الآن', onPress: () => { setHide(true); act(); } }}
+      onClose={() => setHide(true)}
+    />
   );
 }

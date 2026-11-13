@@ -26,7 +26,7 @@ export function WelcomeScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.dark }}>
       <Image
-        source={loginV > 0 ? { uri: loginImageUrl(loginV) } : require('../assets/brand/scene.png')}
+        source={loginV > 0 ? { uri: loginImageUrl(loginV) } : require('../assets/brand/scene.jpg')}
         style={[StyleSheet.absoluteFill, { top: loginV > 0 ? 0 : '28%' }]} contentFit="cover" contentPosition={loginV > 0 ? 'center' : 'bottom'}
       />
       <LinearGradient colors={[C.dark, 'rgba(0,33,26,0.55)', 'rgba(0,33,26,0.2)', 'rgba(0,33,26,0.92)']} locations={[0, 0.35, 0.6, 1]} style={StyleSheet.absoluteFill} />

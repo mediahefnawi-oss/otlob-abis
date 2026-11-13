@@ -120,7 +120,7 @@ function backupPhone(v, mainPhone) {
   return { ok: true, phone: p };
 }
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-function tokenFor(user) { return jwt.sign({ sub: String(user.id), role: user.role }, process.env.JWT_SECRET, { expiresIn: '12h', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' }); }
+function tokenFor(user) { return jwt.sign({ sub: String(user.id), role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.TOKEN_TTL || '30d', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' }); }
 async function authCore(req, res, next, allowInactive) {
   const h = req.headers.authorization || '';
   if (!h.startsWith('Bearer ')) return res.status(401).json({ error: 'يلزم تسجيل الدخول' });
