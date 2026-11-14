@@ -808,7 +808,7 @@ export function CatIconsManager() {
   const [busy, setBusy] = useState('');
   const vs = db.settings.catIconV || {};
   const choose = async (t: ProviderType) => {
-    const img = await pickImage(512);
+    const img = await pickImage(380);
     if (!img) return toast('تعذر قراءة الصورة، جرّب صورة أخرى', 'err');
     setBusy(t);
     const r = await setCatIcon(t, img);

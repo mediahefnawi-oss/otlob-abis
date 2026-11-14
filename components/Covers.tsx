@@ -23,7 +23,7 @@ export function CoversManager() {
     toast(r.ok ? okMsg : r.error, r.ok ? 'ok' : 'err');
   };
   const choose = async (key: string, save: (img: string) => Promise<any>) => {
-    const img = await pickImage(1400);
+    const img = await pickImage(960);
     if (!img) return toast('تعذر قراءة الصورة، جرّب صورة أخرى', 'err');
     run(key, () => save(img), 'تم حفظ الصورة');
   };
