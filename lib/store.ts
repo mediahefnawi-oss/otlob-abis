@@ -96,6 +96,8 @@ export const useMe = (): User | null => {
 export const GUEST_ID = 'guest';
 export const isGuestId = (id?: string | null) => id === GUEST_ID;
 const GUEST_ADDR_KEY = 'abis_guest_addr';
+let guestAddrCache: string | null | undefined; // the visitor's saved address, once read (then entering as a guest is instant, no blank screen)
+try { storage.getItem(GUEST_ADDR_KEY).then((a) => { if (guestAddrCache === undefined) guestAddrCache = a; }, () => {}); } catch { /* read again when needed */ }
 export function enterGuest() {
   if (state.userId) return;
   const open = (addr: string | null) => {
@@ -104,7 +106,8 @@ export function enterGuest() {
     setState({ db: { ...state.db, users: [...state.db.users.filter((u) => u.id !== GUEST_ID), g] }, userId: GUEST_ID });
   };
   // a saved address is a nicety: if reading it fails the visitor still gets in
-  storage.getItem(GUEST_ADDR_KEY).then(open, () => open(null));
+  if (guestAddrCache !== undefined) { open(guestAddrCache); return; }
+  storage.getItem(GUEST_ADDR_KEY).then((a) => { guestAddrCache = a; open(a); }, () => open(null));
 }
 export function exitGuest() { if (state.userId === GUEST_ID) setState({ userId: null }); }
 /** what the guest wanted to do when the sign-in sheet opened (an item to add to the cart), done right after he signs in */
@@ -596,6 +599,7 @@ export function logout() {
   });
   setState({ userId: null });
   secure.del(SESSION_KEY);
+  if (state.db.settings.features?.guestBrowse) enterGuest(); // straight to the guest home, no blank screen in between
 }
 
 export interface RegisterInput {
@@ -652,7 +656,7 @@ export function updateUser(id: string, patch: Partial<User>) {
 export async function updateProfile(patch: { name?: string; address?: string; regionId?: string | null; phone2?: string | null }): Promise<Result> {
   if (state.userId === GUEST_ID) {
     // a guest keeps his address on this phone only
-    if (typeof patch.address === 'string') storage.setItem(GUEST_ADDR_KEY, patch.address).catch(() => {});
+    if (typeof patch.address === 'string') { guestAddrCache = patch.address; storage.setItem(GUEST_ADDR_KEY, patch.address).catch(() => {}); }
     setState({ db: { ...state.db, users: state.db.users.map((u) => (u.id === GUEST_ID ? { ...u, ...(typeof patch.address === 'string' ? { address: patch.address } : {}), ...(patch.regionId !== undefined ? { regionId: patch.regionId } : {}) } : u)) } });
     return { ok: true };
   }
