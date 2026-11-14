@@ -11,6 +11,9 @@ if (html.includes('id="boot"')) { console.log('inject-splash: already there'); p
 const css = '<style>html,body{background:#00211A}#boot{position:fixed;inset:0;z-index:2147483647;background:#00211A;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;transition:opacity .25s}#boot img{width:240px;max-width:60vw;height:auto}#boot i{width:22px;height:22px;border:3px solid rgba(242,181,29,.25);border-top-color:#F2B51D;border-radius:50%;animation:bs .8s linear infinite}@keyframes bs{to{transform:rotate(360deg)}}</style>';
 const div = '<div id="boot"><img alt="" src="data:image/webp;base64,' + logo + '"/><i></i></div>';
 if (!/<\/head>/i.test(html) || !/<body[^>]*>/i.test(html)) { console.error('inject-splash: unexpected index.html'); process.exit(1); }
-html = html.replace(/<\/head>/i, css + '</head>').replace(/<body[^>]*>/i, (m) => m + div);
+// open the connection to the API while the app file is still downloading (saves the TLS handshake time later)
+const api = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '');
+const pre = /^https:\/\/[A-Za-z0-9.-]+$/.test(api) ? '<link rel="preconnect" href="' + api + '" crossorigin><link rel="dns-prefetch" href="' + api + '">' : '';
+html = html.replace(/<\/head>/i, pre + css + '</head>').replace(/<body[^>]*>/i, (m) => m + div);
 fs.writeFileSync(file, html);
 console.log('inject-splash: ok');
