@@ -524,6 +524,8 @@ export async function initStore() {
     let db: DB = raw ? JSON.parse(raw) : buildSeed();
     // Owner/admin accounts only exist on the server now; drop any locally-stored admin from older builds.
     db = stripDemo(db);
+    // the services list saved from the last visit goes in before the first screen is drawn (before, only the 6 built-in ones showed until the server answered, so a section like the labs was missing)
+    try { if (Array.isArray(db.services) && db.services.length) applyServices(db.services); } catch { /* the server's list replaces it shortly */ }
     if (!raw) { firstRun = true; await storage.setItem(DB_KEY, JSON.stringify(db)); }
     const sid = await secure.get(SESSION_KEY);
     const cartRaw = await storage.getItem(CART_KEY);
