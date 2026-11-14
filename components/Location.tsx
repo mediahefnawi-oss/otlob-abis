@@ -152,7 +152,7 @@ export function OrderMapCard({ orderId, active, role, courierName, courierPhone 
         </View>
         {!!courierPhone && role !== 'courier' && <IconBtn icon="call" bg={C.greenSoft} color={C.green} onPress={() => callPhone(courierPhone)} />}
       </View>
-      <MapView markers={markers} lines={lines} fitKey={fit} height={290} />
+      <MapView markers={markers} lines={lines} fitKey={fit} height={290} focus={t.dest ? { lat: t.dest.lat, lng: t.dest.lng } : null} />
       {min != null && (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -246,7 +246,7 @@ export function DeliveryPin() {
           <T size={12} color={pin ? C.green : C.sub}>{line}</T>
         </View>
       </View>
-      <MapView markers={pin ? [{ lat: pin.lat, lng: pin.lng, kind: 'dest' }] : [{ lat: 31.0, lng: 29.95, kind: 'me' }]} height={210} pickable onPick={(p) => { setCartDest({ pin: p }); setState('manual'); }} />
+      <MapView markers={pin ? [{ lat: pin.lat, lng: pin.lng, kind: 'dest' }] : [{ lat: 31.0, lng: 29.95, kind: 'me' }]} height={210} pickable focus={pin ? { lat: pin.lat, lng: pin.lng } : null} onPick={(p) => { setCartDest({ pin: p }); setState('manual'); }} />
       <T size={11.5} color={C.sub}>مش مكانك؟ اضغط على الخريطة وحرّك الدبوس للمكان الصح</T>
       <Btn title="حدّد موقعي تاني" icon="locate" variant="soft" small onPress={find} loading={state === 'finding'} />
     </Card>

@@ -125,6 +125,7 @@ export function CourierOrdersScreen({ navigation }: any) {
     if (!r.ok) return toast(r.error, 'err');
     toast('تم قبول الطلب ✅');
     segBus.set('mine');
+    navigation.navigate('OrderDetail', { id }); // straight to the order, with the customer's spot on the map
   };
   const deliver = (item: Order) => confirmDialog({
     title: 'تأكيد التسليم', message: `هل استلمت ${money(item.total)} كاش من العميل؟`, confirmText: 'تم التسليم',

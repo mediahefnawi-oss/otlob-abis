@@ -8,9 +8,24 @@ export async function pickImage(max = 1100, _png = false): Promise<string | null
   try {
     const ImagePicker = require('expo-image-picker');
     const Manipulator = require('expo-image-manipulator');
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm && perm.granted === false) return null;
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: false });
+    const { Alert } = require('react-native');
+    const src: 'cam' | 'lib' | null = await new Promise((resolve) => {
+      Alert.alert('إضافة صورة', 'اختر مصدر الصورة', [
+        { text: 'الكاميرا', onPress: () => resolve('cam') },
+        { text: 'المعرض', onPress: () => resolve('lib') },
+        { text: 'إلغاء', style: 'cancel', onPress: () => resolve(null) },
+      ], { cancelable: true, onDismiss: () => resolve(null) });
+    });
+    if (!src) return null;
+    let res: any;
+    if (src === 'cam') {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm || perm.granted === false) return null;
+      res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: false });
+    } else {
+      // the system photo picker: no storage permission needed
+      res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1, allowsEditing: false });
+    }
     if (res.canceled || !res.assets || !res.assets[0]) return null;
     const a = res.assets[0];
     const w = a.width || max, h = a.height || max;
