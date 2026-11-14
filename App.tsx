@@ -295,12 +295,12 @@ export default function App() {
         {wide && <SideNav />}
         <View style={{ flex: 1, backgroundColor: side ? C.bg : C.dark }}>
         <View style={{ flex: 1, width: '100%', maxWidth: side ? 940 : 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
-          <SoundGate />
-          <LocationGate />
-          <SyncBanner />
-          <UpdateBanner />
-          <InstallBanner />
-          <OrderAlarmBar />
+          <ErrorBoundary><SoundGate /></ErrorBoundary>
+          <ErrorBoundary><LocationGate /></ErrorBoundary>
+          <ErrorBoundary><SyncBanner /></ErrorBoundary>
+          <ErrorBoundary><UpdateBanner /></ErrorBoundary>
+          <ErrorBoundary><InstallBanner /></ErrorBoundary>
+          <ErrorBoundary><OrderAlarmBar /></ErrorBoundary>
           <View style={{ flex: 1 }}><ErrorBoundary><Root key={wide ? 'wide' : 'narrow'} /></ErrorBoundary></View>
           <Overlays />
         </View>

@@ -11,6 +11,7 @@ export function SoundGate() {
   const me = useMe();
   const [ready, setReady] = useState(soundReady());
   const [push, setPush] = useState<PushState>('unsupported');
+  const [hide, setHide] = useState(false); // must stay above every early return: hooks have to run in the same order each render
   const refresh = useCallback(() => { pushState().then(setPush).catch(() => {}); }, []);
   useEffect(() => subscribeSound(() => setReady(soundReady())), []);
   useEffect(refresh, [refresh, me?.id]);
@@ -30,7 +31,6 @@ export function SoundGate() {
   const needSound = soundSupported() && !ready;
   const needPush = push === 'off' || (native && push === 'denied');
   if (!needSound && !needPush) return null;
-  const [hide, setHide] = useState(false);
   const act = async () => {
     if (native && push === 'denied') { await openPushSettings(); return; }
     const ok = await enableSound();
