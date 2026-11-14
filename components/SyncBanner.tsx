@@ -7,7 +7,7 @@ export function SyncBanner() {
   const { syncError, userId } = useStore();
   const [hidden, setHidden] = useState(false);
   useEffect(() => { if (!syncError) setHidden(false); }, [syncError]);
-  const show = !!syncError && !!userId && !hidden;
+  const show = !!syncError && !!userId && userId !== 'guest' && !hidden; // a visitor has nothing to sync, so he never sees this
   return (
     <CenterNotice
       visible={show}

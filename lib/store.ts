@@ -468,7 +468,7 @@ export async function syncRemote(withCatalog = true) {
   if (syncing) return;
   syncing = true;
   try {
-    if (state.userId && (await hasApiToken())) {
+    if (state.userId && state.userId !== GUEST_ID && (await hasApiToken())) {
       try {
         if (pendingWrites === 0) {
           const known = lastSyncTag && lastSyncTag.uid === state.userId ? lastSyncTag.tag : null;
@@ -487,7 +487,7 @@ export async function syncRemote(withCatalog = true) {
           if (me?.role === 'admin' && adminTick++ % 5 === 0) await syncAdminQueues();
         }
       } catch (e) {
-        if (!(e instanceof ApiError && e.status === 401) && ++syncFails >= 2) {
+        if (!(e instanceof ApiError && e.status === 401) && ++syncFails >= 3) {
           const why = e instanceof ApiError ? (e.status ? `${e.status} — ${e.message}` : e.message) : `خطأ في التطبيق: ${String((e as any)?.message || e)}`;
           if (state.syncError !== why) setState({ syncError: why });
         }
