@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
@@ -71,6 +71,20 @@ function Main({ navigation }: any) {
     toast('طلب جديد معيّن لك 🛵', 'ok');
     if (navigationRef.isReady()) navigationRef.navigate('OrderDetail', { id: gift.id });
   }, [gift?.id]);
+  // an order that lands on this courier by any road (he took it, or the owner / a supervisor assigned it to him): open its page right away, once.
+  const myLive = me.role === 'courier' ? db.orders.filter((o) => o.courierId === me.id && ['accepted', 'quoted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status)).map((o) => o.id).sort().join(',') : '';
+  const seenMine = useRef<Set<string>>(new Set());
+  const armed = useRef(false);
+  useEffect(() => { const t = setTimeout(() => { armed.current = true; }, 6000); return () => clearTimeout(t); }, [me.id]); // the first seconds only list what he already had
+  useEffect(() => {
+    if (me.role !== 'courier') return;
+    const ids = myLive ? myLive.split(',') : [];
+    const fresh = ids.filter((id) => !seenMine.current.has(id));
+    ids.forEach((id) => seenMine.current.add(id));
+    if (!armed.current || !fresh.length || gift) return;
+    toast('طلب جديد معيّن لك 🛵', 'ok');
+    if (navigationRef.isReady()) navigationRef.navigate('OrderDetail', { id: fresh[0] });
+  }, [myLive, me.id]);
   const supUnread = useSupportUnread(me.role !== 'admin' && (me.role !== 'supervisor' || !!me.supportChat));
 
   let tabs: TabDef[] = [];
@@ -152,7 +166,14 @@ function Root() {
     );
   } else if (!me && guestOn) {
     // the visitor is being let in a moment from now: show nothing instead of flashing the welcome page (and loading its big picture)
-    screens = <Stack.Screen name="Entering" component={EnteringScreen} />;
+    screens = (
+      <>
+        <Stack.Screen name="Entering" component={EnteringScreen} />
+        <Stack.Screen name="Welcome" component={WelcomeScreen} />
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Register" component={RegisterScreen} />
+      </>
+    );
   } else if (!me) {
     screens = (
       <>
@@ -207,7 +228,21 @@ function Root() {
   );
 }
 
-function EnteringScreen() { return <View style={{ flex: 1, backgroundColor: C.dark }} />; }
+// never a dead end: it keeps trying to let the visitor in, and if nothing happens within 3 seconds it shows the welcome page
+function EnteringScreen({ navigation }: any) {
+  useEffect(() => {
+    enterGuest();
+    const a = setInterval(() => enterGuest(), 700);
+    const b = setTimeout(() => { try { navigation.replace('Welcome'); } catch { /* ignore */ } }, 3000);
+    return () => { clearInterval(a); clearTimeout(b); };
+  }, []);
+  return (
+    <View style={{ flex: 1, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+      <Logo width={240} />
+      <ActivityIndicator color={C.gold} />
+    </View>
+  );
+}
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -232,6 +267,16 @@ export default function App() {
       document.title = 'أطلب أبيس';
       document.body.style.backgroundColor = C.dark;
     }
+  }, []);
+
+  // web: the logo screen that index.html shows from the first moment goes away once the app has its own first screen
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const el = document.getElementById('boot');
+    if (!el) return;
+    el.style.opacity = '0';
+    const t = setTimeout(() => el.remove(), 300);
+    return () => clearTimeout(t);
   }, []);
 
   if (!(fontsLoaded || fontWait) || !ready) {
