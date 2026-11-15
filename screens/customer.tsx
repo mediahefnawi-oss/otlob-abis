@@ -184,7 +184,7 @@ function HomeOld({ navigation }: any) {
               <Appear key={k} i={i} style={{ width: sz === 'large' ? '21%' : sz === 'medium' ? '26%' : '31.3%' }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
-                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || DEFAULT_ICONS[k] || isLab(k) ? { paddingBottom: 8 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
+                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, ...shadow }, { paddingTop: 4, paddingBottom: 8 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {DEFAULT_ICONS[k]
                     ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={DEFAULT_ICONS[k]} style={StyleSheet.absoluteFill as any} resizeMode="contain" /></View>
