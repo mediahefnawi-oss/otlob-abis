@@ -5,6 +5,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { C, R } from '../lib/theme';
+import { SoonScreen } from '../components/SoonScreen';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { parseSoon } from '../lib/soon';
 import { T, Btn, Field, Logo, Icon, Chip, Header, openWhats, toast, Card } from '../components/ui';
 import { login, register, logout, useStore, useMe, useAppGate } from '../lib/store';
 import { timeLabel, dayLabel } from '../lib/hours';
@@ -267,6 +270,9 @@ export function MaintenanceScreen({ navigation, canLogin }: any) {
   const gate = useAppGate(me?.role ?? null);
   const insets = useSafeAreaInsets();
   const byHours = gate.byHours;
+  // the owner's "coming soon" opening screen (saved inside the maintenance message); a plain message keeps the old screen below
+  const soon = !byHours ? parseSoon(db.settings.maintenanceMessage) : null;
+  if (soon) return <ErrorBoundary><SoonScreen cfg={soon} navigation={navigation} /></ErrorBoundary>;
   return (
     <View style={{ flex: 1, backgroundColor: C.dark, paddingTop: insets.top + 40, paddingBottom: insets.bottom + 20, paddingHorizontal: 24, alignItems: 'center' }}>
       <Logo width={240} />

@@ -26,6 +26,9 @@ import { DeliveryModeCard } from '../components/DeliveryMode';
 import { MapModeCard, CustomerLocationCard } from '../components/Location';
 import { apiSupervisorSupport } from '../lib/api';
 import { AdsManager } from '../components/Ads';
+import { SoonAdminCard } from '../components/SoonAdmin';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { parseSoon } from '../lib/soon';
 import { MenuManager } from '../components/Menu';
 import { ClinicModeCard } from '../components/ClinicSchedule';
 import { HoursSettings } from '../components/HoursSettings';
@@ -603,16 +606,18 @@ export function AdminSettingsScreen({ navigation }: any) {
   const { db } = useStore();
   const s = db.settings;
   const [msg, setMsg] = useState(s.maintenanceMessage);
+  const soonOn = !!parseSoon(s.maintenanceMessage);
   const [ann, setAnn] = useState(s.announcement);
   const extra = (
     <>
       <Section icon="settings" title="التطبيق" sub="تشغيل وإيقاف، الصيانة، الإعلان، التعيين التلقائي">
         <AppSwitch />
+        <ErrorBoundary><SoonAdminCard /></ErrorBoundary>
       <Card style={{ gap: 12 }}>
         <T w="black" size={15}>إعدادات التطبيق</T>
-        <Field label="رسالة الصيانة (عند إيقاف التطبيق)" value={msg} onChangeText={setMsg} multiline icon="construct" />
+        {soonOn ? <T size={12} color={C.sub}>رسالة الإيقاف مضبوطة من «شاشة الافتتاح قريبًا» في الكارت اللي فوق.</T> : <Field label="رسالة الصيانة (عند إيقاف التطبيق)" value={msg} onChangeText={setMsg} multiline icon="construct" />}
         <Field label="إعلان الصفحة الرئيسية" value={ann} onChangeText={setAnn} multiline icon="megaphone" />
-        <Btn title="حفظ الإعدادات" icon="checkmark" onPress={() => done(updateSettings({ maintenanceMessage: msg.trim(), announcement: ann.trim() }), 'تم حفظ الإعدادات ويظهر الآن للمستخدمين')} />
+        <Btn title="حفظ الإعدادات" icon="checkmark" onPress={() => done(updateSettings(soonOn ? { announcement: ann.trim() } : { maintenanceMessage: msg.trim(), announcement: ann.trim() }), 'تم حفظ الإعدادات ويظهر الآن للمستخدمين')} />
         <View style={{ height: 1, backgroundColor: C.line }} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={{ flex: 1 }}>
