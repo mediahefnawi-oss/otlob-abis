@@ -64,6 +64,23 @@ const DEFAULT_ICONS: Record<string, any> = {
   lab: require('../assets/images/home/ic_lab.webp'),
   store: require('../assets/images/home/ic_store.webp'),
 };
+/** The extra services (makers, errands) as wide cards in the same style as the tiles above: white, soft shadow, cream circle for the picture, green arrow button. */
+function WideCard({ emoji, imageUri, title, sub, onPress, tint }: { emoji: string; imageUri?: string; title: string; sub: string; onPress: () => void; tint?: string }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 26, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12, ...shadow }, pressed && { transform: [{ scale: 0.98 }] }]}>
+      <View style={{ width: 66, height: 66, borderRadius: 33, backgroundColor: tint || '#FFF3D2', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {imageUri ? <Image source={{ uri: imageUri }} style={{ width: 66, height: 66 }} resizeMode="cover" /> : <Text style={{ fontSize: 34 }}>{emoji}</Text>}
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <T w="black" size={16.5}>{title}</T>
+        <T size={12} color={C.sub} numberOfLines={2}>{sub}</T>
+      </View>
+      <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name="arrow-back" size={19} color={C.gold} />
+      </View>
+    </Pressable>
+  );
+}
 /** the names on the home tiles, exactly as in the owner's design */
 const HOME_NAMES: Record<string, string> = { clinic: 'العيادات', lab: 'المعامل والتحاليل' };
 const rows3 = <X,>(l: X[]): X[][] => { const r: X[][] = []; for (let i = 0; i < l.length; i += 3) r.push(l.slice(i, i + 3)); return r; };
@@ -84,6 +101,7 @@ function HomeOld({ navigation }: any) {
   const tw = gridW > 0 ? Math.floor(gridW * 0.313) : 110;
   const [q, setQ] = useState('');
   const [addrOpen, setAddrOpen] = useState(false);
+  const [hw, setHw] = useState(400);
   const addrOn = true; // switch "homeAddress": the address in the header can be tapped and changed
   const insets = useSafeAreaInsets();
   const provs = db.providers.filter((p) => p.status === 'active');
@@ -109,38 +127,32 @@ function HomeOld({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <LinearGradient colors={['#146B35', '#0B4A22']} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={{ paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 22, borderBottomLeftRadius: 34, borderBottomRightRadius: 34, overflow: 'hidden' }}>
-        {/* the gold curve along the bottom of the header */}
-        <View pointerEvents="none" style={{ position: 'absolute', left: '-25%', right: '-25%', bottom: -92, height: 130, borderRadius: 400, borderWidth: 3, borderColor: C.gold, opacity: 0.85 }} />
+      {/* the header: the owner's artwork as the background (green, light-green shape, gold swoosh), the content drawn over it at the same places */}
+      <View style={{ width: '100%', aspectRatio: 841 / 385, backgroundColor: '#0B4A22' }} onLayout={(e) => setHw(e.nativeEvent.layout.width)}>
+        <Image source={require('../assets/images/home/header.webp')} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} resizeMode="stretch" />
         {!!db.settings.features?.covers && (db.settings.homeCoverV || 0) > 0 && (
           <>
             <Image source={{ uri: homeCoverUrl(db.settings.homeCoverV!) }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
             <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,33,26,0.5)' }} />
           </>
         )}
-        <View style={{ height: 96, justifyContent: 'center' }}>
-          <View style={{ position: 'absolute', left: 0, right: 0, top: 0, alignItems: 'center' }} pointerEvents="none"><Logo width={190} /></View>
-          <View style={{ alignSelf: 'flex-start', alignItems: 'center', gap: 3 }}>
-            <View style={{ width: 46, height: 46, borderRadius: 23, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.75)', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="person" size={24} color="#fff" />
-            </View>
-            <T w="black" size={15} color="#fff" numberOfLines={1}>أهلاً {me.name.split(' ')[0]}</T>
-          </View>
+        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.06, alignItems: 'center' }} pointerEvents="none">
+          <Logo width={hw * 0.37} />
+          <T w="black" size={Math.max(9, hw * 0.0215)} color="#fff" style={{ letterSpacing: hw * 0.012, marginTop: 2 }}>OTLOB ABIS</T>
         </View>
-        {addrOn ? (
-          <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4 }}>
-            <Icon name="location" size={17} color={C.gold} />
-            <T w="semi" size={13} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'حدد موقعك لعرض الخدمات المتاحة'}</T>
-            <Icon name="chevron-down" size={16} color={C.gold} />
-          </Pressable>
-        ) : (
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4 }}>
-            <Icon name="location" size={17} color={C.gold} />
-            <T w="semi" size={13} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'أبيس'}</T>
+        <View style={{ position: 'absolute', right: hw * 0.045, top: hw * 0.1, alignItems: 'center', gap: 2 }} pointerEvents="none">
+          <View style={{ width: hw * 0.1, height: hw * 0.1, borderRadius: hw * 0.05, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.75)', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="person" size={hw * 0.055} color="#fff" />
           </View>
-        )}
-      </LinearGradient>
-      <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
+          <T w="black" size={Math.max(12, hw * 0.036)} color="#fff" numberOfLines={1}>أهلاً {me.name.split(' ')[0]}</T>
+        </View>
+        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: 16, right: 16, top: hw * 0.335, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <Icon name="location" size={Math.max(16, hw * 0.04)} color={C.gold} />
+          <T w="semi" size={Math.max(12, hw * 0.033)} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'حدد موقعك لعرض الخدمات المتاحة'}</T>
+          <Icon name="chevron-down" size={Math.max(15, hw * 0.036)} color={C.gold} />
+        </Pressable>
+      </View>
+      <View style={{ paddingHorizontal: 16, marginTop: 4 }}>
         <SearchBar value={q} onChange={setQ} placeholder="ابحث عن مطعم أو متجر أو خدمة ..." />
       </View>
 
@@ -206,22 +218,7 @@ function HomeOld({ navigation }: any) {
           {/* makers: one full-width card under the six icons */}
           {cats.filter((k) => isMakerTpl(k)).map((k, i) => (
             <Appear key={k} i={i + 3} style={{ marginTop: 12 }}>
-              <Pressable onPress={() => navigation.navigate('Category', { type: k })} style={({ pressed }) => [pressed && { transform: [{ scale: 0.98 }] }]}>
-                <LinearGradient colors={[C.dark3, C.dark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 22, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 2, borderColor: C.gold, ...shadow }}>
-                  <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                    {(db.settings.catIconV?.[k] || 0) > 0
-                      ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: 56, height: 56 }} resizeMode="cover" />
-                      : <Text style={{ fontSize: 29 }}>{TYPES[k].emoji}</Text>}
-                  </View>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <T w="black" size={18} color="#fff">{TYPES[k].label}</T>
-                    <T size={12} color={C.gold}>{serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'}</T>
-                  </View>
-                  <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon name="arrow-back" size={18} color={C.dark} />
-                  </View>
-                </LinearGradient>
-              </Pressable>
+              <WideCard emoji={TYPES[k].emoji} imageUri={(db.settings.catIconV?.[k] || 0) > 0 ? catIconUrl(k, db.settings.catIconV![k]) : undefined} title={TYPES[k].label} sub={serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'} onPress={() => navigation.navigate('Category', { type: k })} tint="#FBE3EC" />
             </Appear>
           ))}
 
@@ -236,23 +233,8 @@ function HomeOld({ navigation }: any) {
             </Appear>
           )}
 
-          {errandDef().active && errandDef().showHome && <Appear i={2} style={{ marginTop: 18 }}>
-            <Pressable onPress={() => navigation.navigate('CustomOrder')}>
-              <LinearGradient colors={['#F8CB4B', '#F2B51D']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 24, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12, ...shadow }}>
-                <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.45)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  {(db.settings.catIconV?.[errandDef().key] || 0) > 0
-                    ? <Image source={{ uri: catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) }} style={{ width: 60, height: 60 }} resizeMode="cover" />
-                    : <Text style={{ fontSize: 32 }}>{errandDef().emoji}</Text>}
-                </View>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <T w="black" size={18} color={C.dark}>{errandDef().label}</T>
-                  <T size={12.5} color={C.dark3}>{errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'}</T>
-                </View>
-                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name="arrow-back" size={18} color={C.gold} />
-                </View>
-              </LinearGradient>
-            </Pressable>
+          {errandDef().active && errandDef().showHome && <Appear i={2} style={{ marginTop: 12 }}>
+            <WideCard emoji={errandDef().emoji} imageUri={(db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
           </Appear>}
 
           {nearby.length > 0 && <View style={{ marginTop: 18 }}>
