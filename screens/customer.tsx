@@ -64,6 +64,8 @@ const DEFAULT_ICONS: Record<string, any> = {
   lab: require('../assets/images/home/ic_lab.webp'),
   store: require('../assets/images/home/ic_store.webp'),
 };
+/** the names on the home tiles, exactly as in the owner's design */
+const HOME_NAMES: Record<string, string> = { clinic: 'العيادات', lab: 'المعامل والتحاليل' };
 const rows3 = <X,>(l: X[]): X[][] => { const r: X[][] = []; for (let i = 0; i < l.length; i += 3) r.push(l.slice(i, i + 3)); return r; };
 
 /** The owner's switch "homeNew" picks the new home; switched off, the old one below is shown exactly as before. */
@@ -192,7 +194,7 @@ function HomeOld({ navigation }: any) {
                         <Icon name={TYPES[k].icon} size={23} color={C.gold} />
                       </View>
                     )}
-                  <T w="black" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 13} align="center" numberOfLines={2}>{TYPES[k].label}</T>
+                  <T w="black" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 13} align="center" numberOfLines={2}>{HOME_NAMES[k] || TYPES[k].label}</T>
                 </Pressable>
               </Appear>
             ); })}
