@@ -128,18 +128,18 @@ function HomeOld({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       {/* the header: the owner's artwork as the background (green, light-green shape, gold swoosh), the content drawn over it at the same places */}
-      <View style={{ width: '100%', aspectRatio: 841 / 376, backgroundColor: '#0B4A22', overflow: 'hidden' }} onLayout={(e) => setHw(e.nativeEvent.layout.width)}>
+      <View style={{ width: '100%', aspectRatio: 841 / 330, backgroundColor: '#0B4A22', overflow: 'hidden' }} onLayout={(e) => setHw(e.nativeEvent.layout.width)}>
         <Image source={require('../assets/images/home/header.webp')} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} resizeMode="stretch" />
-        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.06, alignItems: 'center' }} pointerEvents="none">
-          <Image source={require('../assets/images/home/logo-design.png')} style={{ width: hw * 0.4, height: hw * 0.4 * 383 / 754 }} resizeMode="contain" />
+        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.035, alignItems: 'center' }} pointerEvents="none">
+          <Image source={require('../assets/images/home/logo-design.png')} style={{ width: hw * 0.36, height: hw * 0.36 * 383 / 754 }} resizeMode="contain" />
         </View>
-        <View style={{ position: 'absolute', right: hw * 0.05, top: hw * 0.11, alignItems: 'center', gap: 2 }} pointerEvents="none">
+        <View style={{ position: 'absolute', right: hw * 0.05, top: hw * 0.07, alignItems: 'center', gap: 2 }} pointerEvents="none">
           <View style={{ width: hw * 0.09, height: hw * 0.09, borderRadius: hw * 0.045, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.75)', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="person" size={hw * 0.05} color="#fff" />
           </View>
           <T w="black" size={Math.max(11, hw * 0.032)} color="#fff" numberOfLines={1}>أهلاً {me.name.split(' ')[0]}</T>
         </View>
-        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: hw * 0.15, right: hw * 0.15, top: hw * 0.322, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: hw * 0.15, right: hw * 0.15, top: hw * 0.262, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <Icon name="location" size={Math.max(15, hw * 0.036)} color={C.gold} />
           <T w="semi" size={Math.max(11.5, hw * 0.03)} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'حدد موقعك لعرض الخدمات المتاحة'}</T>
           <Icon name="chevron-down" size={Math.max(14, hw * 0.033)} color={C.gold} />
@@ -236,10 +236,11 @@ function HomeOld({ navigation }: any) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, height: Math.round(tw * 0.92), borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4, overflow: 'hidden' }}>
-                  <ProviderLogo p={item} size={Math.round((tw - 18) * 0.56)} />
-                  <T w="bold" size={11.5} align="center" numberOfLines={1}>{item.name}</T>
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 10, alignItems: 'center', gap: 4 }}>
+                  <ProviderLogo p={item} size={Math.round((tw - 18) * 0.7)} />
+                  <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
                   <AreaTag p={item} />
+                  <ShopOfferTag providerId={item.id} compact />
                 </Card>
               )}
             />
@@ -255,14 +256,16 @@ function HomeOld({ navigation }: any) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, height: Math.round(tw * 0.92), borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4, overflow: 'hidden' }}>
-                  <ProviderLogo p={item} size={Math.round((tw - 18) * 0.56)} />
-                  <T w="bold" size={11.5} align="center" numberOfLines={1}>{item.name}</T>
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 10, alignItems: 'center', gap: 4 }}>
+                  <ProviderLogo p={item} size={Math.round((tw - 18) * 0.7)} />
+                  <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Icon name="star" size={13} color={C.gold} />
                     <T w="bold" size={12}>{item.rating.toFixed(1)}</T>
                     <T size={11.5} color={C.sub}>• {item.eta} د</T>
                   </View>
+                  <AreaTag p={item} />
+                  <ShopOfferTag providerId={item.id} compact />
                 </Card>
               )}
             />

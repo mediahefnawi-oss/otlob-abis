@@ -304,13 +304,13 @@ export function Field({ label, icon, ...p }: TextInputProps & { label?: string; 
 
 export const SearchBar = ({ value, onChange, placeholder }: { value: string; onChange: (s: string) => void; placeholder: string }) => (
   <View style={styles.search}>
-    <Icon name="search" size={19} color={C.sub} />
+    <Icon name="search" size={21} color={C.green} />
     <TextInput
       maxFontSizeMultiplier={1.1}
       value={value}
       onChangeText={onChange}
       placeholder={placeholder}
-      placeholderTextColor="#8FA099"
+      placeholderTextColor="#5F7168"
       returnKeyType="search"
       style={[{ flex: 1, fontFamily: FONT.regular, fontSize: fs(14), color: C.text, paddingVertical: 10, textAlign: 'right' }, Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null]}
     />
@@ -400,7 +400,7 @@ const styles = StyleSheet.create({
   segItem: { flex: 1, paddingVertical: 9, borderRadius: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6 },
   stepBtn: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   field: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F6F7F3', borderWidth: 1.5, borderColor: C.line, borderRadius: R.md, paddingHorizontal: 14 },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 14, ...shadow, shadowOpacity: 0.06 },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 22, paddingHorizontal: 16, borderWidth: 1.5, borderColor: '#C9D4CC', ...shadow, shadowOpacity: 0.12 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,20,15,0.55)', justifyContent: 'flex-end', direction: 'rtl' },
   sheet: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 18, maxHeight: '90%', width: '100%', maxWidth: 560, alignSelf: 'center' },
   dialog: { backgroundColor: '#fff', margin: 24, borderRadius: 24, padding: 22, alignSelf: 'center', width: '88%', maxWidth: 400 },
