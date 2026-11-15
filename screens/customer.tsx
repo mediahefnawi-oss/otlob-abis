@@ -57,12 +57,12 @@ export const useRC = () => {
 
 /* ---------------- Home ---------------- */
 const DEFAULT_ICONS: Record<string, any> = {
-  restaurant: require('../assets/images/home/ic_restaurant.webp'),
-  supermarket: require('../assets/images/home/ic_supermarket.webp'),
-  pharmacy: require('../assets/images/home/ic_pharmacy.webp'),
-  clinic: require('../assets/images/home/ic_clinic.webp'),
-  lab: require('../assets/images/home/ic_lab.webp'),
-  store: require('../assets/images/home/ic_store.webp'),
+  restaurant: require('../assets/images/home/ic_restaurant.png'),
+  supermarket: require('../assets/images/home/ic_supermarket.png'),
+  pharmacy: require('../assets/images/home/ic_pharmacy.png'),
+  clinic: require('../assets/images/home/ic_clinic.png'),
+  lab: require('../assets/images/home/ic_lab.png'),
+  store: require('../assets/images/home/ic_store.png'),
 };
 /** The extra services (makers, errands) as wide cards in the same style as the tiles above: white, soft shadow, cream circle for the picture, green arrow button. */
 function WideCard({ emoji, art, imageUri, title, sub, onPress, tint }: { emoji: string; art?: any; imageUri?: string; title: string; sub: string; onPress: () => void; tint?: string }) {
@@ -140,7 +140,7 @@ function HomeOld({ navigation }: any) {
           </View>
           <T w="black" size={Math.max(11, hw * 0.032)} color="#fff" numberOfLines={1}>أهلاً {me.name.split(' ')[0]}</T>
         </View>
-        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: 16, right: 16, top: hw * 0.275, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: hw * 0.2, right: hw * 0.1, top: hw * 0.252, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <Icon name="location" size={Math.max(15, hw * 0.036)} color={C.gold} />
           <T w="semi" size={Math.max(11.5, hw * 0.03)} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'حدد موقعك لعرض الخدمات المتاحة'}</T>
           <Icon name="chevron-down" size={Math.max(14, hw * 0.033)} color={C.gold} />
@@ -187,9 +187,9 @@ function HomeOld({ navigation }: any) {
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, ...shadow }, { paddingTop: 4, paddingBottom: 8 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {DEFAULT_ICONS[k]
-                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={DEFAULT_ICONS[k]} style={StyleSheet.absoluteFill as any} resizeMode="contain" /></View>
+                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={DEFAULT_ICONS[k]} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" /></View>
                     : (db.settings.catIconV?.[k] || 0) > 0
-                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={StyleSheet.absoluteFill as any} resizeMode="contain" /></View>
+                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" /></View>
                     : (
                       // a service added later with no picture yet: the same cream circle with its emoji, so the tile still matches the others
                       <View style={{ width: '100%', aspectRatio: 738 / 444, alignItems: 'center', justifyContent: 'center' }}>
@@ -209,7 +209,7 @@ function HomeOld({ navigation }: any) {
           {/* makers: one full-width card under the six icons */}
           {cats.filter((k) => isMakerTpl(k)).map((k, i) => (
             <Appear key={k} i={i + 3} style={{ marginTop: 12 }}>
-              <WideCard art={require('../assets/images/home/ic_maker.webp')} emoji={TYPES[k].emoji} imageUri={(db.settings.catIconV?.[k] || 0) > 0 ? catIconUrl(k, db.settings.catIconV![k]) : undefined} title={TYPES[k].label} sub={serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'} onPress={() => navigation.navigate('Category', { type: k })} tint="#FBE3EC" />
+              <WideCard art={require('../assets/images/home/ic_maker.png')} emoji={TYPES[k].emoji} imageUri={(db.settings.catIconV?.[k] || 0) > 0 ? catIconUrl(k, db.settings.catIconV![k]) : undefined} title={TYPES[k].label} sub={serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'} onPress={() => navigation.navigate('Category', { type: k })} tint="#FBE3EC" />
             </Appear>
           ))}
 
@@ -225,7 +225,7 @@ function HomeOld({ navigation }: any) {
           )}
 
           {errandDef().active && errandDef().showHome && <Appear i={2} style={{ marginTop: 12 }}>
-            <WideCard art={require('../assets/images/home/ic_errand.webp')} emoji={errandDef().emoji} imageUri={(db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
+            <WideCard art={require('../assets/images/home/ic_errand.png')} emoji={errandDef().emoji} imageUri={(db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
           </Appear>}
 
           {nearby.length > 0 && <View style={{ marginTop: 18 }}>
@@ -237,8 +237,8 @@ function HomeOld({ navigation }: any) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4 }}>
-                  <ProviderLogo p={item} size={tw - 18} />
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4 }}>
+                  <ProviderLogo p={item} size={Math.round((tw - 18) * 0.62)} />
                   <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
                   <AreaTag p={item} />
                   <ShopOfferTag providerId={item.id} compact />
@@ -257,8 +257,8 @@ function HomeOld({ navigation }: any) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
               renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4 }}>
-                  <ProviderLogo p={item} size={tw - 18} />
+                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 8, alignItems: 'center', gap: 4 }}>
+                  <ProviderLogo p={item} size={Math.round((tw - 18) * 0.62)} />
                   <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Icon name="star" size={13} color={C.gold} />
