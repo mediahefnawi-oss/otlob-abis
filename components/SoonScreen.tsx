@@ -74,20 +74,25 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
             <T w="bold" size={12.5} color={GOLD}>{cfg.pl}</T>
           </View>
 
-          <T w="black" size={34} color="#FFF3D6" align="center" style={{ marginTop: 10, lineHeight: 46, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 8 }}>{cfg.wa}</T>
-          <T w="bold" size={16} color={GOLD} align="center" style={{ letterSpacing: 4, marginTop: 2 }}>{cfg.we}</T>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
-            <View style={{ width: 90, height: 1, backgroundColor: 'rgba(242,181,29,0.7)' }} />
-            <Icon name="location" size={18} color={GOLD} />
-            <View style={{ width: 90, height: 1, backgroundColor: 'rgba(242,181,29,0.7)' }} />
-          </View>
-          <LinearGradient colors={['#FFE08A', '#E9A30A', '#C98A06']} style={{ marginTop: 10, borderRadius: 18, paddingVertical: 9, paddingHorizontal: 26, borderWidth: 1.5, borderColor: '#FFF1B8' }}>
-            <T w="black" size={19} color="#3A2600" align="center">{cfg.rb}</T>
-          </LinearGradient>
-
-          <View style={{ width: '100%', aspectRatio: 800 / 420, marginTop: 6 }}>
+          <View style={{ width: '100%', aspectRatio: 800 / 548, marginTop: 6 }}>
             <Image source={scene} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-            <LinearGradient colors={['#073D16', 'rgba(7,61,22,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 90 }} pointerEvents="none" />
+            <LinearGradient colors={['#073D16', 'rgba(7,61,22,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 30 }} pointerEvents="none" />
+            <View style={{ position: 'absolute', left: 0, right: 0, top: 6, alignItems: 'center' }} pointerEvents="none">
+              <T w="black" size={31} color="#FFF3D6" align="center" style={{ lineHeight: 42, textShadowColor: 'rgba(0,0,0,0.55)', textShadowRadius: 8 }}>{cfg.wa}</T>
+              <T w="bold" size={15} color={GOLD} align="center" style={{ letterSpacing: 4 }}>{cfg.we}</T>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                <View style={{ width: 80, height: 1, backgroundColor: 'rgba(242,181,29,0.7)' }} />
+                <Icon name="location" size={16} color={GOLD} />
+                <View style={{ width: 80, height: 1, backgroundColor: 'rgba(242,181,29,0.7)' }} />
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                <View style={{ width: 16, height: 16, backgroundColor: '#E9A30A', transform: [{ rotate: '45deg' }], marginRight: -9, borderRadius: 2 }} />
+                <LinearGradient colors={['#FFE08A', '#E9A30A', '#C98A06']} style={{ borderRadius: 8, paddingVertical: 8, paddingHorizontal: 26, borderWidth: 1.5, borderColor: '#FFF1B8' }}>
+                  <T w="black" size={18} color="#3A2600" align="center">{cfg.rb}</T>
+                </LinearGradient>
+                <View style={{ width: 16, height: 16, backgroundColor: '#E9A30A', transform: [{ rotate: '45deg' }], marginLeft: -9, borderRadius: 2 }} />
+              </View>
+            </View>
             <LinearGradient colors={['rgba(1,34,12,0)', '#01220C']} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56 }} pointerEvents="none" />
           </View>
 
