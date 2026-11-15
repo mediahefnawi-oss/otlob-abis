@@ -130,7 +130,7 @@ function HomeOld({ navigation }: any) {
       {/* the header: the owner's artwork as the background (green, light-green shape, gold swoosh), the content drawn over it at the same places */}
       <View style={{ width: '100%', aspectRatio: 841 / 345, backgroundColor: '#0B4A22', overflow: 'hidden' }} onLayout={(e) => setHw(e.nativeEvent.layout.width)}>
         <Image source={require('../assets/images/home/header.webp')} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} resizeMode="stretch" />
-        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.035, alignItems: 'center' }} pointerEvents="none">
+        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.045, alignItems: 'center' }} pointerEvents="none">
           <Image source={require('../assets/images/home/logo-design.png')} style={{ width: hw * 0.4 * 754 / 700, height: hw * 0.4 * 383 / 700 }} resizeMode="contain" />
         </View>
         <View style={{ position: 'absolute', right: hw * 0.045, top: hw * 0.06, alignItems: 'center', gap: 2 }} pointerEvents="none">
@@ -139,7 +139,7 @@ function HomeOld({ navigation }: any) {
           </View>
           <T w="black" size={Math.max(11, hw * 0.032)} color="#fff" numberOfLines={1}>أهلاً {me.name.split(' ')[0]}</T>
         </View>
-        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: hw * 0.2, right: hw * 0.1, top: hw * 0.252, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: hw * 0.15, right: hw * 0.15, top: hw * 0.265, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <Icon name="location" size={Math.max(15, hw * 0.036)} color={C.gold} />
           <T w="semi" size={Math.max(11.5, hw * 0.03)} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'حدد موقعك لعرض الخدمات المتاحة'}</T>
           <Icon name="chevron-down" size={Math.max(14, hw * 0.033)} color={C.gold} />
