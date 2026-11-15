@@ -321,6 +321,75 @@ CREATE TABLE IF NOT EXISTS ride_types (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Rides phase 2: captains (a captain is a courier account with a vehicle profile), ride requests, offers and the commission ledger.
+CREATE TABLE IF NOT EXISTS captain_profiles (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  type_id INT REFERENCES ride_types(id) ON DELETE SET NULL,
+  model TEXT NOT NULL DEFAULT '',
+  color TEXT NOT NULL DEFAULT '',
+  plate TEXT NOT NULL DEFAULT '',
+  national_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','suspended','needs_photo')),
+  note TEXT NOT NULL DEFAULT '',
+  commission_pct NUMERIC(5,2),
+  balance NUMERIC(12,2) NOT NULL DEFAULT 0,
+  auto_receive BOOLEAN NOT NULL DEFAULT TRUE,
+  can_counter BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS captain_photos (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('car','license','driver','selfie')),
+  image BYTEA NOT NULL,
+  mime TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, kind)
+);
+CREATE TABLE IF NOT EXISTS rides (
+  id BIGSERIAL PRIMARY KEY,
+  customer_id BIGINT NOT NULL REFERENCES users(id),
+  type_id INT REFERENCES ride_types(id) ON DELETE SET NULL,
+  from_lat DOUBLE PRECISION NOT NULL, from_lng DOUBLE PRECISION NOT NULL, from_text TEXT NOT NULL DEFAULT '',
+  to_lat DOUBLE PRECISION NOT NULL, to_lng DOUBLE PRECISION NOT NULL, to_text TEXT NOT NULL DEFAULT '',
+  km NUMERIC(8,1) NOT NULL, minutes INT NOT NULL DEFAULT 0,
+  suggested NUMERIC(10,2) NOT NULL, offered NUMERIC(10,2) NOT NULL, final_price NUMERIC(10,2),
+  status TEXT NOT NULL DEFAULT 'searching' CHECK (status IN ('searching','assigned','arrived','started','completed','cancelled','expired')),
+  driver_id BIGINT REFERENCES users(id),
+  commission NUMERIC(10,2),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_rides_status ON rides(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rides_customer ON rides(customer_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rides_driver ON rides(driver_id, status);
+CREATE TABLE IF NOT EXISTS ride_offers (
+  id BIGSERIAL PRIMARY KEY,
+  ride_id BIGINT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+  driver_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  price NUMERIC(10,2) NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','accepted','rejected','withdrawn')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (ride_id, driver_id)
+);
+CREATE TABLE IF NOT EXISTS captain_ledger (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('topup','commission','adjust')),
+  amount NUMERIC(12,2) NOT NULL,
+  ride_id BIGINT REFERENCES rides(id) ON DELETE SET NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_user ON captain_ledger(user_id, created_at DESC);
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_commission_pct NUMERIC(5,2) NOT NULL DEFAULT 15;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_commission_min NUMERIC(8,2) NOT NULL DEFAULT 5;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_min_balance NUMERIC(10,2) NOT NULL DEFAULT -50;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_auto_dispatch BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_offer_secs INT NOT NULL DEFAULT 25;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_radius_km NUMERIC(5,1) NOT NULL DEFAULT 5;
+ALTER TABLE ride_types ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(5,2);
+
 -- Default commissions (seeded once; afterwards the owner edits them from the panel).
 DO $$
 BEGIN

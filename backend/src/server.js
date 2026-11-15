@@ -1105,6 +1105,7 @@ require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, po
 require('./premium').register(app, { pool, auth, roles, asyncRoute, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); authMemo.clear(); }, pushToUsers });
 require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./rides').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
+require('./rides2').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers });
 extrasLib.register(app, { pool, auth, roles, asyncRoute, positiveId, services, pushToUsers, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
 ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
