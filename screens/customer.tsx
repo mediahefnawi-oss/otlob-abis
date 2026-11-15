@@ -72,7 +72,8 @@ const rows3 = <X,>(l: X[]): X[][] => { const r: X[][] = []; for (let i = 0; i < 
 export function HomeScreen({ navigation }: any) {
   const { db } = useStore();
   const rc = useRC();
-  return db.settings.features?.homeNew ? <HomeNew navigation={navigation} rc={rc} /> : <HomeOld navigation={navigation} />;
+  // the owner's design is now the only customer home (the "homeNew" layout was removed)
+  return <HomeOld navigation={navigation} />;
 }
 function HomeOld({ navigation }: any) {
   const rc = useRC();
@@ -83,7 +84,7 @@ function HomeOld({ navigation }: any) {
   const tw = gridW > 0 ? Math.floor(gridW * 0.313) : 110;
   const [q, setQ] = useState('');
   const [addrOpen, setAddrOpen] = useState(false);
-  const addrOn = !!db.settings.features?.homeAddress; // switch "homeAddress": the address in the header can be tapped and changed
+  const addrOn = true; // switch "homeAddress": the address in the header can be tapped and changed
   const insets = useSafeAreaInsets();
   const provs = db.providers.filter((p) => p.status === 'active');
   const active = db.orders.filter((o) => o.customerId === me.id && ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status));
