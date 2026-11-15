@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, Icon, Logo, openWhats } from './ui';
 import { useStore, useMe, logout } from '../lib/store';
 import { adImageUrl } from '../lib/api';
-import { SoonCfg, countdown, pad2, whenLabel } from '../lib/soon';
+import { SoonCfg, SOON_TEXT_DEFAULTS, countdown, pad2, whenLabel } from '../lib/soon';
 
 const GOLD = '#F2B51D';
 const GOLD_LIGHT = '#FFE08A';
@@ -52,7 +52,9 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
 
   const cd = useMemo(() => countdown(cfg.at, now), [cfg.at, now]);
   const [l1, l2] = twoLines(cfg.m);
-  const scene = cfg.ad ? { uri: adImageUrl({ id: cfg.ad, v: cfg.av }) } : require('../assets/images/soon-scene.webp');
+  // untouched welcome texts → the approved artwork exactly (its texts are part of the picture); edited → clean picture + live texts
+  const origArt = !cfg.ad && cfg.wa === SOON_TEXT_DEFAULTS.wa && cfg.we === SOON_TEXT_DEFAULTS.we && cfg.rb === SOON_TEXT_DEFAULTS.rb;
+  const scene = origArt ? require('../assets/images/soon-scene-orig.webp') : cfg.ad ? { uri: adImageUrl({ id: cfg.ad, v: cfg.av }) } : require('../assets/images/soon-scene.webp');
   const phone = db.settings.supportPhone;
   // inside the installed app the visitor already has it: the download button is for the web page only
   const showDownload = !!cfg.u && Platform.OS === 'web';
@@ -77,7 +79,7 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
           <View style={{ width: '100%', aspectRatio: 800 / 548, marginTop: 6 }}>
             <Image source={scene} style={{ width: '100%', height: '100%' }} contentFit="cover" />
             <LinearGradient colors={['#073D16', 'rgba(7,61,22,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 30 }} pointerEvents="none" />
-            <View style={{ position: 'absolute', left: 0, right: 0, top: 6, alignItems: 'center' }} pointerEvents="none">
+            {!origArt && <View style={{ position: 'absolute', left: 0, right: 0, top: 6, alignItems: 'center' }} pointerEvents="none">
               <T w="black" size={31} color="#FFF3D6" align="center" style={{ lineHeight: 42, textShadowColor: 'rgba(0,0,0,0.55)', textShadowRadius: 8 }}>{cfg.wa}</T>
               <T w="bold" size={15} color={GOLD} align="center" style={{ letterSpacing: 4 }}>{cfg.we}</T>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
@@ -92,7 +94,7 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
                 </LinearGradient>
                 <View style={{ width: 16, height: 16, backgroundColor: '#E9A30A', transform: [{ rotate: '45deg' }], marginLeft: -9, borderRadius: 2 }} />
               </View>
-            </View>
+            </View>}
             <LinearGradient colors={['rgba(1,34,12,0)', '#01220C']} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56 }} pointerEvents="none" />
           </View>
 
