@@ -56,14 +56,6 @@ export const useRC = () => {
 };
 
 /* ---------------- Home ---------------- */
-const DEFAULT_ICONS: Record<string, any> = {
-  restaurant: require('../assets/images/home/ic_restaurant.webp'),
-  supermarket: require('../assets/images/home/ic_supermarket.webp'),
-  pharmacy: require('../assets/images/home/ic_pharmacy.webp'),
-  clinic: require('../assets/images/home/ic_clinic.webp'),
-  lab: require('../assets/images/home/ic_lab.webp'),
-  store: require('../assets/images/home/ic_store.webp'),
-};
 const rows3 = <X,>(l: X[]): X[][] => { const r: X[][] = []; for (let i = 0; i < l.length; i += 3) r.push(l.slice(i, i + 3)); return r; };
 
 /** The owner's switch "homeNew" picks the new home; switched off, the old one below is shown exactly as before. */
@@ -106,39 +98,34 @@ function HomeOld({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <LinearGradient colors={['#146B35', '#0B4A22']} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={{ paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 22, borderBottomLeftRadius: 34, borderBottomRightRadius: 34, overflow: 'hidden' }}>
-        {/* the gold curve along the bottom of the header */}
-        <View pointerEvents="none" style={{ position: 'absolute', left: '-25%', right: '-25%', bottom: -92, height: 130, borderRadius: 400, borderWidth: 3, borderColor: C.gold, opacity: 0.85 }} />
+      <View style={{ backgroundColor: C.dark, paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 26, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: 'hidden' }}>
         {!!db.settings.features?.covers && (db.settings.homeCoverV || 0) > 0 && (
           <>
             <Image source={{ uri: homeCoverUrl(db.settings.homeCoverV!) }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
             <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,33,26,0.5)' }} />
           </>
         )}
-        <View style={{ height: 96, justifyContent: 'center' }}>
-          <View style={{ position: 'absolute', left: 0, right: 0, top: 0, alignItems: 'center' }} pointerEvents="none"><Logo width={190} /></View>
-          <View style={{ alignSelf: 'flex-start', alignItems: 'center', gap: 3 }}>
-            <View style={{ width: 46, height: 46, borderRadius: 23, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.75)', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="person" size={24} color="#fff" />
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <T size={12} color="#9FB5AC">أهلاً {me.name.split(' ')[0]} 👋</T>
+            {addrOn ? (
+              <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Icon name="location" size={15} color={C.gold} />
+                <T w="bold" size={12.5} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'اضغط لتحديد عنوانك'}</T>
+                <Icon name="chevron-down" size={15} color={C.gold} />
+              </Pressable>
+            ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Icon name="location" size={15} color={C.gold} />
+              <T w="bold" size={12.5} color="#fff" numberOfLines={1} style={{ flex: 1 }}>{me.address || 'أبيس'}</T>
             </View>
-            <T w="black" size={15} color="#fff" numberOfLines={1}>أهلاً {me.name.split(' ')[0]}</T>
+            )}
           </View>
+          <Logo width={110} />
         </View>
-        {addrOn ? (
-          <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4 }}>
-            <Icon name="location" size={17} color={C.gold} />
-            <T w="semi" size={13} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'حدد موقعك لعرض الخدمات المتاحة'}</T>
-            <Icon name="chevron-down" size={16} color={C.gold} />
-          </Pressable>
-        ) : (
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 4 }}>
-            <Icon name="location" size={17} color={C.gold} />
-            <T w="semi" size={13} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'أبيس'}</T>
-          </View>
-        )}
-      </LinearGradient>
-      <View style={{ paddingHorizontal: 16, marginTop: 14 }}>
-        <SearchBar value={q} onChange={setQ} placeholder="ابحث عن مطعم أو متجر أو خدمة ..." />
+        <View style={{ marginTop: 12 }}>
+          <SearchBar value={q} onChange={setQ} placeholder="ابحث عن مطعم أو منتج أو خدمة..." />
+        </View>
       </View>
 
       {q.trim() ? (
@@ -153,9 +140,7 @@ function HomeOld({ navigation }: any) {
         />
       ) : (
         <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
-          {(db.ads || []).some((a) => a.active)
-            ? <View style={{ marginHorizontal: -16, marginTop: -6, marginBottom: 12 }}><AdsCarousel /></View>
-            : <View style={{ marginTop: -2, marginBottom: 12, borderRadius: 26, overflow: 'hidden', ...shadow }}><Image source={require('../assets/images/home/banner.webp')} style={{ width: '100%', aspectRatio: 782 / 376 }} resizeMode="cover" /></View>}
+          <View style={{ marginHorizontal: -16, marginTop: -14, marginBottom: 12 }}><AdsCarousel /></View>
           <RegionClosedBanner regionId={me.regionId} />
           <TodayOffers onOpen={(id) => navigation.navigate('Provider', { id })} />
           <FavoritesRow />
@@ -175,11 +160,10 @@ function HomeOld({ navigation }: any) {
               <Appear key={k} i={i} style={{ width: sz === 'large' ? '21%' : sz === 'medium' ? '26%' : '31.3%' }}>
                 <Pressable
                   onPress={() => navigation.navigate('Category', { type: k })}
-                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || DEFAULT_ICONS[k] || isLab(k) ? { paddingBottom: 8 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
+                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', alignItems: 'center', gap: 4, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || isLab(k) ? { paddingBottom: 6 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {(db.settings.catIconV?.[k] || 0) > 0
                     ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1.15 }} resizeMode="cover" />
-                    : DEFAULT_ICONS[k] ? <Image source={DEFAULT_ICONS[k]} style={{ width: '100%', aspectRatio: 246 / 182 }} resizeMode="cover" />
                     : isLab(k) ? (
                       <LinearGradient colors={['#0E5A33', '#06361F']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ width: '100%', aspectRatio: 1.15, alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ fontSize: 64, marginBottom: 18 }}>{TYPES[k].emoji}</Text>
@@ -192,7 +176,7 @@ function HomeOld({ navigation }: any) {
                         <Icon name={TYPES[k].icon} size={23} color={C.gold} />
                       </View>
                     )}
-                  <T w="black" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 13} align="center" numberOfLines={2}>{TYPES[k].label}</T>
+                  <T w="bold" size={sz === 'large' ? 9.5 : sz === 'medium' ? 10.5 : 11.5} align="center" numberOfLines={2}>{TYPES[k].label}</T>
                 </Pressable>
               </Appear>
             ); })}

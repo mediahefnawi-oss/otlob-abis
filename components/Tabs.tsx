@@ -22,7 +22,6 @@ export function TabHost({ tabs, initial }: { tabs: TabDef[]; initial?: string })
     setVisited((v) => (v.includes(k) ? v : [...v, k]));
   };
   const wide = useWide();
-  const pill = tabs[0]?.key === 'home'; // the customer's bar: a floating capsule with a green active tab
   // computer view: publish the tabs so the side menu can show them (the bottom bar is hidden then)
   useEffect(() => {
     if (!wide) { setNav(null); return; }
@@ -40,29 +39,7 @@ export function TabHost({ tabs, initial }: { tabs: TabDef[]; initial?: string })
           ) : null
         )}
       </View>
-      {!wide && pill && (
-        <View style={{ paddingHorizontal: 10, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 10), backgroundColor: C.bg }}>
-          <View style={{ flexDirection: 'row', backgroundColor: '#fff', borderRadius: 30, padding: 6, gap: 4, ...shadow }}>
-            {tabs.map((t) => {
-              const a = t.key === active;
-              return (
-                <Pressable key={t.key} onPress={() => go(t.key)} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2, paddingVertical: 9, borderRadius: 24, backgroundColor: a ? C.dark : 'transparent' }}>
-                  <View>
-                    <Icon name={a ? t.icon : t.icon + '-outline'} size={24} color={a ? C.gold : C.sub} />
-                    {!!t.badge && (
-                      <View style={{ position: 'absolute', top: -5, right: -9, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
-                        <T w="bold" size={9.5} color="#fff" align="center">{t.badge}</T>
-                      </View>
-                    )}
-                  </View>
-                  <T w={a ? 'bold' : 'semi'} size={11.5} color={a ? '#fff' : C.sub} align="center">{t.label}</T>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      )}
-      {!wide && !pill && <View
+      {!wide && <View
         style={{
           flexDirection: 'row', backgroundColor: '#fff', paddingTop: 8, paddingBottom: Math.max(insets.bottom, 8),
           borderTopLeftRadius: 24, borderTopRightRadius: 24, ...shadow, shadowOffset: { width: 0, height: -3 }, paddingHorizontal: 6,
