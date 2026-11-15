@@ -17,6 +17,9 @@ export type SoonCfg = {
   dn: string;     // text when the time has come
   dl: string;     // download button text
   sp: string;     // support button text
+  wa: string;     // welcome title (Arabic)
+  we: string;     // welcome line (English)
+  rb: string;     // gold ribbon text
 };
 
 /** Every text the owner can replace, with its default (a text equal to the default is not stored). */
@@ -28,6 +31,9 @@ export const SOON_TEXT_DEFAULTS = {
   dn: '🎉 بنفتح حالًا.. ثواني!',
   dl: 'حمّل التطبيق الآن',
   sp: 'تواصل معنا',
+  wa: 'أهلاً بيك في أبيس',
+  we: 'WELCOME TO ABIS',
+  rb: 'كل خدماتك.. أقرب ليك.',
 } as const;
 export type SoonTextKey = keyof typeof SOON_TEXT_DEFAULTS;
 export const SOON_TEXT_KEYS = Object.keys(SOON_TEXT_DEFAULTS) as SoonTextKey[];
@@ -49,7 +55,7 @@ export function parseSoon(text: string | undefined | null): SoonCfg | null {
       sup: j.sup !== false,
       ad: typeof j.ad === 'string' ? j.ad.slice(0, 12) : '',
       av: Number.isFinite(j.av) ? Number(j.av) : 0,
-      pl: tx(j.pl, 'pl'), br: tx(j.br, 'br'), wl: tx(j.wl, 'wl'), cl: tx(j.cl, 'cl'), dn: tx(j.dn, 'dn'), dl: tx(j.dl, 'dl'), sp: tx(j.sp, 'sp'),
+      pl: tx(j.pl, 'pl'), br: tx(j.br, 'br'), wl: tx(j.wl, 'wl'), cl: tx(j.cl, 'cl'), dn: tx(j.dn, 'dn'), dl: tx(j.dl, 'dl'), sp: tx(j.sp, 'sp'), wa: tx(j.wa, 'wa'), we: tx(j.we, 'we'), rb: tx(j.rb, 'rb'),
     };
   } catch {
     return null;

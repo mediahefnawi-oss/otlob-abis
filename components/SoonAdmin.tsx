@@ -25,6 +25,9 @@ const TXT_LABELS: Record<SoonTextKey, string> = {
   dn: 'الرسالة لما الوقت يخلص',
   dl: 'كلمة زر التحميل',
   sp: 'كلمة زر التواصل',
+  wa: 'العنوان «أهلاً بيك في أبيس»',
+  we: 'السطر الإنجليزي «WELCOME TO ABIS»',
+  rb: 'الشريط الذهبي «كل خدماتك.. أقرب ليك»',
 };
 
 /** Owner: the "coming soon" opening screen (locks the app for everybody except the owner, with a countdown and a download button). */
