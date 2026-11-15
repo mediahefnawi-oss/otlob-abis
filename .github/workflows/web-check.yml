@@ -31,10 +31,20 @@ jobs:
             p.on('pageerror', (e) => console.log('PAGEERROR:', String(e.stack || e).slice(0, 700)));
             p.on('console', (m) => { if (m.type() === 'error') console.log('CONSOLE_ERROR:', m.text().slice(0, 300)); });
             p.on('requestfailed', (r) => console.log('REQFAIL:', r.url().slice(0, 120)));
+            await p.route('https://api.otlobabis.com/**', async (route) => {
+              try {
+                const r = await route.fetch();
+                await route.fulfill({ response: r, headers: { ...r.headers(), 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } });
+              } catch (e) { await route.abort(); }
+            });
             await p.goto('http://localhost:4173', { waitUntil: 'load' });
             await p.waitForTimeout(12000);
             console.log('BOOT_STILL_THERE:', await p.evaluate(() => !!document.getElementById('boot')));
             console.log('TEXT:', (await p.evaluate(() => document.body.innerText)).slice(0, 500).replace(/\n/g, ' | '));
+            try { await p.getByText('ابدأ الآن').first().click({ timeout: 4000 }); } catch (e) { console.log('NO_START_BUTTON'); }
+            await p.waitForTimeout(8000);
+            console.log('AFTER_START_BOOT:', await p.evaluate(() => !!document.getElementById('boot')));
+            console.log('AFTER_START_TEXT:', (await p.evaluate(() => document.body.innerText)).slice(0, 700).replace(/\n/g, ' | '));
             await b.close();
           })();
           EOF
