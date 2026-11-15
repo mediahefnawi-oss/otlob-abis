@@ -10,7 +10,29 @@ export type SoonCfg = {
   sup: boolean;   // show the support button
   ad: string;     // optional banner id to use instead of the built-in picture ('' = built-in)
   av: number;     // that banner's version
+  pl: string;     // pill text
+  br: string;     // small brand line under the logo
+  wl: string;     // text before the opening time
+  cl: string;     // countdown title
+  dn: string;     // text when the time has come
+  dl: string;     // download button text
+  sp: string;     // support button text
 };
+
+/** Every text the owner can replace, with its default (a text equal to the default is not stored). */
+export const SOON_TEXT_DEFAULTS = {
+  pl: 'قريبًا جدًا في منطقتك',
+  br: 'OTLOBABIS',
+  wl: 'وهنبدأ الشغل',
+  cl: '⏳ باقي على الافتتاح',
+  dn: '🎉 بنفتح حالًا.. ثواني!',
+  dl: 'حمّل التطبيق الآن',
+  sp: 'تواصل معنا',
+} as const;
+export type SoonTextKey = keyof typeof SOON_TEXT_DEFAULTS;
+export const SOON_TEXT_KEYS = Object.keys(SOON_TEXT_DEFAULTS) as SoonTextKey[];
+const TEXT_MAX = 40;
+const tx = (v: any, k: SoonTextKey) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, TEXT_MAX) : SOON_TEXT_DEFAULTS[k]);
 
 const PREFIX = 'SOON1:';
 export const DEFAULT_SOON_MSG = 'حمّلوا التطبيق وجهّزوا حساباتكم';
@@ -27,6 +49,7 @@ export function parseSoon(text: string | undefined | null): SoonCfg | null {
       sup: j.sup !== false,
       ad: typeof j.ad === 'string' ? j.ad.slice(0, 12) : '',
       av: Number.isFinite(j.av) ? Number(j.av) : 0,
+      pl: tx(j.pl, 'pl'), br: tx(j.br, 'br'), wl: tx(j.wl, 'wl'), cl: tx(j.cl, 'cl'), dn: tx(j.dn, 'dn'), dl: tx(j.dl, 'dl'), sp: tx(j.sp, 'sp'),
     };
   } catch {
     return null;
@@ -35,7 +58,12 @@ export function parseSoon(text: string | undefined | null): SoonCfg | null {
 
 /** The text that is stored (the server keeps up to 500 characters). */
 export function buildSoon(c: SoonCfg): string {
-  return PREFIX + JSON.stringify({ m: c.m.trim().slice(0, 120), at: Math.round(c.at) || 0, u: c.u.trim().slice(0, 200), sup: !!c.sup, ad: c.ad || '', av: c.av || 0 });
+  const o: any = { m: c.m.trim().slice(0, 120), at: Math.round(c.at) || 0, u: c.u.trim().slice(0, 200), sup: !!c.sup, ad: c.ad || '', av: c.av || 0 };
+  for (const k of SOON_TEXT_KEYS) {
+    const v = String((c as any)[k] || '').trim().slice(0, TEXT_MAX);
+    if (v && v !== SOON_TEXT_DEFAULTS[k]) o[k] = v;
+  }
+  return PREFIX + JSON.stringify(o);
 }
 
 export function pad2(n: number) { return n < 10 ? `0${n}` : String(n); }

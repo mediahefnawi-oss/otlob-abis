@@ -6,7 +6,7 @@ import { T, Icon, Card, Btn, Field, Toggle, toast, confirmDialog } from './ui';
 import { useStore, updateSettings } from '../lib/store';
 import { adImageUrl } from '../lib/api';
 import { SoonScreen } from './SoonScreen';
-import { SoonCfg, DEFAULT_SOON_MSG, buildSoon, parseSoon, parseWhen, dateText, clockText, whenLabel } from '../lib/soon';
+import { SoonCfg, SOON_TEXT_DEFAULTS, SOON_TEXT_KEYS, SoonTextKey, DEFAULT_SOON_MSG, buildSoon, parseSoon, parseWhen, dateText, clockText, whenLabel } from '../lib/soon';
 
 const DEFAULT_URL = 'https://otlob-abis-app.vercel.app/download.html?v=2';
 
@@ -16,6 +16,16 @@ function tomorrowAt15() {
   d.setHours(15, 0, 0, 0);
   return d.getTime();
 }
+
+const TXT_LABELS: Record<SoonTextKey, string> = {
+  pl: 'الشارة الصغيرة (فوق الصورة)',
+  br: 'السطر تحت الشعار',
+  wl: 'الكلمة قبل الموعد (قبل «بكرا الساعة…»)',
+  cl: 'عنوان العدّاد',
+  dn: 'الرسالة لما الوقت يخلص',
+  dl: 'كلمة زر التحميل',
+  sp: 'كلمة زر التواصل',
+};
 
 /** Owner: the "coming soon" opening screen (locks the app for everybody except the owner, with a countdown and a download button). */
 export function SoonAdminCard() {
@@ -30,6 +40,8 @@ export function SoonAdminCard() {
   const [sup, setSup] = useState(saved ? saved.sup : true);
   const [ad, setAd] = useState(saved?.ad || '');
   const [av, setAv] = useState(saved?.av || 0);
+  const [tx, setTx] = useState<Record<SoonTextKey, string>>(() => ({ ...SOON_TEXT_DEFAULTS, ...(saved ? Object.fromEntries(SOON_TEXT_KEYS.map((k) => [k, (saved as any)[k]])) : {}) } as any));
+  const [more, setMore] = useState(false);
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const ads = db.ads || [];
@@ -41,9 +53,9 @@ export function SoonAdminCard() {
     if (!msg.trim()) { toast('اكتب الرسالة الأساسية', 'err'); return null; }
     if (Number.isNaN(at)) { toast('اكتب اليوم بالشكل 2026-11-16 والساعة بالشكل 15:00', 'err'); return null; }
     if (url.trim() && !/^https:\/\/[^\s]+$/i.test(url.trim())) { toast('رابط التحميل لازم يبدأ بـ https://', 'err'); return null; }
-    return { m: msg.trim(), at, u: url.trim(), sup, ad, av };
+    return { m: msg.trim(), at, u: url.trim(), sup, ad, av, ...tx } as SoonCfg;
   };
-  const previewCfg = (): SoonCfg => ({ m: msg.trim() || DEFAULT_SOON_MSG, at: Number.isNaN(at) ? 0 : at, u: url.trim() || DEFAULT_URL, sup, ad, av });
+  const previewCfg = (): SoonCfg => ({ m: msg.trim() || DEFAULT_SOON_MSG, at: Number.isNaN(at) ? 0 : at, u: url.trim() || DEFAULT_URL, sup, ad, av, ...tx } as SoonCfg);
 
   const save = () => {
     const cfg = build();
@@ -93,6 +105,19 @@ export function SoonAdminCard() {
         <View style={{ flex: 1.3 }}><Field label="يوم الافتتاح (مثال 2026-11-16)" value={date} onChangeText={setDate} icon="calendar" keyboardType="numbers-and-punctuation" /></View>
       </View>
       {!Number.isNaN(at) && <T size={12.5} color={C.sub}>هتظهر للناس: {whenLabel(at)}</T>}
+      <Pressable onPress={() => setMore(!more)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+        <Icon name={more ? 'chevron-up' : 'chevron-down'} size={18} color={C.dark} />
+        <T w="bold" size={14}>باقي نصوص الشاشة (اكتب مكانها أو غيّرها)</T>
+      </Pressable>
+      {more && (
+        <View style={{ gap: 10 }}>
+          {SOON_TEXT_KEYS.map((k) => (
+            <Field key={k} label={TXT_LABELS[k]} value={tx[k]} onChangeText={(v: string) => setTx({ ...tx, [k]: v })} maxLength={40} />
+          ))}
+          <Btn title="رجّع النصوص الأصلية" variant="outline" onPress={() => setTx({ ...SOON_TEXT_DEFAULTS } as any)} />
+        </View>
+      )}
+      <T size={11.5} color={tx ? C.sub : C.sub}>المساحة المستخدمة: {buildSoon({ m: msg, at: Number.isNaN(at) ? 0 : at, u: url, sup, ad, av, ...tx } as SoonCfg).length} من 480 حرف</T>
       <Field label="رابط زر التحميل (الموقع بس)" value={url} onChangeText={setUrl} icon="link" autoCapitalize="none" keyboardType="url" style={{ writingDirection: 'ltr', textAlign: 'left' } as any} />
 
       <T w="semi" size={13} color={C.dark3}>الصورة (المنظر في النص)</T>

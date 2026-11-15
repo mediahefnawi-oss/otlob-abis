@@ -66,17 +66,17 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
           <Logo width={250} />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 }}>
             <View style={{ width: 36, height: 1, backgroundColor: 'rgba(242,181,29,0.7)' }} />
-            <T w="black" size={13} color={GOLD} style={{ letterSpacing: 6 }}>OTLOBABIS</T>
+            <T w="black" size={13} color={GOLD} style={{ letterSpacing: 6 }}>{cfg.br}</T>
             <View style={{ width: 36, height: 1, backgroundColor: 'rgba(242,181,29,0.7)' }} />
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(242,181,29,0.7)', backgroundColor: 'rgba(0,0,0,0.35)', paddingHorizontal: 14, paddingVertical: 4 }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF5A4D' }} />
-            <T w="bold" size={12.5} color={GOLD}>قريبًا جدًا في منطقتك</T>
+            <T w="bold" size={12.5} color={GOLD}>{cfg.pl}</T>
           </View>
 
-          <View style={{ width: '100%', aspectRatio: 800 / 548, marginTop: 6 }}>
+          <View style={{ width: '100%', aspectRatio: 800 / 420, marginTop: 6 }}>
             <Image source={scene} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-            <LinearGradient colors={['#073D16', 'rgba(7,61,22,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 44 }} pointerEvents="none" />
+            <LinearGradient colors={['#073D16', 'rgba(7,61,22,0)']} style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 90 }} pointerEvents="none" />
             <LinearGradient colors={['rgba(1,34,12,0)', '#01220C']} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 56 }} pointerEvents="none" />
           </View>
 
@@ -85,14 +85,14 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
             <T size={30}>📲</T>
             <T w="black" size={31} color="#fff" align="center" style={{ lineHeight: 42, marginTop: 2 }}>{l1}</T>
             {!!l2 && <T w="black" size={31} color={GOLD} align="center" style={{ lineHeight: 42 }}>{l2}</T>}
-            {cfg.at > 0 && <T w="bold" size={16} color="#E8F2EA" align="center" style={{ marginTop: 8, lineHeight: 26 }}>وهنبدأ الشغل <T w="black" size={16} color={GOLD}>{whenLabel(cfg.at, now)}</T></T>}
+            {cfg.at > 0 && <T w="bold" size={16} color="#E8F2EA" align="center" style={{ marginTop: 8, lineHeight: 26 }}>{cfg.wl} <T w="black" size={16} color={GOLD}>{whenLabel(cfg.at, now)}</T></T>}
           </View>
 
           {cfg.at > 0 && (
             <View style={{ width: '88%', marginTop: 16 }}>
               {cd.left > 0 ? (
                 <>
-                  <T w="bold" size={12.5} color={GOLD} align="center" style={{ marginBottom: 6 }}>⏳ باقي على الافتتاح</T>
+                  <T w="bold" size={12.5} color={GOLD} align="center" style={{ marginBottom: 6 }}>{cfg.cl}</T>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     {cd.d > 0 && <Tile value={pad2(cd.d)} label="يوم" />}
                     <Tile value={pad2(cd.h)} label="ساعة" />
@@ -102,7 +102,7 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
                 </>
               ) : (
                 <View style={{ borderRadius: 16, borderWidth: 1.5, borderColor: GOLD, backgroundColor: 'rgba(242,181,29,0.14)', paddingVertical: 12 }}>
-                  <T w="black" size={20} color={GOLD_LIGHT} align="center">🎉 بنفتح حالًا.. ثواني!</T>
+                  <T w="black" size={20} color={GOLD_LIGHT} align="center">{cfg.dn}</T>
                 </View>
               )}
             </View>
@@ -113,7 +113,7 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
               <Pressable onPress={open} accessibilityRole="button">
                 <LinearGradient colors={['#FFD65A', '#E9A30A']} style={{ borderRadius: 32, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderWidth: 2, borderColor: '#FFF1B8', shadowColor: GOLD, shadowOpacity: 0.55, shadowRadius: 18, shadowOffset: { width: 0, height: 6 }, elevation: 8 }}>
                   <Icon name="download" size={24} color="#00211A" />
-                  <T w="black" size={20} color="#00211A">حمّل التطبيق الآن</T>
+                  <T w="black" size={20} color="#00211A">{cfg.dl}</T>
                 </LinearGradient>
               </Pressable>
             </Animated.View>
@@ -122,7 +122,7 @@ export function SoonScreen({ cfg, navigation, preview, onClose }: { cfg: SoonCfg
           {cfg.sup && !!phone && (
             <Pressable onPress={() => openWhats(phone)} style={{ marginTop: 14, flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8 }}>
               <Icon name="logo-whatsapp" size={18} color={GOLD} />
-              <T w="bold" size={14} color={GOLD}>تواصل معنا</T>
+              <T w="bold" size={14} color={GOLD}>{cfg.sp}</T>
             </Pressable>
           )}
 
