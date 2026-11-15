@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { DeliveryPin } from '../components/Location';
 import { OfferBadge, TodayOffers, ShopOfferTag } from '../components/Offers';
 import { ShopRatingsSheet } from '../components/Ratings';
-import { View, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
+import { View, StyleSheet, ScrollView, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -65,11 +65,11 @@ const DEFAULT_ICONS: Record<string, any> = {
   store: require('../assets/images/home/ic_store.webp'),
 };
 /** The extra services (makers, errands) as wide cards in the same style as the tiles above: white, soft shadow, cream circle for the picture, green arrow button. */
-function WideCard({ emoji, imageUri, title, sub, onPress, tint }: { emoji: string; imageUri?: string; title: string; sub: string; onPress: () => void; tint?: string }) {
+function WideCard({ emoji, art, imageUri, title, sub, onPress, tint }: { emoji: string; art?: any; imageUri?: string; title: string; sub: string; onPress: () => void; tint?: string }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 26, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12, ...shadow }, pressed && { transform: [{ scale: 0.98 }] }]}>
-      <View style={{ width: 66, height: 66, borderRadius: 33, backgroundColor: tint || '#FFF3D2', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {imageUri ? <Image source={{ uri: imageUri }} style={{ width: 66, height: 66 }} resizeMode="cover" /> : <Text style={{ fontSize: 34 }}>{emoji}</Text>}
+      <View style={{ width: art && !imageUri ? 76 : 66, height: art && !imageUri ? 76 : 66, borderRadius: 38, backgroundColor: imageUri ? (tint || '#FFF3D2') : 'transparent', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {imageUri ? <Image source={{ uri: imageUri }} style={{ width: 66, height: 66 }} resizeMode="cover" /> : art ? <Image source={art} style={{ width: 76, height: 76 }} resizeMode="contain" /> : <Text style={{ fontSize: 34 }}>{emoji}</Text>}
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <T w="black" size={16.5}>{title}</T>
@@ -128,28 +128,22 @@ function HomeOld({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       {/* the header: the owner's artwork as the background (green, light-green shape, gold swoosh), the content drawn over it at the same places */}
-      <View style={{ width: '100%', aspectRatio: 841 / 385, backgroundColor: '#0B4A22' }} onLayout={(e) => setHw(e.nativeEvent.layout.width)}>
-        <Image source={require('../assets/images/home/header.webp')} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} resizeMode="stretch" />
-        {!!db.settings.features?.covers && (db.settings.homeCoverV || 0) > 0 && (
-          <>
-            <Image source={{ uri: homeCoverUrl(db.settings.homeCoverV!) }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
-            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,33,26,0.5)' }} />
-          </>
-        )}
-        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.06, alignItems: 'center' }} pointerEvents="none">
-          <Logo width={hw * 0.37} />
-          <T w="black" size={Math.max(9, hw * 0.0215)} color="#fff" style={{ letterSpacing: hw * 0.012, marginTop: 2 }}>OTLOB ABIS</T>
+      <View style={{ width: '100%', aspectRatio: 841 / 345, backgroundColor: '#0B4A22', overflow: 'hidden' }} onLayout={(e) => setHw(e.nativeEvent.layout.width)}>
+        <Image source={require('../assets/images/home/header.webp')} style={{ position: 'absolute', left: 0, bottom: 0, width: '100%', aspectRatio: 841 / 385 }} resizeMode="stretch" />
+        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.035, alignItems: 'center' }} pointerEvents="none">
+          <Logo width={hw * 0.34} />
+          <T w="black" size={Math.max(8, hw * 0.019)} color="#fff" style={{ letterSpacing: hw * 0.011, marginTop: 1 }}>OTLOB ABIS</T>
         </View>
-        <View style={{ position: 'absolute', right: hw * 0.045, top: hw * 0.1, alignItems: 'center', gap: 2 }} pointerEvents="none">
-          <View style={{ width: hw * 0.1, height: hw * 0.1, borderRadius: hw * 0.05, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.75)', alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="person" size={hw * 0.055} color="#fff" />
+        <View style={{ position: 'absolute', right: hw * 0.045, top: hw * 0.06, alignItems: 'center', gap: 2 }} pointerEvents="none">
+          <View style={{ width: hw * 0.09, height: hw * 0.09, borderRadius: hw * 0.045, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.75)', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="person" size={hw * 0.05} color="#fff" />
           </View>
-          <T w="black" size={Math.max(12, hw * 0.036)} color="#fff" numberOfLines={1}>أهلاً {me.name.split(' ')[0]}</T>
+          <T w="black" size={Math.max(11, hw * 0.032)} color="#fff" numberOfLines={1}>أهلاً {me.name.split(' ')[0]}</T>
         </View>
-        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: 16, right: 16, top: hw * 0.335, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <Icon name="location" size={Math.max(16, hw * 0.04)} color={C.gold} />
-          <T w="semi" size={Math.max(12, hw * 0.033)} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'حدد موقعك لعرض الخدمات المتاحة'}</T>
-          <Icon name="chevron-down" size={Math.max(15, hw * 0.036)} color={C.gold} />
+        <Pressable onPress={() => setAddrOpen(true)} hitSlop={6} style={{ position: 'absolute', left: 16, right: 16, top: hw * 0.275, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <Icon name="location" size={Math.max(15, hw * 0.036)} color={C.gold} />
+          <T w="semi" size={Math.max(11.5, hw * 0.03)} color="#fff" numberOfLines={1} style={{ flexShrink: 1 }}>{me.address || 'حدد موقعك لعرض الخدمات المتاحة'}</T>
+          <Icon name="chevron-down" size={Math.max(14, hw * 0.033)} color={C.gold} />
         </Pressable>
       </View>
       <View style={{ paddingHorizontal: 16, marginTop: 4 }}>
@@ -193,19 +187,15 @@ function HomeOld({ navigation }: any) {
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || DEFAULT_ICONS[k] || isLab(k) ? { paddingBottom: 8 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   {DEFAULT_ICONS[k]
-                    ? <Image source={DEFAULT_ICONS[k]} style={{ width: '100%', aspectRatio: 246 / 182 }} resizeMode="cover" />
+                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={DEFAULT_ICONS[k]} style={StyleSheet.absoluteFill as any} resizeMode="contain" /></View>
                     : (db.settings.catIconV?.[k] || 0) > 0
-                    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1.15 }} resizeMode="cover" />
-                    : isLab(k) ? (
-                      <LinearGradient colors={['#0E5A33', '#06361F']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ width: '100%', aspectRatio: 1.15, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ fontSize: 64, marginBottom: 18 }}>{TYPES[k].emoji}</Text>
-                        <View style={{ position: 'absolute', bottom: 14, left: 8, right: 8, backgroundColor: C.gold, borderRadius: 8, paddingVertical: 4 }}>
-                          <T w="black" size={13} color={C.dark} align="center" numberOfLines={1}>المعامل</T>
+                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={StyleSheet.absoluteFill as any} resizeMode="contain" /></View>
+                    : (
+                      // a service added later with no picture yet: the same cream circle with its emoji, so the tile still matches the others
+                      <View style={{ width: '100%', aspectRatio: 738 / 444, alignItems: 'center', justifyContent: 'center' }}>
+                        <View style={{ height: '97%', aspectRatio: 1, borderRadius: 999, backgroundColor: '#FFF1CC', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 40 }}>{TYPES[k].emoji}</Text>
                         </View>
-                      </LinearGradient>
-                    ) : (
-                      <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.gold, overflow: 'hidden' }}>
-                        <Icon name={TYPES[k].icon} size={23} color={C.gold} />
                       </View>
                     )}
                   <T w="black" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 13} align="center" numberOfLines={2}>{HOME_NAMES[k] || TYPES[k].label}</T>
@@ -219,7 +209,7 @@ function HomeOld({ navigation }: any) {
           {/* makers: one full-width card under the six icons */}
           {cats.filter((k) => isMakerTpl(k)).map((k, i) => (
             <Appear key={k} i={i + 3} style={{ marginTop: 12 }}>
-              <WideCard emoji={TYPES[k].emoji} imageUri={(db.settings.catIconV?.[k] || 0) > 0 ? catIconUrl(k, db.settings.catIconV![k]) : undefined} title={TYPES[k].label} sub={serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'} onPress={() => navigation.navigate('Category', { type: k })} tint="#FBE3EC" />
+              <WideCard art={require('../assets/images/home/ic_maker.webp')} emoji={TYPES[k].emoji} imageUri={(db.settings.catIconV?.[k] || 0) > 0 ? catIconUrl(k, db.settings.catIconV![k]) : undefined} title={TYPES[k].label} sub={serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'} onPress={() => navigation.navigate('Category', { type: k })} tint="#FBE3EC" />
             </Appear>
           ))}
 
@@ -235,7 +225,7 @@ function HomeOld({ navigation }: any) {
           )}
 
           {errandDef().active && errandDef().showHome && <Appear i={2} style={{ marginTop: 12 }}>
-            <WideCard emoji={errandDef().emoji} imageUri={(db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
+            <WideCard art={require('../assets/images/home/ic_errand.webp')} emoji={errandDef().emoji} imageUri={(db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
           </Appear>}
 
           {nearby.length > 0 && <View style={{ marginTop: 18 }}>
