@@ -306,6 +306,21 @@ CREATE TABLE IF NOT EXISTS site_images (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Rides (inDrive style), phase 1: the vehicle types the owner manages (switch "rides" in app_settings.features, OFF by default).
+CREATE TABLE IF NOT EXISTS ride_types (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  base_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
+  per_km NUMERIC(10,2) NOT NULL DEFAULT 0,
+  min_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
+  adj_pct INT NOT NULL DEFAULT 30,
+  sort_order INT NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  image BYTEA,
+  mime TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Default commissions (seeded once; afterwards the owner edits them from the panel).
 DO $$
 BEGIN

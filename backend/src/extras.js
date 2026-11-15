@@ -4,6 +4,7 @@
  * Every new feature starts switched OFF; the owner opens it from the panel (and can close it again at any time).
  */
 const FEATURES = {
+  rides: { label: 'خدمة التوصيلة (تجريبي)', on: false },
   menu: { label: 'المنيو وطرق الطلب', on: false },
   chat: { label: 'شات العميل مع المحل', on: false },
   voice: { label: 'الطلب الصوتي', on: false },

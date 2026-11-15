@@ -176,7 +176,7 @@ const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
-const SCHEMA_VERSION = 20261215;
+const SCHEMA_VERSION = 20261216;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -1104,6 +1104,7 @@ require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, set
 require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./premium').register(app, { pool, auth, roles, asyncRoute, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); authMemo.clear(); }, pushToUsers });
 require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
+require('./rides').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 extrasLib.register(app, { pool, auth, roles, asyncRoute, positiveId, services, pushToUsers, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
 ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
