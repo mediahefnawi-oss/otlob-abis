@@ -192,9 +192,10 @@ function HomeOld({ navigation }: any) {
                   onPress={() => navigation.navigate('Category', { type: k })}
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, ...shadow }, (db.settings.catIconV?.[k] || 0) > 0 || DEFAULT_ICONS[k] || isLab(k) ? { paddingBottom: 8 } : { paddingVertical: 14 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
-                  {(db.settings.catIconV?.[k] || 0) > 0
+                  {DEFAULT_ICONS[k]
+                    ? <Image source={DEFAULT_ICONS[k]} style={{ width: '100%', aspectRatio: 246 / 182 }} resizeMode="cover" />
+                    : (db.settings.catIconV?.[k] || 0) > 0
                     ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ width: '100%', aspectRatio: 1.15 }} resizeMode="cover" />
-                    : DEFAULT_ICONS[k] ? <Image source={DEFAULT_ICONS[k]} style={{ width: '100%', aspectRatio: 246 / 182 }} resizeMode="cover" />
                     : isLab(k) ? (
                       <LinearGradient colors={['#0E5A33', '#06361F']} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ width: '100%', aspectRatio: 1.15, alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ fontSize: 64, marginBottom: 18 }}>{TYPES[k].emoji}</Text>
