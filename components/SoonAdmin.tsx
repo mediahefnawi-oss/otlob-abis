@@ -92,11 +92,7 @@ export function SoonAdminCard() {
         <View style={{ flex: 1 }}><Field label="الساعة (مثال 15:00)" value={time} onChangeText={setTime} icon="time" keyboardType="numbers-and-punctuation" /></View>
         <View style={{ flex: 1.3 }}><Field label="يوم الافتتاح (مثال 2026-11-16)" value={date} onChangeText={setDate} icon="calendar" keyboardType="numbers-and-punctuation" /></View>
       </View>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Btn title="النهاردة" small variant="soft" onPress={() => setDate(dateText(Date.now()))} />
-        <Btn title="بكرا" small variant="soft" onPress={() => setDate(dateText(Date.now() + 86400000))} />
-        {!Number.isNaN(at) && <View style={{ flex: 1, justifyContent: 'center' }}><T size={12} color={C.sub}>هتظهر: {whenLabel(at)}</T></View>}
-      </View>
+      {!Number.isNaN(at) && <T size={12.5} color={C.sub}>هتظهر للناس: {whenLabel(at)}</T>}
       <Field label="رابط زر التحميل (الموقع بس)" value={url} onChangeText={setUrl} icon="link" autoCapitalize="none" keyboardType="url" style={{ writingDirection: 'ltr', textAlign: 'left' } as any} />
 
       <T w="semi" size={13} color={C.dark3}>الصورة (المنظر في النص)</T>
