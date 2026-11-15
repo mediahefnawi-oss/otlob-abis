@@ -130,8 +130,8 @@ function HomeOld({ navigation }: any) {
       {/* the header: the owner's artwork as the background (green, light-green shape, gold swoosh), the content drawn over it at the same places */}
       <View style={{ width: '100%', aspectRatio: 841 / 345, backgroundColor: '#0B4A22', overflow: 'hidden' }} onLayout={(e) => setHw(e.nativeEvent.layout.width)}>
         <Image source={require('../assets/images/home/header.webp')} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} resizeMode="stretch" />
-        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.03, alignItems: 'center' }} pointerEvents="none">
-          <Image source={require('../assets/images/home/logo-design.png')} style={{ width: hw * 0.4, height: hw * 0.4 * 184 / 336 }} resizeMode="contain" />
+        <View style={{ position: 'absolute', left: 0, right: 0, top: hw * 0.035, alignItems: 'center' }} pointerEvents="none">
+          <Image source={require('../assets/images/home/logo-design.png')} style={{ width: hw * 0.4 * 754 / 700, height: hw * 0.4 * 383 / 700 }} resizeMode="contain" />
         </View>
         <View style={{ position: 'absolute', right: hw * 0.045, top: hw * 0.06, alignItems: 'center', gap: 2 }} pointerEvents="none">
           <View style={{ width: hw * 0.09, height: hw * 0.09, borderRadius: hw * 0.045, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.75)', alignItems: 'center', justifyContent: 'center' }}>
