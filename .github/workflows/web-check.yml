@@ -34,13 +34,6 @@ jobs:
             await p.route('https://api.otlobabis.com/**', async (route) => {
               try {
                 const r = await route.fetch();
-                if (/\/api\/settings(\?|$)/.test(route.request().url())) {
-                  const j = await r.json();
-                  const patch = (o) => { if (o && typeof o === 'object') { o.features = { ...(o.features || {}), guestBrowse: true }; } };
-                  patch(j); patch(j.settings);
-                  await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(j) });
-                  return;
-                }
                 await route.fulfill({ response: r, headers: { ...r.headers(), 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } });
               } catch (e) { await route.abort(); }
             });
