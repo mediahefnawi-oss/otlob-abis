@@ -6,7 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { phaseAt, allowedIn, renderMessage, type HoursPhase, type NextOpen } from './hours';
 import { AppState } from 'react-native';
 import {
-  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSetUserFlag, apiRegister, apiUpdateNotice, apiSetTheme, apiSetUiScale, apiSetPrivacy, apiSetDeliveryMode, apiSetMapMode, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
+  ApiError, ServerUser, apiDeleteCourier, apiDeleteCustomer, apiLabRequest, apiLabAction, apiLabFile, apiLogin, apiSwitch, apiSetUserFlag, apiRegister, apiUpdateNotice, apiSetTheme, apiSetUiScale, apiSetPrivacy, apiSetDeliveryMode, apiSetMapMode, apiMe, apiGetSettings, apiUpdateSettings, apiSetUserStatus,
   apiDecideProvider, apiListUsers, apiListPendingProviders, apiUpdateProfile, apiChangePassword,
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
@@ -143,6 +143,7 @@ const isServerId = (id: string) => /^\d+$/.test(id);
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : `حدث خطأ غير متوقع. حاول مرة أخرى${e && (e as any).message ? ` (${String((e as any).message).slice(0, 80)})` : ''}`);
 
 const fromServer = (s: ServerUser, old?: User): User => ({
+  baseRole: (s.baseRole as Role | undefined) || undefined,
   premiumUntil: Number(s.premiumUntil) || 0,
   vehicle: s.vehicle || old?.vehicle,
   available: !!s.available,
@@ -167,7 +168,7 @@ const fromServer = (s: ServerUser, old?: User): User => ({
 function mirrorUser(s: ServerUser) {
   const old = state.db.users.find((u) => u.id === s.id);
   const next = fromServer(s, old);
-  const same = old && (old.premiumUntil || 0) === (next.premiumUntil || 0) && old.name === next.name && old.phone === next.phone && (old.phone2 || '') === (next.phone2 || '') && old.role === next.role
+  const same = old && (old.premiumUntil || 0) === (next.premiumUntil || 0) && old.name === next.name && old.phone === next.phone && (old.phone2 || '') === (next.phone2 || '') && old.role === next.role && old.baseRole === next.baseRole
     && old.address === next.address && old.status === next.status && (old.regionId ?? null) === (next.regionId ?? null)
     && old.available === next.available && old.vehicle === next.vehicle && (old.accountFlag || '') === (next.accountFlag || '') && (old.flagNote || '') === (next.flagNote || '') && !!old.supportChat === !!next.supportChat;
   if (same) return;
@@ -587,6 +588,20 @@ export async function login(phone: string, pass: string): Promise<Result<{ user:
     secure.set(SESSION_KEY, user.id);
     syncRemote();
     return { ok: true, user };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+
+/** Same account: a shop owner views the app as a customer (to order from anywhere) and goes back. */
+export async function switchMode(to: 'customer' | 'main'): Promise<Result> {
+  try {
+    loginEpoch++;
+    const { user: su } = await apiSwitch(to);
+    lastSyncTag = null;
+    mirrorUser(su);
+    syncRemote();
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   }

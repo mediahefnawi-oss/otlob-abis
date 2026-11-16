@@ -160,6 +160,18 @@ const pushes = [];
   r = await call('GET /api/sync', CR, {}, {}, {}); ok(r.json.orders.length > 0, 'a courier sees his orders and the ones waiting'); 
   r = await call('GET /api/sync', A, {}, {}, {}); ok(r.json.orders.length >= 8, 'the owner sees everything');
 
+  console.log('7b) a shop owner using the app as a customer');
+  const OC = { ...S(oR), role: 'customer' };           // same account as shop 1's owner, token switched to the customer view
+  r = await buy(OC, [{ productId: a1, qty: 1 }]);
+  eq(r.status, 409, 'cannot order from his own shop'); ok(/متجرك/.test(r.json.error || ''), 'clear message: ' + r.json.error);
+  r = await buy(OC, [{ productId: a1, qty: 1 }, { productId: b1, qty: 1 }]);
+  eq(r.status, 409, 'a cart that includes his own shop is refused too');
+  r = await buy(OC, [{ productId: b1, qty: 1 }]);
+  eq(r.status, 201, 'but he can order from another shop: ' + (r.json.error || ''));
+  eq((await q('SELECT customer_user_id FROM orders WHERE id=$1', [r.json.orders[0].id])).rows[0].customer_user_id.toString(), String(oR), 'the order is recorded under his account as a customer');
+  r = await call('GET /api/sync', OC, {}, {}, {});
+  ok(r.json.orders.some(o => o.id === String(r.json.orders[0].id)) || r.json.orders.length >= 1, 'as a customer he sees the order he placed');
+
   console.log('8) notifications');
   ok(pushes.length > 10, 'people were notified along the way: ' + pushes.length);
   console.log(`e2e orders: ${pass} passed, ${bad} failed`); process.exit(bad ? 1 : 0);

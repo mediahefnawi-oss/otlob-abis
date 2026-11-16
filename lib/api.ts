@@ -83,6 +83,13 @@ export async function apiLogin(input: { phone?: string; password: string; userna
   return result;
 }
 
+/** A shop owner uses the same account as a customer ('customer') or goes back to the shop view ('main'). */
+export async function apiSwitch(to: 'customer' | 'main') {
+  const result = await apiRequest<{ token: string; user: ServerUser }>('/api/auth/switch', { method: 'POST', body: JSON.stringify({ to }) });
+  await saveApiToken(result.token);
+  return result;
+}
+
 export async function apiRegister(input: { name: string; phone: string; phone2?: string; password: string; address?: string; role?: string; regionId?: string; vehicle?: string; provider?: Record<string, unknown> }) {
   const result = await apiRequest<{ token: string; user: { id: string; name: string; phone: string; role: string; address: string; status: string } }>(
     '/api/auth/register', { method: 'POST', body: JSON.stringify(input) }, false,
@@ -200,7 +207,7 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { premiumUntil?: number; id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; homeLat?: number; homeLng?: number; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean };
+export type ServerUser = { baseRole?: string; premiumUntil?: number; id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; homeLat?: number; homeLng?: number; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');

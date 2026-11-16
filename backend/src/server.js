@@ -120,7 +120,7 @@ function backupPhone(v, mainPhone) {
   return { ok: true, phone: p };
 }
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-function tokenFor(user) { return jwt.sign({ sub: String(user.id), role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.TOKEN_TTL || '30d', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' }); }
+function tokenFor(user, as) { return jwt.sign({ sub: String(user.id), role: user.role, ...(as === 'customer' && user.role === 'provider' ? { as: 'customer' } : {}) }, process.env.JWT_SECRET, { expiresIn: process.env.TOKEN_TTL || '30d', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' }); }
 async function authCore(req, res, next, allowInactive) {
   const h = req.headers.authorization || '';
   if (!h.startsWith('Bearer ')) return res.status(401).json({ error: 'يلزم تسجيل الدخول' });
@@ -140,7 +140,9 @@ async function authCore(req, res, next, allowInactive) {
       user = authMemo.set(String(claims.sub), result.rows[0]);
     }
     if (!allowInactive && user.status !== 'active') return res.status(403).json({ error: 'الحساب غير مفعّل. تواصل مع الدعم' });
-    req.auth = { ...claims, sub: String(user.id), role: user.role, status: user.status };
+    // a shop owner can use the app as a customer: the token carries as:'customer', honoured ONLY for a provider account (never admin / staff)
+    const asCustomer = claims.as === 'customer' && user.role === 'provider';
+    req.auth = { ...claims, sub: String(user.id), role: asCustomer ? 'customer' : user.role, baseRole: user.role, status: user.status };
     return next();
   } catch (err) { return next(err); }
 }
@@ -371,10 +373,23 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
   res.json({ token: tokenFor(user), user: cleanUser(user) });
 }));
 
+/** The account as the current token sees it: a shop owner using the app as a customer shows role=customer and baseRole=provider. */
+const meJson = (row, a) => ({ ...cleanUser(row), role: a.role, ...(a.role !== row.role ? { baseRole: row.role } : {}) });
 app.get('/api/me', authAny, asyncRoute(async (req, res) => {
   const r = await pool.query('SELECT * FROM users WHERE id=$1', [req.auth.sub]);
   if (!r.rowCount) return res.status(404).json({ error: 'الحساب غير موجود' });
-  res.json({ user: cleanUser(r.rows[0]) });
+  res.json({ user: meJson(r.rows[0], req.auth) });
+}));
+/** Same account, same password: a shop owner switches to a customer view (to order from anywhere) and back. */
+app.post('/api/auth/switch', auth, asyncRoute(async (req, res) => {
+  const to = (req.body || {}).to === 'customer' ? 'customer' : 'main';
+  const r = await pool.query('SELECT * FROM users WHERE id=$1 AND deleted_at IS NULL', [req.auth.sub]);
+  if (!r.rowCount) return res.status(404).json({ error: 'الحساب غير موجود' });
+  const row = r.rows[0];
+  if (row.role !== 'provider') return res.status(403).json({ error: 'التحويل لعميل متاح لأصحاب المتاجر ومقدمي الخدمات فقط' });
+  if (to === 'customer') { const mt = await maintenanceState('customer'); if (!mt.enabled) return res.status(503).json({ error: mt.message }); }
+  const a = { role: to === 'customer' ? 'customer' : row.role };
+  res.json({ token: tokenFor(row, to), user: meJson(row, a) });
 }));
 
 

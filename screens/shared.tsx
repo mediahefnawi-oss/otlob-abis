@@ -11,7 +11,7 @@ import {
 } from '../components/ui';
 import { APP_VERSION } from '../lib/version';
 import { ClinicSetActions } from '../components/ClinicSchedule';
-import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, setAvailable, markOrderOpened, ackOrder } from '../lib/store';
+import { useStore, useMe, orderAction, apptAction, sendMessage, updateProfile, changePassword, logout, updateProvider, switchMode, setAvailable, markOrderOpened, ackOrder } from '../lib/store';
 import { CommissionTrail } from '../components/Finance';
 import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel, isMakerTpl } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
@@ -689,6 +689,8 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
           <View style={{ height: 1, backgroundColor: C.line }} />
           {me.role === 'customer' && !!db.settings.features?.premium && <><Item icon="star" label="أبيس بريميم" onPress={() => navigation.navigate('Premium')} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
           {me.role === 'customer' && <><Item icon="ticket" label="أكواد الخصم الخاصة بي" onPress={() => setCpn(true)} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
+          {me.role === 'provider' && <><Item icon="swap-horizontal" label="اتحول لعميل" sub="اطلب من أي متجر بنفس حسابك" onPress={async () => { const r = await switchMode('customer'); if (!r.ok) toast(r.error, 'err'); }} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
+          {me.role === 'customer' && me.baseRole === 'provider' && <><Item icon="swap-horizontal" label="ارجع لحسابي كمقدم خدمة" sub="متجرك وطلباته زي ما هي" onPress={async () => { const r = await switchMode('main'); if (!r.ok) toast(r.error, 'err'); }} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
           <Item icon="logo-whatsapp" label="الدعم الفني واتساب" sub="01004379508 — أحمد حفناوي" onPress={() => openWhats('01004379508', `مرحباً، أنا ${me.name}`)} />
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Item icon="log-out" label="تسجيل الخروج" danger onPress={() => confirmDialog({ title: 'تسجيل الخروج', message: 'هل تريد تسجيل الخروج من حسابك؟', confirmText: 'خروج', danger: true, onConfirm: logout })} />
