@@ -84,7 +84,9 @@ function WideCard({ emoji, art, imageUri, title, sub, onPress, tint }: { emoji: 
   );
 }
 /** the names on the home tiles, exactly as in the owner's design */
-const HOME_NAMES: Record<string, string> = { clinic: 'العيادات', lab: 'المعامل والتحاليل' };
+// shorter names for the home grid, used ONLY while the owner has not renamed the service (a name he typed always wins)
+const HOME_NAMES: Record<string, { from: string; short: string }> = { clinic: { from: 'حجز العيادات', short: 'العيادات' }, lab: { from: 'المعامل والتحاليل', short: 'المعامل والتحاليل' } };
+const homeName = (k: string, label: string) => (HOME_NAMES[k] && HOME_NAMES[k].from === label ? HOME_NAMES[k].short : label);
 const rows3 = <X,>(l: X[]): X[][] => { const r: X[][] = []; for (let i = 0; i < l.length; i += 3) r.push(l.slice(i, i + 3)); return r; };
 
 /** The owner's switch "homeNew" picks the new home; switched off, the old one below is shown exactly as before. */
@@ -202,7 +204,7 @@ function HomeOld({ navigation }: any) {
                         </View>
                       </View>
                     )}
-                  <T w="black" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 13} align="center" numberOfLines={2}>{HOME_NAMES[k] || TYPES[k].label}</T>
+                  <T w="black" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 13} align="center" numberOfLines={2}>{homeName(k, TYPES[k].label)}</T>
                 </Pressable>
               </Appear>
             ); })}
