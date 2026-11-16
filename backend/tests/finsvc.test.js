@@ -31,6 +31,7 @@ async function call(key, { as, body, params, query } = {}) {
   const A = { sub: a, role: 'admin' }, C = { sub: d, role: 'courier' };
   const ins = (svc, base, amount, status) => q("INSERT INTO commission_entries(entry_type, kind, courier_user_id, base_amount, amount, status, svc) VALUES('accrual','courier',$1,$2,$3,$4,$5)", [d, base, amount, status, svc]);
   await ins('ride', 40, 6, 'settled'); await ins('ride', 60, 9, 'settled'); await ins('market', 12, 3, 'due');
+  await new Promise(x => setTimeout(x, 10));   // timestamps are cut to the millisecond in JS: let the rows be strictly older than "now"
   const cur = (await call('GET /api/admin/closings/services', { as: A })).json;
   const by = s => cur.services.find(x => x.svc === s);
   eq([by('ride').orders, by('ride').base, by('ride').commission], [2, 100, 15], 'ride totals since never closed');
@@ -44,7 +45,7 @@ async function call(key, { as, body, params, query } = {}) {
   const after = (await call('GET /api/admin/closings/services', { as: A })).json;
   eq(after.services.find(x => x.svc === 'ride').orders, 0, 'counter restarts after closing');
   eq(after.services.find(x => x.svc === 'market').orders, 1, 'other services untouched');
-  await new Promise(x => setTimeout(x, 30)); await ins('ride', 50, 7.5, 'settled');
+  await new Promise(x => setTimeout(x, 30)); await ins('ride', 50, 7.5, 'settled'); await new Promise(x => setTimeout(x, 10));
   eq((await call('GET /api/admin/closings/services', { as: A })).json.services.find(x => x.svc === 'ride').commission, 7.5, 'new rides count in the next period');
   eq((await call('POST /api/admin/closings/services/:id/undo', { as: A, params: { id: r.json.closing.id } })).json.closing.undone, true, 'undo');
   eq((await call('GET /api/admin/closings/services', { as: A })).json.services.find(x => x.svc === 'ride').commission, 22.5, 'after undo the period is whole again');
@@ -62,6 +63,8 @@ async function call(key, { as, body, params, query } = {}) {
   ok(mine.services && mine.services.rows.length === 4, 'courier sees 4 kinds of work');
   const rr = k => mine.services.rows.find(x => x.svc === k);
   eq(rr('ride').today.commission, 22.5, 'ride commission today');
+  ok(mine.services.rows.every(r => ['today', 'month'].every(k => ['count', 'earned', 'commission', 'net'].every(f => typeof r[k][f] === 'number'))), 'a kind with no work shows zeros, never null');
+  ok(Number.isFinite(mine.services.total.today.earned) && mine.services.total.today.earned >= 15, 'the total is a real number and counts the rows');
   eq([rr('market').today.count, rr('market').today.earned], [1, 15], 'market order counted with its delivery fee');
   eq(rr('market').today.net, 12, 'net = fee 15 - commission 3');
   eq(mine.services.total.today.commission, mine.services.rows.reduce((a, x) => a + x.today.commission, 0), 'total = sum of the kinds');

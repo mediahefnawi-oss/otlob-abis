@@ -411,7 +411,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
         FROM commission_entries WHERE kind='courier' AND courier_user_id=$1 GROUP BY 1`, [uid]);
       const cap = (await pool.query('SELECT 1 FROM captain_profiles WHERE user_id=$1', [uid])).rowCount > 0;
       const per = (svc, k) => { const x = w.rows.find(r => r.svc === svc) || {}, c = cm.rows.find(r => r.svc === svc) || {};
-        const count = Number(x[k + 'c']) || 0, earned = round2(x[k + 'f']), commission = round2(c[k]); return { count, earned, commission, net: round2(earned - commission) }; };
+        const count = Number(x[k + 'c']) || 0, earned = round2(Number(x[k + 'f']) || 0), commission = round2(Number(c[k]) || 0); return { count, earned, commission, net: round2(earned - commission) }; };
       const NAMES = { delivery: 'توصيل طلبات المحلات', market: 'طلبات ماركت', errand: 'اطلب إيه نجيبهولك', ride: 'التوصيلة (الرحلات)' };
       services = { captain: cap, rows: Object.keys(NAMES).map(svc => ({ svc, name: NAMES[svc], today: per(svc, 't'), month: per(svc, 'm') })) };
       const sum = k => services.rows.reduce((a, r) => ({ count: a.count + r[k].count, earned: round2(a.earned + r[k].earned), commission: round2(a.commission + r[k].commission), net: round2(a.net + r[k].net) }), { count: 0, earned: 0, commission: 0, net: 0 });

@@ -1,0 +1,15 @@
+# Extra file for a HOME server that is reached through a Cloudflare Tunnel (no router ports to open, no Caddy).
+# Use it together with the main file:
+#   cd /opt/otlob
+#   docker compose --env-file .env -f deploy/docker-compose.vps.yml -f deploy/docker-compose.home.yml up -d --build db api cloudflared
+# Needs TUNNEL_TOKEN=... inside /opt/otlob/.env (see the guide). In the Cloudflare dashboard the tunnel's public hostname
+# (e.g. api.yourdomain.com) must point to the service  http://api:4000
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - api
