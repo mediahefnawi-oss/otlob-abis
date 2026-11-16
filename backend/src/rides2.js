@@ -230,7 +230,12 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     if (!r.rowCount) return res.json({ ride: null, offers: [] });
     const o = await pool.query(`SELECT o.id, o.price, o.status, o.driver_id, u.name, p.model, p.color, p.plate FROM ride_offers o JOIN users u ON u.id=o.driver_id JOIN captain_profiles p ON p.user_id=o.driver_id
       WHERE o.ride_id=$1 AND o.status IN ('open','accepted') ORDER BY o.price`, [r.rows[0].id]);
-    res.json({ ride: rideOut(r.rows[0]), offers: o.rows.map(x => ({ id: Number(x.id), price: Number(x.price), status: x.status, driver: { id: Number(x.driver_id), name: x.name, model: x.model, color: x.color, plate: x.plate } })) });
+    let driver = null;
+    if (r.rows[0].driver_id && ['assigned', 'arrived', 'started'].includes(r.rows[0].status)) {
+      const dr = await pool.query('SELECT u.name, u.phone, p.model, p.color, p.plate FROM users u LEFT JOIN captain_profiles p ON p.user_id=u.id WHERE u.id=$1', [r.rows[0].driver_id]);
+      if (dr.rowCount) driver = { id: Number(r.rows[0].driver_id), name: String(dr.rows[0].name || '').split(' ').slice(0, 2).join(' '), phone: dr.rows[0].phone, model: dr.rows[0].model || '', color: dr.rows[0].color || '', plate: dr.rows[0].plate || '' };
+    }
+    res.json({ ride: rideOut(r.rows[0]), driver, offers: o.rows.map(x => ({ id: Number(x.id), price: Number(x.price), status: x.status, driver: { id: Number(x.driver_id), name: x.name, model: x.model, color: x.color, plate: x.plate } })) });
   }));
   app.post('/api/rides/:id/accept-offer', auth, roles('customer'), guard(async (req, res) => {
     const id = positiveId(req.params.id), oid = positiveId((req.body || {}).offerId); if (!id || !oid) throw fail(400, 'بيانات غير صالحة');
@@ -257,6 +262,38 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     if (!p.rowCount || p.rows[0].status !== 'approved') throw fail(403, 'حسابك كابتن غير مفعّل بعد');
     return p.rows[0];
   };
+  /* the map of a trip in progress, for its customer and its captain: where the captain is, the way to the customer, the way of the trip */
+  const routeMemo = new Map();
+  const memo = async (key, ttl, fn) => {
+    const h = routeMemo.get(key); if (h && Date.now() - h.at < ttl) return h.v;
+    const v = await fn();
+    if (routeMemo.size > 400) routeMemo.delete(routeMemo.keys().next().value);
+    routeMemo.set(key, { at: Date.now(), v }); return v;
+  };
+  const leg = (key, ttl, a, b) => memo(key, ttl, async () => { const d = await roadDistance(a, b, undefined, true); return { km: d.km, minutes: d.min, route: d.route || [[a.lat, a.lng], [b.lat, b.lng]] }; });
+  app.get('/api/rides/:id/live', auth, roles('customer', 'courier'), guard(async (req, res) => {
+    await needOn();
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const r = await pool.query('SELECT id, status, customer_id, driver_id, from_lat, from_lng, to_lat, to_lng FROM rides WHERE id=$1', [id]);
+    const x = r.rows[0], uid = Number(req.auth.sub);
+    if (!x || (Number(x.customer_id) !== uid && Number(x.driver_id) !== uid)) throw fail(404, 'الرحلة غير موجودة');
+    res.set('Cache-Control', 'no-store');
+    if (!['assigned', 'arrived', 'started'].includes(x.status)) return res.json({ active: false, status: x.status });
+    const lp = await pool.query("SELECT lat, lng, heading, EXTRACT(EPOCH FROM (NOW() - updated_at))::int AS age FROM courier_locations WHERE courier_id=$1 AND updated_at > NOW() - INTERVAL '10 minutes'", [x.driver_id]);
+    const driver = lp.rowCount ? { lat: Number(lp.rows[0].lat), lng: Number(lp.rows[0].lng), heading: lp.rows[0].heading == null ? null : Number(lp.rows[0].heading), ageSec: lp.rows[0].age } : null;
+    const from = { lat: Number(x.from_lat), lng: Number(x.from_lng) }, to = { lat: Number(x.to_lat), lng: Number(x.to_lng) };
+    const out = { active: true, status: x.status, driver, pickup: null, trip: null, dest: null };
+    const spot = p => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`;
+    if (x.status === 'assigned') {
+      out.trip = await leg(`t:${id}`, 10 * 60 * 1000, from, to);                                   // the way of the trip never changes
+      if (driver) out.pickup = await leg(`p:${id}:${spot(driver)}`, 12 * 1000, driver, from);      // the way to the customer follows the captain
+    } else if (x.status === 'arrived') {
+      out.trip = await leg(`t:${id}`, 10 * 60 * 1000, from, to);
+    } else if (driver) {
+      out.dest = await leg(`d:${id}:${spot(driver)}`, 12 * 1000, driver, to);                      // on the way: what is left to the destination
+    } else out.trip = await leg(`t:${id}`, 10 * 60 * 1000, from, to);
+    res.json(out);
+  }));
   /** the captain's trip in progress (accepted by the customer): both points, the written details and the customer to call */
   app.get('/api/captain/current', auth, roles('courier'), guard(async (req, res) => {
     await needCaptain(req);

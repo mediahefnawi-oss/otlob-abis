@@ -73,8 +73,8 @@ module.exports = function registerTrackingRoutes(app, { pool, auth, roles, async
     const u = await pool.query("SELECT available FROM users WHERE id=$1 AND status='active' AND deleted_at IS NULL", [me(req)]);
     if (!u.rowCount) throw fail(403, 'الحساب غير نشط');
     if (!u.rows[0].available) {
-      const busy = await pool.query('SELECT 1 FROM orders WHERE courier_user_id=$1 AND status = ANY($2) LIMIT 1', [me(req), ACTIVE]);
-      if (!busy.rowCount) throw fail(409, 'التتبع يعمل فقط وأنت متاح أو معك طلب');
+      const busy = await pool.query("SELECT 1 FROM orders WHERE courier_user_id=$1 AND status = ANY($2) UNION ALL SELECT 1 FROM rides WHERE driver_id=$1 AND status IN ('assigned','arrived','started') LIMIT 1", [me(req), ACTIVE]);
+      if (!busy.rowCount) throw fail(409, 'التتبع يعمل فقط وأنت متاح أو معك طلب أو رحلة');
     }
     await pool.query(
       `INSERT INTO courier_locations(courier_id, lat, lng, accuracy, heading, updated_at) VALUES($1,$2,$3,$4,$5,NOW())

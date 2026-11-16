@@ -540,7 +540,12 @@ export const rideImageUrl = (t: { image: string | null }) => (t.image ? `${API_B
 export const apiRideTypes = () => apiRequest<{ types: RideType[] }>('/api/ride-types');
 export const apiRideEstimate = (from: RidePoint, to: RidePoint, typeId: number) => apiRequest<{ km: number; minutes: number; source: string; route?: [number, number][] | null; bidding?: boolean; price: number; lo: number; hi: number }>('/api/rides/estimate', { method: 'POST', body: JSON.stringify({ from, to, typeId }) });
 export const apiRideCreate = (from: RidePoint, to: RidePoint, typeId: number, price: number) => apiRequest<{ ride: Ride; notified: number }>('/api/rides', { method: 'POST', body: JSON.stringify({ from, to, typeId, price }) });
-export const apiRideCurrent = () => apiRequest<{ ride: Ride | null; offers: RideOffer[] }>('/api/rides/current');
+export type RideDriver = { id: number; name: string; phone: string; model: string; color: string; plate: string };
+export type RideLeg = { km: number; minutes: number; route: [number, number][] };
+/** the map of a trip in progress: where the captain is and the ways to draw */
+export type RideLive = { active: boolean; status: string; driver?: { lat: number; lng: number; heading: number | null; ageSec: number } | null; pickup?: RideLeg | null; trip?: RideLeg | null; dest?: RideLeg | null };
+export const apiRideLive = (id: number) => apiRequest<RideLive>(`/api/rides/${id}/live`);
+export const apiRideCurrent = () => apiRequest<{ ride: Ride | null; driver?: RideDriver | null; offers: RideOffer[] }>('/api/rides/current');
 export const apiRideAcceptOffer = (id: number, offerId: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/accept-offer`, { method: 'POST', body: JSON.stringify({ offerId }) });
 export const apiRideCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/cancel`, { method: 'POST' });
 // the captain

@@ -4,6 +4,7 @@ import { View, ScrollView, Pressable, Text, Image, Linking, useWindowDimensions 
 import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, toast } from '../components/ui';
 import MapView from '../components/MapView';
+import type { MapLine } from '../lib/mapHtml';
 import { getPosition } from '../lib/location';
 import { reverseAddress, searchPlace } from '../lib/revgeo';
 import { pickImage, canPickImage } from '../lib/pickImage';
@@ -11,11 +12,65 @@ import { useStore } from '../lib/store';
 import { alertNewOrder } from '../lib/alerts';
 import {
   RideType, RidePoint, Ride, RideOffer, rideImageUrl, apiRideTypes, apiRideEstimate, apiRideCreate, apiRideCurrent, apiRideAcceptOffer, apiRideCancel,
-  CaptainMe, CaptainReq, apiCaptainMe, apiCaptainProfile, apiCaptainPhoto, apiCaptainRequests, apiCaptainOffer, apiCaptainStatus, apiCaptainCurrent, CaptainRide,
+  RideDriver, RideLive, apiRideLive, apiCourierPing, CaptainMe, CaptainReq, apiCaptainMe, apiCaptainProfile, apiCaptainPhoto, apiCaptainRequests, apiCaptainOffer, apiCaptainStatus, apiCaptainCurrent, CaptainRide,
 } from '../lib/api';
 
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
 const STATUS_AR: Record<string, string> = { searching: 'بندوّر لك على كابتن...', assigned: 'الكابتن في الطريق إليك', arrived: 'الكابتن وصل', started: 'الرحلة شغالة', completed: 'وصلت بالسلامة ✅', cancelled: 'الرحلة اتلغت', expired: 'انتهت المهلة' };
+
+
+/** The trip on a map, for the customer and for the captain: the captain's position, the way to the customer (green), the way of the trip (dotted gold),
+ *  and what is left to the destination once the trip has started. It refreshes by itself every few seconds. */
+function RideLiveMap({ ride, who, height }: { ride: { id: number; status: string; from: RidePoint; to: RidePoint }; who: 'customer' | 'captain'; height: number }) {
+  const [live, setLive] = useState<RideLive | null>(null);
+  useEffect(() => {
+    let dead = false;
+    const tick = async () => { try { const r = await apiRideLive(ride.id); if (!dead) setLive(r); } catch { /* keep the last picture */ } };
+    tick();
+    const t = setInterval(tick, 5000);
+    return () => { dead = true; clearInterval(t); };
+  }, [ride.id, ride.status]);
+  const me = who === 'customer';
+  const markers = [
+    { lat: ride.from.lat, lng: ride.from.lng, kind: 'me' as const, label: me ? 'أنت' : 'العميل' },
+    { lat: ride.to.lat, lng: ride.to.lng, kind: 'dest' as const, label: 'الوصول' },
+    ...(live?.driver ? [{ lat: live.driver.lat, lng: live.driver.lng, kind: 'courier' as const, label: me ? 'الكابتن' : 'أنت' }] : []),
+  ];
+  const lines: MapLine[] = [];
+  if (live?.pickup) lines.push({ kind: 'base', pts: live.pickup.route }, { kind: 'done', pts: live.pickup.route });
+  if (live?.dest) lines.push({ kind: 'base', pts: live.dest.route }, { kind: 'done', pts: live.dest.route });
+  if (live?.trip) lines.push({ kind: 'trip', pts: live.trip.route });
+  const leg = live?.pickup || live?.dest;
+  const info = ride.status === 'arrived'
+    ? (me ? '🚕 الكابتن وصل لمكانك' : '📍 وصلت للعميل')
+    : ride.status === 'started'
+      ? (leg ? `🏁 فاضل للوجهة ${leg.km} كم • ${leg.minutes} دقيقة` : '🏁 الرحلة شغالة')
+      : leg
+        ? (me ? `🚕 الكابتن جاي ليك: ${leg.km} كم • ${leg.minutes} دقيقة` : `📍 للعميل: ${leg.km} كم • ${leg.minutes} دقيقة`)
+        : (me ? '🚕 الكابتن في الطريق إليك' : '📍 روح للعميل');
+  return (
+    <View style={{ height, borderRadius: 16, overflow: 'hidden' }}>
+      <MapView markers={markers} lines={lines} fitKey={`${ride.id}:${ride.status}`} height={height} />
+      <View pointerEvents="none" style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 5, paddingHorizontal: 10, ...shadow }}>
+        <T w="black" size={12}>{info}</T>
+      </View>
+    </View>
+  );
+}
+const STEPS = ['بنبحث', 'الكابتن جاي', 'وصل', 'الرحلة'];
+const stepOf = (s: string) => ({ searching: 0, assigned: 1, arrived: 2, started: 3 } as Record<string, number>)[s] ?? 0;
+function RideSteps({ status }: { status: string }) {
+  const at = stepOf(status);
+  return (
+    <View style={{ flexDirection: 'row', gap: 4 }}>
+      {STEPS.map((l, i) => (
+        <View key={l} style={{ flex: 1, paddingVertical: 5, borderRadius: 8, backgroundColor: i < at ? '#CFE8D9' : i === at ? C.green : '#EEE' }}>
+          <T size={10.5} w={i === at ? 'black' : 'semi'} color={i === at ? '#fff' : i < at ? C.green : '#888'} align="center">{l}</T>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 function TypeTile({ t, active, onPress }: { t: RideType; active: boolean; onPress: () => void }) {
   return (
@@ -133,6 +188,20 @@ export function RideHomeScreen({ navigation }: any) {
               <T size={13} color={C.sub}>{ride.km} كم تقريباً • {ride.minutes} دقيقة</T>
               <T w="black" size={18} color={C.green}>{ride.finalPrice != null ? `${ride.finalPrice} ج` : ride.bidding ? 'السعر حسب عروض الكباتن' : `${ride.offered} ج`}</T>
             </Card>
+            <RideSteps status={ride.status} />
+            {(ride.status === 'assigned' || ride.status === 'arrived' || ride.status === 'started') && <RideLiveMap ride={ride} who="customer" height={300} />}
+            {cur?.driver && (ride.status === 'assigned' || ride.status === 'arrived' || ride.status === 'started') && (
+              <Card style={{ gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 22 }}>👤</Text></View>
+                  <View style={{ flex: 1 }}>
+                    <T w="black" size={14.5}>{cur.driver.name}</T>
+                    <T size={12} color={C.sub}>{[cur.driver.model, cur.driver.color, cur.driver.plate].filter(Boolean).join(' • ')}</T>
+                  </View>
+                </View>
+                <Btn title="اتصل بالكابتن" icon="call" small variant="soft" onPress={() => Linking.openURL(`tel:${cur.driver!.phone}`)} />
+              </Card>
+            )}
             {ride.status === 'searching' && (cur?.offers || []).length === 0 && <Card><T color={C.sub} align="center">مستنيين عروض الكباتن... هتظهر هنا</T></Card>}
             {ride.status === 'searching' && (cur?.offers || []).map((o) => (
               <Card key={o.id} style={{ gap: 6 }}>
@@ -241,6 +310,15 @@ export function CaptainScreen({ navigation }: any) {
   const [offerSecs, setOfferSecs] = useState(25);
   const [curRide, setCurRide] = useState<CaptainRide | null>(null);
   const pullCur = useCallback(() => apiCaptainCurrent().then((r) => setCurRide(r.ride)).catch(() => {}), []);
+  // while a trip is running the captain's position goes to the server every few seconds (the customer's map and the way to the customer follow it)
+  useEffect(() => {
+    if (!curRide) return;
+    let dead = false;
+    const send = async () => { try { const p = await getPosition(); if (!dead) await apiCourierPing({ lat: p.lat, lng: p.lng, ...(Number.isFinite(p.accuracy) ? { accuracy: p.accuracy } : {}) }); } catch { /* the next tick tries again */ } };
+    send();
+    const t = setInterval(send, 6000);
+    return () => { dead = true; clearInterval(t); };
+  }, [curRide?.id]);
   const [now, setNow] = useState(Date.now());
   const seen = useRef<Record<number, number>>({});   // when each request first reached this captain
   const skipped = useRef<Record<number, true>>({});
@@ -341,9 +419,7 @@ export function CaptainScreen({ navigation }: any) {
             {curRide && (
               <Card style={{ gap: 8, borderWidth: 2, borderColor: C.green }}>
                 <T w="black" size={16}>🚕 رحلتك الحالية — {({ assigned: 'روح للعميل', arrived: 'وصلت للعميل', started: 'الرحلة شغالة' } as Record<string, string>)[curRide.status] || curRide.status}</T>
-                <MapView
-                  markers={[{ lat: curRide.from.lat, lng: curRide.from.lng, kind: 'me', label: 'العميل' }, { lat: curRide.to.lat, lng: curRide.to.lng, kind: 'dest', label: 'الوصول' }]}
-                  fitKey={curRide.id} height={220} />
+                <RideLiveMap ride={curRide} who="captain" height={260} />
                 <T w="bold" size={13.5}>مكان العميل: {curRide.from.text || 'حسب الدبوس على الخريطة'}</T>
                 {!!curRide.to.text && <T size={13} color={C.sub}>إلى: {curRide.to.text}</T>}
                 <T w="black" size={18} color={C.green}>{curRide.finalPrice ?? curRide.offered} ج • {curRide.km} كم</T>

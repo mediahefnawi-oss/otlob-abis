@@ -4,7 +4,7 @@
  */
 export type MapMarker = { lat: number; lng: number; kind: 'courier' | 'shop' | 'dest' | 'me'; label?: string };
 /** base = the whole planned route (faint), done = the part already travelled, todo = what is left. */
-export type MapLine = { kind: 'base' | 'done' | 'todo'; pts: [number, number][] };
+export type MapLine = { kind: 'base' | 'done' | 'todo' | 'trip'; pts: [number, number][] };
 const ICON: Record<MapMarker['kind'], string> = { courier: '🛵', shop: '🏪', dest: '🏠', me: '📍' };
 export const MARKER_ICON = ICON;
 
@@ -54,8 +54,8 @@ function glide(marker,to){
 }
 function drawLines(lines){
   lineLayer.clearLayers();
-  var st={base:{color:'#fff',weight:11,opacity:.9,lineCap:'round',lineJoin:'round'},todo:{color:'#00211A',weight:5,opacity:.95,lineCap:'round',lineJoin:'round'},done:{color:'#0E7A4F',weight:6,opacity:1,lineCap:'round',lineJoin:'round'}};
-  ['base','todo','done'].forEach(function(k){lines.forEach(function(l){if(l.kind===k&&l.pts&&l.pts.length>1)L.polyline(l.pts,st[k]).addTo(lineLayer)})});
+  var st={base:{color:'#fff',weight:11,opacity:.9,lineCap:'round',lineJoin:'round'},todo:{color:'#00211A',weight:5,opacity:.95,lineCap:'round',lineJoin:'round'},done:{color:'#0E7A4F',weight:6,opacity:1,lineCap:'round',lineJoin:'round'},trip:{color:'#C9A227',weight:5,opacity:1,dashArray:'9 8',lineCap:'round',lineJoin:'round'}};
+  ['base','todo','trip','done'].forEach(function(k){lines.forEach(function(l){if(l.kind===k&&l.pts&&l.pts.length>1)L.polyline(l.pts,st[k]).addTo(lineLayer)})});
 }
 function setMarkers(list,refit,lines){
   var pts=[];
@@ -74,7 +74,7 @@ function setMarkers(list,refit,lines){
     mk(m).addTo(layer);
   });
   if(!couriers.length)cm=null;
-  if(lines)lines.forEach(function(l){if(l.kind==='base'||l.kind==='todo')l.pts.forEach(function(p){pts.push(p)})});
+  if(lines)lines.forEach(function(l){if(l.kind==='base'||l.kind==='todo'||l.kind==='trip')l.pts.forEach(function(p){pts.push(p)})});
   if(pts.length&&(!fitted||refit)){fitted=true;if(pts.length==1)map.setView(pts[0],16);else map.fitBounds(pts,{padding:[44,44],maxZoom:17});}
 }
 window.setMarkers=setMarkers;
