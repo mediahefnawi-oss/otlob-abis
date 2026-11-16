@@ -36,6 +36,7 @@ export interface User {
   supRegions?: string[];
   // supervisor: the owner allowed him to work the support chat
   supportChat?: boolean;
+  baseRole?: Role; // a shop owner using the app as a customer: role = 'customer', baseRole = 'provider'
 }
 
 export interface Ad {

@@ -520,6 +520,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const scheduledFor = await scheduleOf(b);
     const wantPool = b.pool === true && !scheduledFor && (await poolLib.on(pool));
     const groups = await buildGroups(lines);
+    if ([...groups.values()].some(g => Number(g.p.owner_user_id) === Number(req.auth.sub))) throw fail(409, 'مينفعش تطلب من متجرك إنت. ارجع لحسابك كمقدم خدمة');
     if (String(b.coupon || '').trim() && !(await extrasLib.featureOn(pool, 'coupons'))) throw fail(409, 'الكوبونات متوقفة حاليًا');
     const out = await withTx(async db => {
       const region = await regionOf(db, Number(req.auth.sub));
@@ -699,6 +700,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const { address, phone } = checkContact(b);
     const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
     const prov = p.rows[0];
+    if (prov && Number(prov.owner_user_id) === Number(req.auth.sub)) throw fail(409, 'مينفعش تطلب من متجرك إنت. ارجع لحسابك كمقدم خدمة');
     if (!prov || prov.status !== 'active' || !prov.is_open) throw fail(409, 'المتجر مغلق حالياً');
     if (!services.acceptsRequests(prov.type) && !(['request', 'menu'].includes(prov.order_mode) && await extrasLib.featureOn(pool, 'menu'))) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
     if (!services.isActive(prov.type)) throw fail(409, 'هذه الخدمة متوقفة حالياً');
@@ -1147,6 +1149,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
        FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE pr.id=$1`, [doctorId]);
     if (!d.rowCount) throw fail(404, 'الطبيب غير موجود');
     const doc = d.rows[0];
+    if (doc && Number(doc.owner_user_id) === Number(req.auth.sub)) throw fail(409, 'مينفعش تطلب من متجرك إنت. ارجع لحسابك كمقدم خدمة');
     if (doc.deleted_at || doc.pstatus !== 'active' || !doc.is_open || !doc.available) throw fail(409, 'العيادة لا تستقبل حجوزات حالياً');
     const slots = doc.data && Array.isArray(doc.data.slots) ? doc.data.slots : null;
     if (slots && !slots.includes(time)) throw fail(400, 'هذا الموعد غير متاح لدى الطبيب');
@@ -1235,6 +1238,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
        FROM products pr JOIN providers p ON p.id=pr.provider_id WHERE pr.id=$1`, [doctorId]);
     if (!d.rowCount) throw fail(404, 'الطبيب غير موجود');
     const doc = d.rows[0];
+    if (doc && Number(doc.owner_user_id) === Number(req.auth.sub)) throw fail(409, 'مينفعش تطلب من متجرك إنت. ارجع لحسابك كمقدم خدمة');
     if (doc.deleted_at || doc.pstatus !== 'active' || !doc.is_open || !doc.available) throw fail(409, 'العيادة لا تستقبل حجوزات حالياً');
     if (!doc.pmeta || doc.pmeta.bookMode !== 'clinic') throw fail(409, 'هذه العيادة تحجز بالطريقة العادية');
     const r = await pool.query(
@@ -1313,6 +1317,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
     const prov = p.rows[0];
     if (!prov || services.tplOf(prov.type) !== 'lab') throw fail(404, 'المعمل غير موجود');
+    if (Number(prov.owner_user_id) === Number(req.auth.sub)) throw fail(409, 'مينفعش تطلب من متجرك إنت. ارجع لحسابك كمقدم خدمة');
     if (prov.status !== 'active' || !prov.is_open) throw fail(409, 'المعمل لا يستقبل طلبات حالياً');
     if (!services.isActive(prov.type)) throw fail(409, 'هذه الخدمة متوقفة حالياً');
     const out = await withTx(async db => {
