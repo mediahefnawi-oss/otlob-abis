@@ -4,6 +4,7 @@ import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, toast } from '../components/ui';
 import MapView from '../components/MapView';
 import { getPosition } from '../lib/location';
+import { reverseAddress, searchPlace } from '../lib/revgeo';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useStore } from '../lib/store';
 import { alertNewOrder } from '../lib/alerts';
@@ -27,6 +28,8 @@ function TypeTile({ t, active, onPress }: { t: RideType; active: boolean; onPres
   );
 }
 
+const routePts = (a: { lat: number; lng: number }, b: { lat: number; lng: number }, r?: [number, number][] | null): [number, number][] => (r && r.length > 1 ? r : [[a.lat, a.lng], [b.lat, b.lng]]);
+
 /** The customer: choose a vehicle, point on the map, set a price near the suggested one, wait for offers. */
 export function RideHomeScreen({ navigation }: any) {
   const { db } = useStore();
@@ -34,7 +37,11 @@ export function RideHomeScreen({ navigation }: any) {
   const [typeId, setTypeId] = useState<number | null>(null);
   const [from, setFrom] = useState<RidePoint | null>(null);
   const [to, setTo] = useState<RidePoint | null>(null);
-  const [est, setEst] = useState<{ km: number; minutes: number; price: number; lo: number; hi: number } | null>(null);
+  const [est, setEst] = useState<{ km: number; minutes: number; price: number; lo: number; hi: number; route?: [number, number][] | null } | null>(null);
+  const [target, setTarget] = useState<'from' | 'to'>('from');
+  const [note, setNote] = useState('');
+  const [locating, setLocating] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [price, setPrice] = useState(0);
   const [busy, setBusy] = useState(false);
   const [cur, setCur] = useState<{ ride: Ride | null; offers: RideOffer[] } | null>(null);
@@ -44,12 +51,31 @@ export function RideHomeScreen({ navigation }: any) {
   const loadCur = useCallback(async () => { try { setCur(await apiRideCurrent()); } catch { /* keep the last state */ } }, []);
   useEffect(() => { apiRideTypes().then((r) => { setTypes(r.types); if (r.types[0]) setTypeId(r.types[0].id); }).catch(() => setTypes([])); loadCur(); }, [loadCur]);
   useEffect(() => { const t = setInterval(loadCur, 4000); return () => clearInterval(t); }, [loadCur]);
-  useEffect(() => { getPosition().then((p) => setFrom({ lat: p.lat, lng: p.lng })).catch(() => { /* the customer picks it on the map */ }); }, []);
+  /** Sets a pin and writes its address in the field by itself (the field stays editable; no address = it stays as typed). */
+  const setPin = async (which: 'from' | 'to', p: { lat: number; lng: number }) => {
+    if (which === 'from') { setFrom(p); setFromText(''); setTarget('to'); } else { setTo(p); setToText(''); }
+    const a = await reverseAddress(p.lat, p.lng);
+    if (a) (which === 'from' ? setFromText : setToText)((cur) => cur || a);
+  };
+  const locate = async () => {
+    setLocating(true);
+    try { const p = await getPosition(); await setPin('from', { lat: p.lat, lng: p.lng }); }
+    catch (e) { toast(errText(e), 'err'); }
+    finally { setLocating(false); }
+  };
+  const findDest = async () => {
+    if (!toText.trim()) return;
+    setSearching(true);
+    try {
+      const r = await searchPlace(toText, from);
+      if (r) { setTo({ lat: r.lat, lng: r.lng }); setTarget('to'); } else toast('ما لقيناش المكان بالاسم، حط الدبوس على الخريطة', 'err');
+    } finally { setSearching(false); }
+  };
   useEffect(() => {
     setEst(null);
     if (!from || !to || !typeId) return;
     let live = true;
-    apiRideEstimate({ ...from, text: fromText }, { ...to, text: toText }, typeId).then((r) => { if (live) { setEst(r); setPrice(r.price); } }).catch((e) => { if (live) toast(errText(e), 'err'); });
+    apiRideEstimate(from, to, typeId).then((r) => { if (live) { setEst(r); setPrice(r.price); } }).catch((e) => { if (live) toast(errText(e), 'err'); });
     return () => { live = false; };
   }, [from?.lat, from?.lng, to?.lat, to?.lng, typeId]);
 
@@ -60,7 +86,7 @@ export function RideHomeScreen({ navigation }: any) {
   const request = async () => {
     if (!from || !to || !typeId || !est) return;
     setBusy(true);
-    try { await apiRideCreate({ ...from, text: fromText }, { ...to, text: toText }, typeId, price); await loadCur(); toast('تم إرسال طلبك للكباتن 🚕'); }
+    try { await apiRideCreate({ ...from, text: fromText }, { ...to, text: [toText, note.trim()].filter(Boolean).join(' — ').slice(0, 200) }, typeId, price); await loadCur(); toast('تم إرسال طلبك للكباتن 🚕'); }
     catch (e) { toast(errText(e), 'err'); }
     finally { setBusy(false); }
   };
@@ -99,14 +125,25 @@ export function RideHomeScreen({ navigation }: any) {
               </ScrollView>
             )}
             <T w="black" size={15}>من فين لفين؟</T>
-            <T size={12} color={C.sub}>{from ? 'نقطة التحميل = موقعك الحالي (تقدر تعدلها بالضغط على الخريطة)' : 'اضغط على الخريطة لتحديد نقطة التحميل'}</T>
+            <Pressable onPress={() => setTarget('from')} style={{ borderWidth: 1.5, borderColor: target === 'from' ? C.green : C.line, borderRadius: 14, backgroundColor: '#fff', padding: 10, gap: 6 }}>
+              <T size={11.5} color={C.sub}>مكان التحميل</T>
+              <Field label="" value={fromText} onChangeText={setFromText} placeholder={from ? 'اكتب العنوان لو مش ظاهر' : 'دوس «حدد موقعي» أو اختار من الخريطة'} />
+              <Btn title={from ? 'حدّد موقعي من جديد' : 'حدد موقعي'} icon="locate" small variant="soft" onPress={locate} loading={locating} />
+            </Pressable>
+            <Pressable onPress={() => setTarget('to')} style={{ borderWidth: 1.5, borderColor: target === 'to' ? C.green : C.line, borderRadius: 14, backgroundColor: '#fff', padding: 10, gap: 6 }}>
+              <T size={11.5} color={C.sub}>مكان الوصول — اكتب الاسم ودوس «ابحث»، أو حط الدبوس على الخريطة</T>
+              <Field label="" value={toText} onChangeText={setToText} placeholder="مثال: ميدان المحطة" />
+              <Btn title="ابحث عن المكان" icon="search" small variant="soft" onPress={findDest} loading={searching} />
+            </Pressable>
             <MapView
               markers={[...(from ? [{ lat: from.lat, lng: from.lng, kind: 'me' as const }] : []), ...(to ? [{ lat: to.lat, lng: to.lng, kind: 'dest' as const }] : [])]}
-              height={240} pickable focus={to || from}
-              onPick={(p) => { if (!from) setFrom(p); else setTo(p); }}
+              lines={from && to ? [{ kind: 'base', pts: routePts(from, to, est?.route) }, { kind: 'done', pts: routePts(from, to, est?.route) }] : undefined}
+              fitKey={from && to ? `${from.lat},${from.lng}|${to.lat},${to.lng}` : undefined}
+              height={260} pickable focus={from && to ? null : (to || from)}
+              onPick={(p) => { setPin(target, p); }}
             />
-            <T size={12} color={C.sub}>{!from ? 'ضغطتك الأولى = نقطة التحميل' : !to ? 'اضغط على الخريطة لتحديد وجهتك' : 'تقدر تغير الوجهة بضغطة تانية'}</T>
-            <Field label="ملاحظة للكابتن (اختياري) — مثال: عمارة 5 جنب الصيدلية" value={toText} onChangeText={setToText} />
+            <T size={12} color={C.sub}>{target === 'from' ? 'دوس على الخريطة عشان تحدد مكان التحميل' : 'دوس على الخريطة عشان تحدد مكان الوصول'}</T>
+            <Field label="ملاحظة للكابتن (اختياري) — مثال: عمارة 5 جنب الصيدلية" value={note} onChangeText={setNote} />
             {est && (
               <Card style={{ gap: 8 }}>
                 <T size={13} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
@@ -212,7 +249,7 @@ export function CaptainScreen({ navigation }: any) {
                 <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}><View style={{ height: 6, width: `${Math.round((left(hot) / offerSecs) * 100)}%`, backgroundColor: C.gold }} /></View>
                 <T w="black" size={26} color="#fff" align="center">{hot.offered} ج</T>
                 <T size={13} color="#DDEEE4" align="center">{hot.km} كم{hot.pickupKm != null ? ` • بعيد عنك ${hot.pickupKm} كم` : ''}</T>
-                {!!hot.from.text && <T size={12.5} color="#DDEEE4">من: {hot.from.text}</T>}{!!hot.to.text && <T size={12.5} color="#DDEEE4">ملاحظة: {hot.to.text}</T>}
+                {!!hot.from.text && <T size={12.5} color="#DDEEE4">من: {hot.from.text}</T>}{!!hot.to.text && <T size={12.5} color="#DDEEE4">إلى: {hot.to.text}</T>}
                 <Btn title={`اقبل بـ ${hot.offered} ج`} icon="checkmark-circle" onPress={() => offer(hot)} />
                 <Btn title="تخطّي" variant="soft" small onPress={() => { skipped.current[hot.id] = true; setNow(Date.now()); }} />
               </View>
@@ -221,7 +258,7 @@ export function CaptainScreen({ navigation }: any) {
             {me.canReceive && reqs.map((r) => (
               <Card key={r.id} style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black" size={16}>{r.offered} ج</T><T size={12.5} color={C.sub}>{r.km} كم{r.pickupKm != null ? ` • بعيد عنك ${r.pickupKm} كم` : ''}</T></View>
-                {!!r.from.text && <T size={12.5}>من: {r.from.text}</T>}{!!r.to.text && <T size={12.5}>ملاحظة: {r.to.text}</T>}
+                {!!r.from.text && <T size={12.5}>من: {r.from.text}</T>}{!!r.to.text && <T size={12.5}>إلى: {r.to.text}</T>}
                 <Btn title={`اقبل بـ ${r.offered} ج`} icon="checkmark-circle" small onPress={() => offer(r)} />
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                   <Pressable onPress={() => setCounter((c) => ({ ...c, [r.id]: (c[r.id] ?? r.offered) - 5 }))}><Icon name="remove-circle" size={30} color={C.green} /></Pressable>
