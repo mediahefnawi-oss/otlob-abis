@@ -544,7 +544,7 @@ function ClosingTab() {
 
 /** A shop sees today's numbers, and opens its day-by-day history (Cairo days) and closings in a sheet. */
 export function ProviderDaysCard({ providerId }: { providerId: string }) {
-  const [d, setD] = useState<{ today: string; days: { day: string; orders: number; sales: number }[]; closings: ClosingRow[] } | null>(null);
+  const [d, setD] = useState<{ today: string; days: { day: string; orders: number; sales: number; commission: number }[]; closings: ClosingRow[] } | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const f = () => apiJson<any>(`/api/my/days?providerId=${providerId}&days=90`).then(setD).catch(() => {});
@@ -561,6 +561,10 @@ export function ProviderDaysCard({ providerId }: { providerId: string }) {
         <Stat icon="cash" label="مبيعات اليوم" value={money(today?.sales || 0)} color={C.goldDeep} soft={C.goldSoft} />
         <Stat icon="receipt" label="طلبات اليوم" value={today?.orders || 0} color={C.blue} soft={C.blueSoft} />
       </View>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Stat icon="wallet" label="عمولة التطبيق اليوم" value={money(today?.commission || 0)} color={C.red} soft={C.redSoft} />
+        <Stat icon="trending-up" label="صافيك اليوم" value={money((today?.sales || 0) - (today?.commission || 0))} />
+      </View>
       <Btn title={`سجل الأيام${past.length ? ` (${past.length})` : ''}`} icon="calendar" variant="soft" full onPress={() => setOpen(true)} />
       <Sheet visible={open} onClose={() => setOpen(false)} title="سجل الأيام">
         <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: 4 }}>
@@ -568,8 +572,9 @@ export function ProviderDaysCard({ providerId }: { providerId: string }) {
           {past.map((x) => (
             <View key={x.day} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.line }}>
               <T w="bold" size={13} style={{ flex: 1 }}>{dayName(x.day)}</T>
-              <T size={12.5} color={C.blue} style={{ width: 72 }}>{x.orders} طلب</T>
-              <T w="black" size={13}>{money(x.sales)}</T>
+              <T size={12.5} color={C.blue} style={{ width: 60 }}>{x.orders} طلب</T>
+              <T w="black" size={13} style={{ width: 70 }}>{money(x.sales)}</T>
+              <T w="black" size={13} color={C.red} style={{ width: 62 }}>{money(x.commission)}</T>
             </View>
           ))}
           {d.closings.filter((c) => !c.undone).length > 0 && <T w="black" size={14} style={{ marginTop: 10 }}>آخر التقفيلات</T>}

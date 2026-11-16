@@ -564,15 +564,17 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
       else if (!mine.rows.some(x => Number(x.id) === pid)) throw fail(403, 'غير مسموح');
     } else if (!pid) throw fail(400, 'اختر مقدم الخدمة');
     const days = Math.min(90, Math.max(1, Number(req.query.days) || 30));
-    const [d, cl] = await Promise.all([
+    const [d, cl, cm] = await Promise.all([
       pool.query(`SELECT to_char((x.at AT TIME ZONE 'Africa/Cairo')::date, 'YYYY-MM-DD') AS day, COUNT(*) AS orders, COALESCE(SUM(x.amount),0) AS sales FROM (
           SELECT o.delivered_at AS at, COALESCE((o.data->>'subtotal')::numeric,0) AS amount FROM orders o WHERE o.provider_id=$1 AND o.status='delivered' AND o.delivered_at IS NOT NULL
           UNION ALL SELECT a.completed_at, COALESCE(a.fee,0) FROM appointments a WHERE a.provider_id=$1 AND a.status='completed' AND a.completed_at IS NOT NULL
         ) x WHERE x.at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY 1 DESC`, [pid, days + 1]),
       pool.query('SELECT * FROM day_closings WHERE provider_id=$1 ORDER BY closed_at DESC, id DESC LIMIT 60', [pid]),
+      pool.query(`SELECT to_char((created_at AT TIME ZONE 'Africa/Cairo')::date, 'YYYY-MM-DD') AS day, COALESCE(SUM(amount),0) AS commission FROM commission_entries
+        WHERE kind='provider' AND provider_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1`, [pid, days + 1]),
     ]);
     const today = (await pool.query("SELECT to_char((NOW() AT TIME ZONE 'Africa/Cairo')::date, 'YYYY-MM-DD') AS d")).rows[0].d;
-    res.json({ providerId: String(pid), today, days: d.rows.map(r => ({ day: r.day, orders: Number(r.orders), sales: round2(r.sales) })), closings: cl.rows.map(closingJson) });
+    res.json({ providerId: String(pid), today, days: d.rows.map(r => ({ day: r.day, orders: Number(r.orders), sales: round2(r.sales), commission: round2((cm.rows.find(c => c.day === r.day) || {}).commission || 0) })), closings: cl.rows.map(closingJson) });
   }));
 
   /* ---------- counters + resets + schedules ---------- */

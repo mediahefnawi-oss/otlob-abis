@@ -65,6 +65,15 @@ async function call(key, { as, body, params, query } = {}) {
   eq([rr('market').today.count, rr('market').today.earned], [1, 15], 'market order counted with its delivery fee');
   eq(rr('market').today.net, 12, 'net = fee 15 - commission 3');
   eq(mine.services.total.today.commission, mine.services.rows.reduce((a, x) => a + x.today.commission, 0), 'total = sum of the kinds');
+  // the shop sees the commission of each day next to its sales
+  const pv = Number((await q("INSERT INTO users(name, phone, password_hash, role, status) VALUES('fp','01077770003','x','provider','active') ON CONFLICT (phone) DO UPDATE SET name='fp' RETURNING id")).rows[0].id);
+  await q('DELETE FROM providers WHERE owner_user_id=$1', [pv]);
+  const pid = Number((await q("INSERT INTO providers(owner_user_id, type, name, phone, status, is_open) VALUES($1,'restaurant','fshop','01000000000','active',TRUE) RETURNING id", [pv])).rows[0].id);
+  await q("INSERT INTO commission_entries(entry_type, kind, provider_id, base_amount, amount, svc) VALUES('accrual','provider',$1,100,10,'')", [pid]);
+  await q("INSERT INTO orders(customer_user_id, provider_id, status, delivered_at, data) VALUES($1,$2,'delivered',NOW(),'{\"subtotal\":100}'::jsonb)", [d, pid]);
+  const days = (await call('GET /api/my/days', { as: { sub: pv, role: 'provider' }, query: {} })).json;
+  eq([days.days[0].sales, days.days[0].commission], [100, 10], "the day shows sales and the app's commission");
+  await q('DELETE FROM orders WHERE provider_id=$1', [pid]); await q('DELETE FROM commission_entries WHERE provider_id=$1', [pid]); await q('DELETE FROM providers WHERE id=$1', [pid]);
   await q('DELETE FROM orders WHERE customer_user_id=$1', [d]);
   await q("DELETE FROM commission_entries WHERE svc IN ('ride','market','errand')");
   console.log(`finsvc: ${pass} passed, ${failN} failed`);
