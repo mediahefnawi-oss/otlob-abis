@@ -126,6 +126,14 @@ const roles = (...a) => (req, res, next) => { if (!req.auth || !a.includes(req.a
   ok(img.sent && img.headers['Content-Type'] === 'image/png', 'cover served');
   eq((await call('DELETE /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'icon' } })).status, 200, 'icon removed');
   eq((await call('GET /api/svc-meta')).json.market.icon, 0, 'removed');
+  // ---- one-tap ready-made product list (no prices)
+  const before = (await q('SELECT COUNT(*)::int c FROM market_products')).rows[0].c;
+  eq((await call('POST /api/admin/market-products/import-defaults', { as: Mh, body: {} })).status, 403, 'only the owner imports the list');
+  const imp = await call('POST /api/admin/market-products/import-defaults', { as: A, body: {} });
+  eq(imp.status, 200, 'import works'); ok(imp.json.added > 50, 'a full list was added');
+  eq((await q('SELECT COUNT(*)::int c FROM market_products')).rows[0].c, before + imp.json.added, 'count matches');
+  eq((await q('SELECT COUNT(*)::int c FROM market_products WHERE price IS NULL')).rows[0].c >= imp.json.added, true, 'imported products have no price');
+  eq((await call('POST /api/admin/market-products/import-defaults', { as: A, body: {} })).json.added, 0, 'pressing twice adds nothing');
   console.log(`group+market: ${pass} passed, ${bad} failed`);
   await pool.end(); process.exit(bad ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

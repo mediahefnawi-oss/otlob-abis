@@ -522,6 +522,7 @@ export const apiMarketOrder = (input: { lines: { productId: string; qty: number 
   apiRequest<{ orders: any[]; invoice: any }>('/api/orders/market', { method: 'POST', body: JSON.stringify(input) });
 export const marketImageUrl = (p: { image: string | null }) => (p.image ? `${API_BASE}${p.image}` : '');
 export const apiAdminMarketList = () => apiRequest<{ products: MarketProduct[] }>('/api/admin/market-products');
+export const apiAdminMarketImportDefaults = () => apiRequest<{ ok: boolean; added: number; total: number }>('/api/admin/market-products/import-defaults', { method: 'POST' });
 export const apiAdminMarketAdd = (b: { name: string; price: number | null; category?: string; emoji?: string }) => apiRequest<{ product: MarketProduct }>('/api/admin/market-products', { method: 'POST', body: JSON.stringify(b) });
 export const apiAdminMarketEdit = (id: number, b: Partial<{ name: string; price: number | null; category: string; emoji: string; available: boolean }>) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminMarketDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/market-products/${id}`, { method: 'DELETE' });

@@ -4,7 +4,7 @@ import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog } from '../components/ui';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import {
-  MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
+  MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketImportDefaults, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
   RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission,
   SvcKey, apiAdminSvcImage, apiAdminSvcSub, apiSvcMeta, svcImageUrl,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
@@ -33,6 +33,7 @@ export function AdminMarketScreen({ navigation }: any) {
           <T w="black">التوصيل</T>
           <T size={12.5} color={C.sub}>مفيش سعر توصيل ثابت: المندوب بيحدد سعر التوصيل وسعر أي منتج من غير سعر، والعميل بيوافق على الفاتورة.</T>
         </Card>
+        <Btn title="إضافة المنتجات الجاهزة (بدون أسعار)" icon="cart" variant="soft" onPress={() => askConfirm('المنتجات الجاهزة', 'هيتضاف حوالي 78 منتج بدون أسعار (المندوب يسعّرها). المنتجات اللي بنفس الاسم مش هتتكرر.', async () => { try { const x = await apiAdminMarketImportDefaults(); toast(x.added ? `تمت إضافة ${x.added} منتج` : 'كلها مضافة بالفعل'); load(); } catch (e) { toast(errText(e), 'err'); } })} />
         <Card style={{ gap: 8 }}>
           <T w="black">إضافة منتج</T>
           <Field label="الاسم" value={name} onChangeText={setName} />

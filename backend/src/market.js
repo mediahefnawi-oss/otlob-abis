@@ -30,6 +30,16 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
     const r = await pool.query(`INSERT INTO market_products(name, price, category, emoji, available, sort_order) VALUES($1,$2,$3,$4,$5,$6) RETURNING ${COLS}`, [c.name, c.price, c.category || '', c.emoji || '🛒', c.available !== false, c.sort_order || 0]);
     res.status(201).json({ product: out(r.rows[0]) });
   }));
+  /** one tap: adds the ready-made list of products (no prices). Products with the same name are skipped, so it is safe to press twice. */
+  app.post('/api/admin/market-products/import-defaults', ...admin, guard(async (_req, res) => {
+    const list = require('./market_defaults');
+    const have = new Set((await pool.query('SELECT name FROM market_products')).rows.map(r => r.name));
+    const todo = list.filter(p => !have.has(p.name));
+    if (todo.length) await pool.query(
+      'INSERT INTO market_products(name, price, category, emoji, available, sort_order) SELECT n, NULL, c, e, TRUE, o FROM unnest($1::text[], $2::text[], $3::text[], $4::int[]) AS t(n, c, e, o)',
+      [todo.map(p => p.name), todo.map(p => p.category), todo.map(p => p.emoji), todo.map(p => p.sort)]);
+    res.json({ ok: true, added: todo.length, total: list.length });
+  }));
   app.patch('/api/admin/market-products/:id', ...admin, guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
     const c = cleanProduct(req.body, true); if (!c || !Object.keys(c).length) throw fail(400, 'البيانات غير صحيحة');
