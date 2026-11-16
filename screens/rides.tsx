@@ -1,6 +1,6 @@
 import { SvcCover } from './extra';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, Pressable, Text, Image, Linking } from 'react-native';
+import { View, ScrollView, Pressable, Text, Image, Linking, useWindowDimensions } from 'react-native';
 import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, toast } from '../components/ui';
 import MapView from '../components/MapView';
@@ -55,7 +55,8 @@ export function RideHomeScreen({ navigation }: any) {
   const [to, setTo] = useState<RidePoint | null>(null);
   const [est, setEst] = useState<{ km: number; minutes: number; price: number; lo: number; hi: number; route?: [number, number][] | null } | null>(null);
   const [target, setTarget] = useState<'from' | 'to'>('from');
-  const [note, setNote] = useState('');
+  const { height: winH } = useWindowDimensions();
+  const typing = useRef<any>(null);
   const [fromDetails, setFromDetails] = useState('');
   const [locating, setLocating] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -80,14 +81,21 @@ export function RideHomeScreen({ navigation }: any) {
     catch (e) { toast(errText(e), 'err'); }
     finally { setLocating(false); }
   };
-  const findDest = async () => {
-    if (!toText.trim()) return;
+  const findDest = async (q?: string) => {
+    const txt = (q ?? toText).trim();
+    if (!txt) return;
     setSearching(true);
     try {
-      const r = await searchPlace(toText, from);
+      const r = await searchPlace(txt, from);
       if (r) { setTo({ lat: r.lat, lng: r.lng }); setTarget('to'); } else toast('ما لقيناش المكان بالاسم، حط الدبوس على الخريطة', 'err');
     } finally { setSearching(false); }
   };
+  const onDestText = (t: string) => {
+    setToText(t);
+    if (typing.current) clearTimeout(typing.current);
+    if (t.trim().length >= 3) typing.current = setTimeout(() => findDest(t), 1100);
+  };
+  useEffect(() => () => { if (typing.current) clearTimeout(typing.current); }, []);
   useEffect(() => {
     setEst(null);
     if (!from || !to || !typeId) return;
@@ -99,11 +107,13 @@ export function RideHomeScreen({ navigation }: any) {
   if (!db.settings.features?.rides) return <View style={{ flex: 1, backgroundColor: C.bg }}><Header title="توصيلة" onBack={() => navigation.goBack()} /><Empty title="الخدمة غير متاحة الآن" /></View>;
   const ride = cur?.ride;
   const live = ride && ['searching', 'assigned', 'arrived', 'started'].includes(ride.status);
+  const fixed = !live && step === 'trip';           // the booking screen never scrolls: the map takes what is left
+  const mapH = Math.max(100, Math.min(300, winH - 520));
 
   const request = async () => {
     if (!from || !to || !typeId || !est) return;
     setBusy(true);
-    try { await apiRideCreate({ ...from, text: [fromText, fromDetails.trim()].filter(Boolean).join(' — ').slice(0, 200) }, { ...to, text: [toText, note.trim()].filter(Boolean).join(' — ').slice(0, 200) }, typeId, price); await loadCur(); toast('تم إرسال طلبك للكباتن 🚕'); }
+    try { await apiRideCreate({ ...from, text: [fromText, fromDetails.trim()].filter(Boolean).join(' — ').slice(0, 200) }, { ...to, text: toText.trim().slice(0, 200) }, typeId, price); await loadCur(); toast('تم إرسال طلبك للكباتن 🚕'); }
     catch (e) { toast(errText(e), 'err'); }
     finally { setBusy(false); }
   };
@@ -113,8 +123,9 @@ export function RideHomeScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="توصيلة" subtitle={ride?.bidding || est?.bidding ? 'حدد وجهتك والكباتن يحددوا السعر' : 'حدد وجهتك واختار السعر اللي يناسبك'} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        {!live && <View style={{ marginHorizontal: -4, marginTop: -12 }}><SvcCover svc="rides" /></View>}
+      {React.createElement(fixed ? View : ScrollView, fixed ? { style: { flex: 1, padding: 12, gap: 8, overflow: 'hidden' } } : { contentContainerStyle: { padding: 16, gap: 10, paddingBottom: 24 }, keyboardShouldPersistTaps: 'handled' },
+      <>
+        {!live && step === 'type' && <View style={{ marginHorizontal: -4, marginTop: -12 }}><SvcCover svc="rides" /></View>}
         {live && ride ? (
           <>
             <Card style={{ gap: 6 }}>
@@ -153,7 +164,6 @@ export function RideHomeScreen({ navigation }: any) {
                   </Pressable>
                 )}
             <Card style={{ gap: 8 }}>
-              <T w="black" size={14}>من فين لفين؟</T>
               <Pressable onPress={() => setTarget('from')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: C.green, borderWidth: target === 'from' ? 3 : 0, borderColor: C.greenSoft }} />
                 <View style={{ flex: 1 }}><Field label="" value={fromText} onChangeText={setFromText} placeholder={from ? 'اكتب العنوان لو مش ظاهر' : 'مكان التحميل — دوس على أيقونة الموقع'} /></View>
@@ -162,20 +172,18 @@ export function RideHomeScreen({ navigation }: any) {
               <View style={{ paddingStart: 18 }}><Field label="" value={fromDetails} onChangeText={setFromDetails} placeholder="تفاصيل مكانك (عمارة، دور، علامة مميزة، رقم شقة)" /></View>
               <Pressable onPress={() => setTarget('to')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.gold, borderWidth: target === 'to' ? 3 : 0, borderColor: C.goldSoft || '#fbe7a6' }} />
-                <View style={{ flex: 1 }}><Field label="" value={toText} onChangeText={setToText} placeholder="مكان الوصول — اكتب الاسم أو حط الدبوس" /></View>
-                <Pressable onPress={findDest} disabled={searching} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name={searching ? 'hourglass' : 'search'} size={22} color={C.green} /></Pressable>
+                <View style={{ flex: 1 }}><Field label="" value={toText} onChangeText={onDestText} onSubmitEditing={() => findDest()} returnKeyType="search" placeholder="مكان الوصول — اكتب الاسم أو حط الدبوس" /></View>
+                <Pressable onPress={() => findDest()} disabled={searching} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name={searching ? 'hourglass' : 'search'} size={22} color={C.green} /></Pressable>
               </Pressable>
             </Card>
             <MapView
               markers={[...(from ? [{ lat: from.lat, lng: from.lng, kind: 'me' as const }] : []), ...(to ? [{ lat: to.lat, lng: to.lng, kind: 'dest' as const }] : [])]}
               lines={from && to ? [{ kind: 'base', pts: routePts(from, to, est?.route) }, { kind: 'done', pts: routePts(from, to, est?.route) }] : undefined}
               fitKey={from && to ? `${from.lat},${from.lng}|${to.lat},${to.lng}` : undefined}
-              height={190} pickable focus={from && to ? null : (to || from)}
+              height={mapH} pickable focus={from && to ? null : (to || from)}
               onPick={(p) => { setPin(target, p); }}
             />
-            <T size={12} color={C.sub}>{target === 'from' ? 'دوس على الخريطة عشان تحدد مكان التحميل' : 'دوس على الخريطة عشان تحدد مكان الوصول'}</T>
-            <Field label="ملاحظة للكابتن (اختياري) — مثال: عمارة 5 جنب الصيدلية" value={note} onChangeText={setNote} />
-            {est && (
+            {est ? (
         <View style={{ backgroundColor: '#fff', padding: 14, gap: 8, borderRadius: 18, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, elevation: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <T size={12.5} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
@@ -192,12 +200,17 @@ export function RideHomeScreen({ navigation }: any) {
           {!est.bidding && <T size={11} color={C.sub} align="center">السعر المقترح {est.price} ج — من {est.lo} إلى {est.hi} ج</T>}
           <Btn title={est.bidding ? 'ابعت الطلب للكباتن' : 'اطلب توصيلة'} icon="car" onPress={request} loading={busy} />
         </View>
+            ) : (
+              <View style={{ backgroundColor: '#fff', padding: 14, gap: 8, borderRadius: 18, ...shadow }}>
+                <T size={13} color={C.sub} align="center">{searching ? 'بندوّر على المكان...' : !from ? 'دوس على أيقونة الموقع عشان نحدد مكانك' : 'اكتب وجهتك أو دوس على الخريطة عشان يظهر السعر'}</T>
+                <Btn title="اطلب توصيلة" icon="car" onPress={() => toast(!from ? 'حدد مكانك الأول' : 'حدد وجهتك الأول', 'err')} />
+              </View>
             )}
               </>
             )}
           </>
         )}
-      </ScrollView>
+      </>)}
     </View>
   );
 }
