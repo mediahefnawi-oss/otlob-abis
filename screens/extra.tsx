@@ -249,5 +249,9 @@ export function SvcCover({ svc }: { svc: SvcKey }) {
   const m = useSvcMeta();
   const v = m[svc]?.cover || 0;
   if (!v) return null;
-  return <Image source={{ uri: svcImageUrl(svc, 'cover', v) }} style={{ width: '100%', height: 140 }} resizeMode="cover" />;
+  return (
+    <View style={{ marginHorizontal: 12, marginTop: 12, borderRadius: 16, overflow: 'hidden', aspectRatio: 3, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
+      <Image source={{ uri: svcImageUrl(svc, 'cover', v) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+    </View>
+  );
 }
