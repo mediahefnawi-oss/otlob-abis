@@ -1,3 +1,4 @@
+import { SvcCover } from './extra';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, ScrollView, Pressable, Text, Image, Linking } from 'react-native';
 import { C, shadow } from '../lib/theme';
@@ -96,7 +97,8 @@ export function RideHomeScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="توصيلة" subtitle={ride?.bidding || est?.bidding ? 'حدد وجهتك والكباتن يحددوا السعر' : 'حدد وجهتك واختار السعر اللي يناسبك'} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+      {!live && <SvcCover svc="rides" />}
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         {live && ride ? (
           <>
             <Card style={{ gap: 6 }}>
@@ -123,50 +125,50 @@ export function RideHomeScreen({ navigation }: any) {
                 {types.map((t) => <TypeTile key={t.id} t={t} active={typeId === t.id} onPress={() => setTypeId(t.id)} />)}
               </ScrollView>
             )}
-            <T w="black" size={15}>من فين لفين؟</T>
-            <Pressable onPress={() => setTarget('from')} style={{ borderWidth: 1.5, borderColor: target === 'from' ? C.green : C.line, borderRadius: 14, backgroundColor: '#fff', padding: 10, gap: 6 }}>
-              <T size={11.5} color={C.sub}>مكان التحميل</T>
-              <Field label="" value={fromText} onChangeText={setFromText} placeholder={from ? 'اكتب العنوان لو مش ظاهر' : 'دوس «حدد موقعي» أو اختار من الخريطة'} />
-              <Field label="" value={fromDetails} onChangeText={setFromDetails} placeholder="تفاصيل مكانك (عمارة، دور، علامة مميزة، رقم شقة)" />
-              <Btn title={from ? 'حدّد موقعي من جديد' : 'حدد موقعي'} icon="locate" small variant="soft" onPress={locate} loading={locating} />
-            </Pressable>
-            <Pressable onPress={() => setTarget('to')} style={{ borderWidth: 1.5, borderColor: target === 'to' ? C.green : C.line, borderRadius: 14, backgroundColor: '#fff', padding: 10, gap: 6 }}>
-              <T size={11.5} color={C.sub}>مكان الوصول — اكتب الاسم ودوس «ابحث»، أو حط الدبوس على الخريطة</T>
-              <Field label="" value={toText} onChangeText={setToText} placeholder="مثال: ميدان المحطة" />
-              <Btn title="ابحث عن المكان" icon="search" small variant="soft" onPress={findDest} loading={searching} />
-            </Pressable>
+            <Card style={{ gap: 8 }}>
+              <T w="black" size={14}>من فين لفين؟</T>
+              <Pressable onPress={() => setTarget('from')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: C.green, borderWidth: target === 'from' ? 3 : 0, borderColor: C.greenSoft }} />
+                <View style={{ flex: 1 }}><Field label="" value={fromText} onChangeText={setFromText} placeholder={from ? 'اكتب العنوان لو مش ظاهر' : 'مكان التحميل — دوس على أيقونة الموقع'} /></View>
+                <Pressable onPress={locate} disabled={locating} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name={locating ? 'hourglass' : 'locate'} size={22} color={C.green} /></Pressable>
+              </Pressable>
+              <View style={{ paddingStart: 18 }}><Field label="" value={fromDetails} onChangeText={setFromDetails} placeholder="تفاصيل مكانك (عمارة، دور، علامة مميزة، رقم شقة)" /></View>
+              <Pressable onPress={() => setTarget('to')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.gold, borderWidth: target === 'to' ? 3 : 0, borderColor: C.goldSoft || '#fbe7a6' }} />
+                <View style={{ flex: 1 }}><Field label="" value={toText} onChangeText={setToText} placeholder="مكان الوصول — اكتب الاسم أو حط الدبوس" /></View>
+                <Pressable onPress={findDest} disabled={searching} style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name={searching ? 'hourglass' : 'search'} size={22} color={C.green} /></Pressable>
+              </Pressable>
+            </Card>
             <MapView
               markers={[...(from ? [{ lat: from.lat, lng: from.lng, kind: 'me' as const }] : []), ...(to ? [{ lat: to.lat, lng: to.lng, kind: 'dest' as const }] : [])]}
               lines={from && to ? [{ kind: 'base', pts: routePts(from, to, est?.route) }, { kind: 'done', pts: routePts(from, to, est?.route) }] : undefined}
               fitKey={from && to ? `${from.lat},${from.lng}|${to.lat},${to.lng}` : undefined}
-              height={260} pickable focus={from && to ? null : (to || from)}
+              height={190} pickable focus={from && to ? null : (to || from)}
               onPick={(p) => { setPin(target, p); }}
             />
             <T size={12} color={C.sub}>{target === 'from' ? 'دوس على الخريطة عشان تحدد مكان التحميل' : 'دوس على الخريطة عشان تحدد مكان الوصول'}</T>
             <Field label="ملاحظة للكابتن (اختياري) — مثال: عمارة 5 جنب الصيدلية" value={note} onChangeText={setNote} />
-            {est && est.bidding && (
-              <Card style={{ gap: 8 }}>
-                <T size={13} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
-                <T w="black" size={14} align="center">الكباتن هيحددوا السعر، وإنت تختار أنسب عرض</T>
-                <Btn title="ابعت الطلب للكباتن" icon="car" onPress={request} loading={busy} />
-              </Card>
-            )}
-            {est && !est.bidding && (
-              <Card style={{ gap: 8 }}>
-                <T size={13} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
-                <T w="black" size={14}>السعر المقترح {est.price} ج — اختار سعرك</T>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-                  <Pressable onPress={() => setPrice((v) => Math.max(est.lo, v - 5))} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name="remove" size={22} color={C.green} /></Pressable>
-                  <T w="black" size={26} color={C.green}>{price} ج</T>
-                  <Pressable onPress={() => setPrice((v) => Math.min(est.hi, v + 5))} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name="add" size={22} color={C.green} /></Pressable>
-                </View>
-                <T size={12} color={C.sub} align="center">من {est.lo} إلى {est.hi} ج</T>
-                <Btn title="اطلب توصيلة" icon="car" onPress={request} loading={busy} />
-              </Card>
-            )}
           </>
         )}
       </ScrollView>
+      {!live && est && (
+        <View style={{ backgroundColor: '#fff', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, gap: 8, borderTopLeftRadius: 18, borderTopRightRadius: 18, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, elevation: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <T size={12.5} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
+            {est.bidding
+              ? <T w="black" size={13} color={C.green}>الكباتن هيحددوا السعر</T>
+              : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Pressable onPress={() => setPrice((v) => Math.max(est.lo, v - 5))} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name="remove" size={18} color={C.green} /></Pressable>
+                  <T w="black" size={20} color={C.green}>{price} ج</T>
+                  <Pressable onPress={() => setPrice((v) => Math.min(est.hi, v + 5))} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name="add" size={18} color={C.green} /></Pressable>
+                </View>
+              )}
+          </View>
+          {!est.bidding && <T size={11} color={C.sub} align="center">السعر المقترح {est.price} ج — من {est.lo} إلى {est.hi} ج</T>}
+          <Btn title={est.bidding ? 'ابعت الطلب للكباتن' : 'اطلب توصيلة'} icon="car" onPress={request} loading={busy} />
+        </View>
+      )}
     </View>
   );
 }

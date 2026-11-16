@@ -204,6 +204,7 @@ export function MarketScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="طلبات ماركت" subtitle="اختار منتجاتك والمندوب يجيبها لحد بابك" onBack={() => (checkout ? setCheckout(false) : navigation.goBack())} />
+      <SvcCover svc="market" />
       {state === 'load' ? <Empty title="جاري التحميل..." /> : state === 'err' ? <Empty title="الخدمة غير متاحة الآن" /> : checkout ? (
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
