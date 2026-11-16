@@ -108,7 +108,7 @@ function Main({ navigation }: any) {
     const prov = db.providers.find((p) => p.ownerId === me.id);
     const pending = prov ? (isBooking(prov.type) ? db.appointments.filter((a) => a.providerId === prov.id && (a.lab ? a.lab.stage === 'new' || a.lab.stage === 'confirmed' : a.status === 'pending')).length : db.orders.filter((o) => o.providerId === prov.id && ['pending', 'accepted'].includes(o.status)).length) : 0;
     const clinic = isBooking(prov?.type);
-    const noCatalog = isRequestOnly(prov?.type) || isLab(prov?.type); // these have no menu: written requests only / a medical lab
+    const noCatalog = (isRequestOnly(prov?.type) && prov?.orderMode !== 'cart') || isLab(prov?.type); // these have no menu: written requests only / a medical lab
     tabs = [
       { key: 'orders', label: clinic ? 'الحجوزات' : 'الطلبات', icon: clinic ? 'calendar' : 'receipt', badge: pending, render: () => <ProviderOrdersScreen navigation={navigation} /> },
       ...(noCatalog ? [] : [{ key: 'catalog', label: clinic ? 'الأطباء' : 'المنتجات', icon: clinic ? 'people' : 'pricetags', render: () => <ProviderCatalogScreen /> }]),

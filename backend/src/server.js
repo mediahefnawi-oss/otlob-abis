@@ -1019,11 +1019,11 @@ app.post('/api/products', auth, roles('provider','admin'), asyncRoute(async (req
   const { providerId, name, price, data = {} } = req.body || {};
   const validProviderId = positiveId(providerId);
   if (!validProviderId || typeof name !== 'string' || !name.trim() || !Number.isFinite(Number(price)) || Number(price) < 0 || !isRecord(data)) return res.status(400).json({ error: 'بيانات المنتج غير صالحة' });
-  const p = await pool.query('SELECT id,owner_user_id,type FROM providers WHERE id=$1', [validProviderId]);
+  const p = await pool.query('SELECT id,owner_user_id,type,order_mode FROM providers WHERE id=$1', [validProviderId]);
   if (!p.rowCount) return res.status(404).json({ error: 'مقدم الخدمة غير موجود' });
   if (req.auth.role !== 'admin' && String(p.rows[0].owner_user_id) !== req.auth.sub) return res.status(403).json({ error: 'لا يمكنك إدارة منتجات مقدم خدمة آخر' });
   await services.ensure(pool);
-  if (!services.canProducts(p.rows[0].type)) return res.status(400).json({ error: 'هذه الخدمة تعمل بدون منتجات (طلب مكتوب أو حجز)' });
+  if (!services.canProducts(p.rows[0].type) && !(p.rows[0].order_mode === 'cart' && await extrasLib.featureOn(pool, 'menu'))) return res.status(400).json({ error: 'هذه الخدمة تعمل بدون منتجات (طلب مكتوب أو حجز)' });
   const r = await pool.query('INSERT INTO products(provider_id,name,price,data) VALUES($1,$2,$3,$4) RETURNING *', [Number(providerId), String(name).trim(), Number(price), JSON.stringify(data)]);
   res.status(201).json({ product: { id: String(r.rows[0].id), providerId: String(r.rows[0].provider_id), name: r.rows[0].name, price: Number(r.rows[0].price), available: r.rows[0].available, ...r.rows[0].data } });
 }));

@@ -416,7 +416,7 @@ export function ProviderScreen({ navigation, route }: any) {
   const blocked = closed || noRoute;
   const mineArea = !!p.regionId && meUser?.regionId === p.regionId;
   const manualMode = p.orderMode === 'request';
-  const requestOnly = isRequestOnly(p.type) || manualMode;
+  const requestOnly = (isRequestOnly(p.type) && p.orderMode !== 'cart') || manualMode;   // the owner can switch one supermarket/pharmacy to «سلة بمنتجات»
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>

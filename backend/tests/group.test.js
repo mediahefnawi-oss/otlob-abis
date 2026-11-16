@@ -159,6 +159,14 @@ const roles = (...a) => (req, res, next) => { if (!req.auth || !a.includes(req.a
   eq((await call('GET /api/market-products', { as: Mh })).json.offerText, 'الحق العرض', 'customers see the new text');
   await q("UPDATE app_settings SET market_offer_text='وفّر واطلب' WHERE id=1");
 
+  // ---- the owner controls a market order like any other: cancel it from the admin
+  await feat('market', true);
+  const mo = await call('POST /api/orders/market', { as: Mh, body: { ...body, lines: [{ productId: String(mp.id), qty: 1 }] }, table: oroutes }); eq(mo.status, 201, 'a market order to control');
+  const moId = mo.json.orders[0].id;
+  eq((await call('POST /api/orders/:id/action', { as: Mh, params: { id: moId }, body: { action: 'dismiss' }, table: oroutes })).status, 403, 'a customer cannot use the owner action');
+  const mc = await call('POST /api/orders/:id/action', { as: A, params: { id: moId }, body: { action: 'cancel' }, table: oroutes });
+  eq(mc.status, 200, 'owner cancels a market order: ' + JSON.stringify(mc.json).slice(0, 120));
+  eq((await q('SELECT status FROM orders WHERE id=$1', [moId])).rows[0].status, 'cancelled', 'the market order is cancelled');
   await feat('market', false);
   // ---- one-tap ready-made product list (no prices)
   const before = (await q('SELECT COUNT(*)::int c FROM market_products')).rows[0].c;

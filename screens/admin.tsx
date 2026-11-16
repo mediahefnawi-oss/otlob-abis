@@ -446,7 +446,7 @@ function ProviderModeCard({ prov }: { prov: Provider }) {
     setBusy(false);
     toast(r.ok ? okMsg : r.error, r.ok ? 'ok' : 'err');
   };
-  const modes: ['' | 'request', string][] = [['', 'حسب القسم'], ['request', 'طلب مكتوب بدل السلة']];
+  const modes: ['' | 'request' | 'cart', string][] = [['', 'حسب القسم'], ['request', 'طلب مكتوب بدل السلة'], ['cart', 'سلة بمنتجات (المحل يضيف منتجات)']];
   return (
     <Card style={{ gap: 12, opacity: busy ? 0.6 : 1 }} pointerEvents={busy ? 'none' : 'auto'}>
       <T w="black" size={15}>القسم وطريقة الطلب</T>
@@ -556,7 +556,7 @@ export function AdminDetailScreen({ navigation, route }: any) {
             <RegionPicker value={prov.regionId || ''} onChange={(rid) => done(setProviderRegion(prov.id, rid), 'تم تحديد منطقة المكان')} label={`منطقة المكان${prov.regionName ? ` (الحالية: ${prov.regionName})` : ' (غير محددة)'}`} />
           </Card>
         )}
-        {prov && hasProducts(prov.type) && <CatalogEditor prov={prov} />}
+        {prov && (hasProducts(prov.type) || prov.orderMode === 'cart') && <CatalogEditor prov={prov} />}
         {prov && <ProviderFormSheet visible={editing} onClose={() => setEditing(false)} provider={prov} />}
         <Sheet visible={pwSheet} onClose={() => setPwSheet(false)} title="تعيين كلمة مرور جديدة">
           <T size={12.5} color={C.sub}>سيتم تعيين كلمة مرور جديدة للحساب {user.phone}. كلمات المرور مشفّرة ولا يمكن عرضها.</T>
