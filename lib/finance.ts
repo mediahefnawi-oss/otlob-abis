@@ -33,8 +33,10 @@ export function useCounters(role: string, every = 10000): Counters | null {
   return cacheRole === role ? cache : null;
 }
 
+export type SvcFigures = { count: number; earned: number; commission: number; net: number };
 export type MyCommission = {
   due: number; settled: number; month: number;
+  services?: { captain: boolean; rows: { svc: string; name: string; today: SvcFigures; month: SvcFigures }[]; total: { today: SvcFigures; month: SvcFigures } } | null;
   rules: { providerId?: string; name?: string; kind: 'percent' | 'fixed'; value: number; minAmount: number }[];
   entries: { id: string; type: 'accrual' | 'adjustment'; kind: string; base: number; amount: number; note: string; status: string; createdAt: number; orderId?: string; appointmentId?: string }[];
 };

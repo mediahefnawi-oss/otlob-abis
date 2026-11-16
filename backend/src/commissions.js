@@ -74,8 +74,8 @@ async function ruleFor(db, target, when, type, providerId, courierId) {
 }
 const snapshot = r => ({ id: String(r.id), scope: r.scope, kind: r.kind, value: Number(r.value), minAmount: Number(r.min_amount), effectiveFrom: new Date(r.effective_from).getTime() });
 
-const INSERT_ORDER_ENTRY = `INSERT INTO commission_entries(entry_type, kind, order_id, provider_id, courier_user_id, base_amount, amount, rule_id, rule_snapshot)
-  VALUES('accrual',$1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (order_id, kind) WHERE entry_type='accrual' AND order_id IS NOT NULL DO NOTHING`;
+const INSERT_ORDER_ENTRY = `INSERT INTO commission_entries(entry_type, kind, order_id, provider_id, courier_user_id, base_amount, amount, rule_id, rule_snapshot, svc)
+  VALUES('accrual',$1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (order_id, kind) WHERE entry_type='accrual' AND order_id IS NOT NULL DO NOTHING`;
 const INSERT_APPT_ENTRY = `INSERT INTO commission_entries(entry_type, kind, appointment_id, provider_id, base_amount, amount, rule_id, rule_snapshot)
   VALUES('accrual','provider',$1,$2,$3,$4,$5,$6) ON CONFLICT (appointment_id, kind) WHERE entry_type='accrual' AND appointment_id IS NOT NULL DO NOTHING`;
 
@@ -97,13 +97,13 @@ async function onOrderDelivered(db, o) {
       const base = Number(d.subtotal) || 0;
       const rule = await ruleFor(db, 'provider', when, type, o.provider_id, null);
       const amount = computeAmount(rule, base);
-      if (rule && amount > 0) await db.query(INSERT_ORDER_ENTRY, ['provider', o.id, o.provider_id, null, base, amount, rule.id, JSON.stringify(snapshot(rule))]);
+      if (rule && amount > 0) await db.query(INSERT_ORDER_ENTRY, ['provider', o.id, o.provider_id, null, base, amount, rule.id, JSON.stringify(snapshot(rule)), '']);
     }
     if (o.courier_user_id) {
       const base = Number(d.premiumFree ? d.normalFee : d.deliveryFee) || 0; // a subscriber's free delivery: the courier still earns (and the platform's cut is still taken from) the normal price
       const rule = await ruleFor(db, 'courier', when, type, o.provider_id, o.courier_user_id);
       const amount = computeAmount(rule, base);
-      if (rule && amount > 0) await db.query(INSERT_ORDER_ENTRY, ['courier', o.id, o.provider_id || null, o.courier_user_id, base, amount, rule.id, JSON.stringify(snapshot(rule))]);
+      if (rule && amount > 0) await db.query(INSERT_ORDER_ENTRY, ['courier', o.id, o.provider_id || null, o.courier_user_id, base, amount, rule.id, JSON.stringify(snapshot(rule)), d.market ? 'market' : (o.provider_id ? '' : 'errand')]);
     }
   });
 }
@@ -270,7 +270,7 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     id: String(e.id), type: e.entry_type, kind: e.kind, orderId: e.order_id ? String(e.order_id) : undefined, appointmentId: e.appointment_id ? String(e.appointment_id) : undefined,
     providerId: e.provider_id ? String(e.provider_id) : undefined, courierId: e.courier_user_id ? String(e.courier_user_id) : undefined,
     base: Number(e.base_amount), amount: Number(e.amount), rule: e.rule_snapshot, parentId: e.parent_id ? String(e.parent_id) : undefined,
-    note: e.note, status: e.status, createdAt: new Date(e.created_at).getTime(),
+    note: e.note, status: e.status, svc: e.svc || '', rideId: e.ride_id ? String(e.ride_id) : undefined, createdAt: new Date(e.created_at).getTime(),
   });
   const dayStart = (s, plusDays = 0) => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
@@ -282,26 +282,26 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     const period = req.query.period === 'month' ? 'month' : 'day';
     const from = dayStart(req.query.from) || new Date(Date.now() - 30 * 86400000);
     const to = dayStart(req.query.to, 1) || new Date(Date.now() + 86400000);
-    const r = await pool.query(`SELECT to_char(date_trunc('${period}', created_at AT TIME ZONE 'Africa/Cairo'), 'YYYY-MM-DD') AS period, kind,
+    const r = await pool.query(`SELECT to_char(date_trunc('${period}', created_at AT TIME ZONE 'Africa/Cairo'), 'YYYY-MM-DD') AS period, kind, svc,
         COUNT(*) FILTER (WHERE entry_type='accrual') AS cnt,
         COALESCE(SUM(base_amount) FILTER (WHERE entry_type='accrual'), 0) AS base,
         COALESCE(SUM(amount) FILTER (WHERE entry_type='accrual'), 0) AS gross,
         COALESCE(SUM(amount) FILTER (WHERE entry_type='adjustment'), 0) AS adjustments,
         COALESCE(SUM(amount), 0) AS net
-      FROM commission_entries WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz GROUP BY 1, 2 ORDER BY 1 DESC, 2`, [from, to]);
-    res.json({ period, rows: r.rows.map(x => ({ period: x.period, kind: x.kind, count: Number(x.cnt), base: Number(x.base), gross: Number(x.gross), adjustments: Number(x.adjustments), net: Number(x.net) })) });
+      FROM commission_entries WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz GROUP BY 1, 2, 3 ORDER BY 1 DESC, 2, 3`, [from, to]);
+    res.json({ period, rows: r.rows.map(x => ({ period: x.period, kind: x.kind, svc: x.svc || '', count: Number(x.cnt), base: Number(x.base), gross: Number(x.gross), adjustments: Number(x.adjustments), net: Number(x.net) })) });
   }));
   app.get('/api/admin/commissions/overview', ...admin, asyncRoute(async (_req, res) => {
-    const t = await pool.query(`SELECT kind, COALESCE(SUM(amount) FILTER (WHERE entry_type='accrual'),0) AS gross, COALESCE(SUM(amount) FILTER (WHERE entry_type='adjustment'),0) AS adj,
+    const t = await pool.query(`SELECT kind, svc, COALESCE(SUM(amount) FILTER (WHERE entry_type='accrual'),0) AS gross, COALESCE(SUM(amount) FILTER (WHERE entry_type='adjustment'),0) AS adj,
         COALESCE(SUM(amount),0) AS net, COALESCE(SUM(amount) FILTER (WHERE status='due'),0) AS due, COALESCE(SUM(amount) FILTER (WHERE status='settled'),0) AS settled
-      FROM commission_entries GROUP BY kind`);
+      FROM commission_entries GROUP BY kind, svc`);
     const b = await pool.query(`SELECT e.kind, e.provider_id, e.courier_user_id, COALESCE(p.name, u.name, '—') AS name,
         COALESCE(SUM(e.amount) FILTER (WHERE e.status='due'),0) AS due, COALESCE(SUM(e.amount) FILTER (WHERE e.status='settled'),0) AS settled, COUNT(*) FILTER (WHERE e.entry_type='accrual') AS cnt
       FROM commission_entries e LEFT JOIN providers p ON e.kind='provider' AND p.id=e.provider_id LEFT JOIN users u ON e.kind='courier' AND u.id=e.courier_user_id
       GROUP BY e.kind, e.provider_id, e.courier_user_id, p.name, u.name ORDER BY due DESC`);
     const m = await pool.query(`SELECT COALESCE(SUM(amount),0) AS net FROM commission_entries WHERE created_at >= date_trunc('month', NOW() AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'`);
     res.json({
-      totals: t.rows.map(x => ({ kind: x.kind, gross: Number(x.gross), adjustments: Number(x.adj), net: Number(x.net), due: Number(x.due), settled: Number(x.settled) })),
+      totals: t.rows.map(x => ({ kind: x.kind, svc: x.svc || '', gross: Number(x.gross), adjustments: Number(x.adj), net: Number(x.net), due: Number(x.due), settled: Number(x.settled) })),
       month: Number(m.rows[0].net),
       balances: b.rows.map(x => ({ kind: x.kind, id: String(x.kind === 'provider' ? x.provider_id : x.courier_user_id || ''), name: x.name, due: Number(x.due), settled: Number(x.settled), count: Number(x.cnt) })),
     });
@@ -397,7 +397,27 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     }
     const last = await pool.query(`SELECT * FROM commission_entries WHERE ${isProvider ? "kind='provider' AND provider_id IN (SELECT id FROM providers WHERE owner_user_id=$1)" : "kind='courier' AND courier_user_id=$1"} ORDER BY id DESC LIMIT 15`, [uid]);
     const s = sum.rows[0];
-    res.json({ due: Number(s.due), settled: Number(s.settled), month: Number(s.month), rules, entries: last.rows.map(entryJson) });
+    let services = null;
+    if (!isProvider) {   // a courier who is also a captain sees everything he did, grouped by kind of work, with the totals
+      const T0 = "(date_trunc('day', NOW() AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo')", M0 = "(date_trunc('month', NOW() AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo')";
+      const w = await pool.query(`WITH o AS (
+          SELECT CASE WHEN data->>'market'='true' THEN 'market' WHEN provider_id IS NULL THEN 'errand' ELSE 'delivery' END AS svc, delivered_at AS at,
+                 COALESCE(NULLIF(CASE WHEN data->>'premiumFree'='true' THEN data->>'normalFee' ELSE data->>'deliveryFee' END,'')::numeric,0) AS fee
+            FROM orders WHERE courier_user_id=$1 AND status='delivered' AND delivered_at IS NOT NULL
+          UNION ALL SELECT 'ride', updated_at, COALESCE(final_price, offered, 0) FROM rides WHERE driver_id=$1 AND status='completed')
+        SELECT svc, COUNT(*) FILTER (WHERE at >= ${T0}) AS tc, COALESCE(SUM(fee) FILTER (WHERE at >= ${T0}),0) AS tf,
+               COUNT(*) FILTER (WHERE at >= ${M0}) AS mc, COALESCE(SUM(fee) FILTER (WHERE at >= ${M0}),0) AS mf FROM o GROUP BY svc`, [uid]);
+      const cm = await pool.query(`SELECT CASE WHEN svc='' THEN 'delivery' ELSE svc END AS svc, COALESCE(SUM(amount) FILTER (WHERE created_at >= ${T0}),0) AS t, COALESCE(SUM(amount) FILTER (WHERE created_at >= ${M0}),0) AS m
+        FROM commission_entries WHERE kind='courier' AND courier_user_id=$1 GROUP BY 1`, [uid]);
+      const cap = (await pool.query('SELECT 1 FROM captain_profiles WHERE user_id=$1', [uid])).rowCount > 0;
+      const per = (svc, k) => { const x = w.rows.find(r => r.svc === svc) || {}, c = cm.rows.find(r => r.svc === svc) || {};
+        const count = Number(x[k + 'c']) || 0, earned = round2(x[k + 'f']), commission = round2(c[k]); return { count, earned, commission, net: round2(earned - commission) }; };
+      const NAMES = { delivery: 'توصيل طلبات المحلات', market: 'طلبات ماركت', errand: 'اطلب إيه نجيبهولك', ride: 'التوصيلة (الرحلات)' };
+      services = { captain: cap, rows: Object.keys(NAMES).map(svc => ({ svc, name: NAMES[svc], today: per(svc, 't'), month: per(svc, 'm') })) };
+      const sum = k => services.rows.reduce((a, r) => ({ count: a.count + r[k].count, earned: round2(a.earned + r[k].earned), commission: round2(a.commission + r[k].commission), net: round2(a.net + r[k].net) }), { count: 0, earned: 0, commission: 0, net: 0 });
+      services.total = { today: sum('today'), month: sum('month') };
+    }
+    res.json({ due: Number(s.due), settled: Number(s.settled), month: Number(s.month), rules, services, entries: last.rows.map(entryJson) });
   }));
 
   /* ---------- day closing: collect the platform commission, zero the shop's counters, archive its finished orders ---------- */
@@ -466,6 +486,56 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
       return c.rows[0];
     });
     res.status(201).json({ closing: closingJson(out) });
+  }));
+  /* ---------- closing of a whole service: rides (captains), market orders, "what shall we bring" errands ---------- */
+  const SVC = { ride: 'التوصيلة (الكباتن)', market: 'طلبات ماركت', errand: 'اطلب إيه نجيبهولك' };
+  const SVC_SQL = `SELECT COUNT(*) FILTER (WHERE e.entry_type='accrual') AS cnt, COALESCE(SUM(e.base_amount) FILTER (WHERE e.entry_type='accrual'),0) AS base,
+      COALESCE(SUM(e.amount),0) AS commission, COALESCE(SUM(e.amount) FILTER (WHERE e.status='due'),0) AS due
+    FROM commission_entries e WHERE e.svc=$1 AND e.kind='courier' AND e.created_at > COALESCE($2::timestamptz,'epoch'::timestamptz) AND e.created_at <= $3::timestamptz`;
+  const svcClosingJson = r => ({ id: String(r.id), svc: r.svc, at: new Date(r.closed_at).getTime(), orders: Number(r.orders_count), base: Number(r.base), commission: Number(r.commission), due: Number(r.due), note: r.note || '', undone: !!r.undone_at });
+  async function svcCurrent(db, now) {
+    const out = [];
+    for (const svc of Object.keys(SVC)) {
+      const last = (await db.query('SELECT MAX(closed_at) AS t FROM service_closings WHERE svc=$1 AND undone_at IS NULL', [svc])).rows[0].t;
+      const x = (await db.query(SVC_SQL, [svc, last, now])).rows[0];
+      out.push({ svc, name: SVC[svc], since: last ? new Date(last).getTime() : null, orders: Number(x.cnt), base: round2(x.base), commission: round2(x.commission), due: round2(x.due) });
+    }
+    return out;
+  }
+  app.get('/api/admin/closings/services', ...admin, asyncRoute(async (_req, res) => {
+    const now = new Date((await pool.query('SELECT NOW() AS n')).rows[0].n);
+    const hist = await pool.query('SELECT * FROM service_closings ORDER BY closed_at DESC, id DESC LIMIT 40');
+    res.json({ services: await svcCurrent(pool, now), closings: hist.rows.map(svcClosingJson) });
+  }));
+  app.post('/api/admin/closings/services', ...admin, guard(async (req, res) => {
+    const svc = String((req.body || {}).svc || '');
+    if (!SVC[svc]) throw fail(400, 'اختر الخدمة');
+    const note = String((req.body || {}).note || '').trim().slice(0, 200);
+    const out = await withTx(async db => {
+      await db.query('SELECT pg_advisory_xact_lock(7001, $1::int)', [Object.keys(SVC).indexOf(svc)]);
+      const now = new Date((await db.query('SELECT NOW() AS n')).rows[0].n);
+      const cur = (await svcCurrent(db, now)).find(x => x.svc === svc);
+      if (!cur.orders && !cur.commission) throw fail(409, 'لا يوجد ما يُقفل لهذه الخدمة');
+      const r = await db.query('INSERT INTO service_closings(svc, closed_at, period_from, closed_by, orders_count, base, commission, due, note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
+        [svc, now, cur.since ? new Date(cur.since) : null, me(req), cur.orders, cur.base, cur.commission, cur.due, note]);
+      await audit(db, me(req), 'service.close', 'service', svc, null, { closing: String(r.rows[0].id), orders: cur.orders, commission: cur.commission, due: cur.due }, note);
+      return r.rows[0];
+    });
+    res.status(201).json({ closing: svcClosingJson(out) });
+  }));
+  app.post('/api/admin/closings/services/:id/undo', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'تقفيل غير صالح');
+    const out = await withTx(async db => {
+      const c = (await db.query('SELECT * FROM service_closings WHERE id=$1 FOR UPDATE', [id])).rows[0];
+      if (!c) throw fail(404, 'التقفيل غير موجود');
+      if (c.undone_at) throw fail(409, 'تم التراجع عن هذا التقفيل من قبل');
+      if ((await db.query('SELECT 1 FROM service_closings WHERE svc=$1 AND undone_at IS NULL AND closed_at > $2 LIMIT 1', [c.svc, c.closed_at])).rowCount) throw fail(409, 'يوجد تقفيل أحدث لنفس الخدمة. تراجع عنه أولاً');
+      const r = await db.query('UPDATE service_closings SET undone_at=NOW() WHERE id=$1 RETURNING *', [id]);
+      await audit(db, me(req), 'service.close.undo', 'service', c.svc, null, { closing: String(id) }, '');
+      return r.rows[0];
+    });
+    res.json({ closing: svcClosingJson(out) });
   }));
   // Undo restores the counters and the shop's order lists. The money that was received stays recorded (a real payment is never silently cancelled).
   app.post('/api/admin/closings/:id/undo', ...admin, guard(async (req, res) => {

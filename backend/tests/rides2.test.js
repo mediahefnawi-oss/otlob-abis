@@ -121,6 +121,8 @@ const R2 = require('../src/rides2.js');
   eq(Number((await q('SELECT balance FROM captain_profiles WHERE user_id=$1', [d1])).rows[0].balance), 200 - expectComm, 'balance reduced');
   eq((await call('POST /api/captain/rides/:id/status', { as: D1, params: { id: rid }, body: { status: 'completed' } })).status, 409, 'cannot complete twice (no double commission)');
   eq((await call('GET /api/admin/captains/:id/ledger', { as: A, params: { id: d1 } })).json.ledger.length, 2, 'commission in the ledger');
+  { const ce = (await q("SELECT kind, svc, status, amount::float AS amount, base_amount::float AS base FROM commission_entries WHERE ride_id=$1", [rid])).rows;
+    eq(ce.length, 1, 'ride commission also lands in the finance ledger'); eq(ce[0].svc + '/' + ce[0].kind + '/' + ce[0].status, 'ride/courier/settled', 'tagged as ride, already settled'); eq(ce[0].amount, expectComm, 'same amount as taken from the captain'); }
 
   // per-type and per-captain commission
   await call('PATCH /api/admin/ride-types/:id/commission', { as: A, params: { id: t.id }, body: { commissionPct: 20 } });

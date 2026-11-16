@@ -189,6 +189,10 @@ function RulesTab() {
 }
 
 /* ============================== reports / dues ============================== */
+const SVC_AR: Record<string, string> = { ride: 'التوصيلة (الكباتن)', market: 'طلبات ماركت', errand: 'اطلب إيه نجيبهولك' };
+type SvcRow = { svc: string; name: string; since: number | null; orders: number; base: number; commission: number; due: number };
+type SvcClosing = { id: string; svc: string; at: number; orders: number; base: number; commission: number; due: number; undone: boolean };
+
 function ReportsTab() {
   const [period, setPeriod] = useState<'day' | 'month'>('day');
   const [range, setRange] = useState(30);
@@ -202,7 +206,8 @@ function ReportsTab() {
   useEffect(() => { load(); }, [load]);
   const byPeriod: Record<string, any[]> = {};
   rows.forEach((r) => { (byPeriod[r.period] = byPeriod[r.period] || []).push(r); });
-  const tot = (k: string) => ov?.totals?.find((t: any) => t.kind === k) || { gross: 0, adjustments: 0, net: 0, due: 0, settled: 0 };
+  const tot = (k: string) => (ov?.totals || []).filter((t: any) => t.kind === k && !t.svc).reduce((a: any, t: any) => ({ gross: a.gross + t.gross, adjustments: a.adjustments + t.adjustments, net: a.net + t.net, due: a.due + t.due, settled: a.settled + t.settled }), { gross: 0, adjustments: 0, net: 0, due: 0, settled: 0 });
+  const svcTot = (sv: string) => (ov?.totals || []).filter((t: any) => t.svc === sv).reduce((a: any, t: any) => ({ net: a.net + t.net, due: a.due + t.due, settled: a.settled + t.settled }), { net: 0, due: 0, settled: 0 });
   const settle = (b: any) => confirmDialog({
     title: 'تسوية المستحقات؟', message: `سيتم تسجيل سداد ${money(b.due)} من ${b.name} وإقفال هذه المستحقات.`, confirmText: 'تأكيد السداد',
     onConfirm: () => { run(apiJson('/api/admin/commissions/settle', 'POST', b.kind === 'provider' ? { providerId: b.id } : { courierId: b.id }), 'تم تسجيل السداد').then(load); },
@@ -212,7 +217,7 @@ function ReportsTab() {
     <View style={{ gap: 12 }}>
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <Stat icon="cash" label="صافي الشهر الحالي" value={money(ov?.month || 0)} color={C.goldDeep} soft={C.goldSoft} />
-        <Stat icon="alert-circle" label="مستحقات غير مسددة" value={money(tot('provider').due + tot('courier').due)} color={C.red} soft={C.redSoft} />
+        <Stat icon="alert-circle" label="مستحقات غير مسددة" value={money(tot('provider').due + tot('courier').due + svcTot('market').due + svcTot('errand').due)} color={C.red} soft={C.redSoft} />
       </View>
       <Card style={{ gap: 8 }}>
         <T w="black" size={14.5}>الإجمالي التراكمي (لا يتأثر بتصفير العدادات)</T>
@@ -221,6 +226,12 @@ function ReportsTab() {
             <T w="bold" size={13}>{k === 'provider' ? 'عمولات مقدمي الخدمة' : 'خصومات المناديب'}</T>
             <T size={12} color={C.sub}>المحتسب {money(tot(k).gross)} • التسويات {money(tot(k).adjustments)} • الصافي {money(tot(k).net)}</T>
             <T size={12} color={C.sub}>مسدد {money(tot(k).settled)} • غير مسدد {money(tot(k).due)}</T>
+          </View>
+        ))}
+        {(['ride', 'market', 'errand'] as const).map((sv) => (
+          <View key={sv} style={{ gap: 2 }}>
+            <T w="bold" size={13}>عمولة {SVC_AR[sv]}</T>
+            <T size={12} color={C.sub}>الصافي {money(svcTot(sv).net)} • مسدد {money(svcTot(sv).settled)} • غير مسدد {money(svcTot(sv).due)}</T>
           </View>
         ))}
       </Card>
@@ -247,8 +258,8 @@ function ReportsTab() {
         <Card key={p} style={{ gap: 6 }}>
           <T w="black" size={14}>{fmtPeriod(p)}</T>
           {byPeriod[p].map((r) => (
-            <View key={r.kind} style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <T size={12.5} style={{ flex: 1 }}>{r.kind === 'provider' ? 'مقدمو الخدمة' : 'المناديب'} • {r.count} عملية{r.adjustments ? ` • تسويات ${money(r.adjustments)}` : ''}</T>
+            <View key={r.kind + (r.svc || '')} style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <T size={12.5} style={{ flex: 1 }}>{r.svc ? SVC_AR[r.svc] || r.svc : r.kind === 'provider' ? 'مقدمو الخدمة' : 'المناديب'} • {r.count} عملية{r.adjustments ? ` • تسويات ${money(r.adjustments)}` : ''}</T>
               <T w="black" size={14} color={C.goldDeep}>{money(r.net)}</T>
             </View>
           ))}
@@ -417,8 +428,19 @@ function ClosingTab() {
   const [sel, setSel] = useState<ClosingProv | null>(null);
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
-  const load = useCallback(() => { apiJson<any>('/api/admin/closings').then(setData).catch(() => {}); }, []);
+  const [sv, setSv] = useState<{ services: SvcRow[]; closings: SvcClosing[] } | null>(null);
+  const load = useCallback(() => { apiJson<any>('/api/admin/closings').then(setData).catch(() => {}); apiJson<any>('/api/admin/closings/services').then(setSv).catch(() => {}); }, []);
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
+  const closeSvc = (x: SvcRow) => confirmDialog({
+    title: `تقفيل ${x.name}؟`, confirmText: 'قفّل', message: `${x.orders} عملية • عمولة ${money(x.commission)}${x.due > 0 ? ` (منها ${money(x.due)} لسه مش مسددة)` : ''}. العدّاد هيبدأ من الصفر، والتراجع متاح.`,
+    onConfirm: () => { run(apiJson('/api/admin/closings/services', 'POST', { svc: x.svc }), `تم تقفيل ${x.name}`).then(load); },
+  });
+  const undoSvc = (c: SvcClosing) => confirmDialog({
+    title: 'التراجع عن التقفيل؟', danger: true, confirmText: 'تراجع', message: `هيرجع عدّاد ${SVC_AR[c.svc]} زي ما كان.`,
+    onConfirm: () => { run(apiJson(`/api/admin/closings/services/${c.id}/undo`, 'POST'), 'تم التراجع').then(load); },
+  });
+  const svcLatest = new Set<string>(); const seenSvc = new Set<string>();
+  (sv?.closings || []).forEach((c) => { if (!c.undone && !seenSvc.has(c.svc)) { seenSvc.add(c.svc); svcLatest.add(c.id); } });
   const open = (p: ClosingProv) => { setSel(p); setAmount(String(p.due)); };
   const num = Number(toEn(amount.trim()));
   const submit = async () => {
@@ -443,6 +465,32 @@ function ClosingTab() {
     <View style={{ gap: 12 }}>
       <SectionTitle title="تقفيل اليوم" />
       <T size={12.5} color={C.sub}>التقفيل يعني أنك استلمت عمولة المنصة من المحل: يُسجَّل السداد، ويبدأ عداد المحل من الصفر، وتنتقل طلباته المنتهية للسجل. لا يُحذف أي طلب.</T>
+      {(sv?.services || []).map((x) => (
+        <Card key={x.svc} style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <T w="black" size={14.5}>{x.name}</T>
+              <T size={12} color={C.sub}>{x.since ? `آخر تقفيل ${fmtDateTime(x.since)}` : 'لم يُقفل من قبل'}</T>
+            </View>
+            <Btn title="قفّل" small variant="green" icon="lock-closed" onPress={() => closeSvc(x)} disabled={!x.orders && !x.commission} />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Stat icon="receipt" label="العمليات" value={x.orders} color={C.blue} soft={C.blueSoft} />
+            <Stat icon="cash" label={x.svc === 'ride' ? 'قيمة الرحلات' : 'أساس العمولة'} value={money(x.base)} color={C.goldDeep} soft={C.goldSoft} />
+            <Stat icon="wallet" label="عمولة التطبيق" value={money(x.commission)} color={C.green} soft={C.greenSoft} />
+          </View>
+          {x.due > 0 && <T size={12} color={C.red}>مستحق لسه من المناديب: {money(x.due)} (يتسوّى من تبويب التقارير)</T>}
+        </Card>
+      ))}
+      {(sv?.closings || []).filter((c) => !c.undone).slice(0, 8).map((c) => (
+        <Card key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={13}>{SVC_AR[c.svc]}</T>
+            <T size={12} color={C.sub}>{fmtDateTime(c.at)} • {c.orders} عملية • عمولة {money(c.commission)}</T>
+          </View>
+          {svcLatest.has(c.id) && <Btn title="تراجع" small variant="outline" onPress={() => undoSvc(c)} />}
+        </Card>
+      ))}
       {!data && <T size={13} color={C.sub}>جارٍ التحميل…</T>}
       {data && list.length === 0 && <Empty icon="checkmark-done" title="لا يوجد ما يُقفل" text="كل المحلات مقفولة وعدّاداتها صفر" />}
       {list.map((p) => (
@@ -635,11 +683,37 @@ export function ProviderFinanceCard({ providerId }: { providerId: string }) {
 /** Courier: the platform deduction per delivered order and what is owed. */
 export function CourierFinanceCard() {
   const mine = useMyCommission('courier');
+  const [per, setPer] = useState<'today' | 'month'>('today');
   if (!mine) return null;
   const rule = mine.rules[0];
+  const sv = mine.services;
+  const rows = (sv?.rows || []).filter((r) => r.svc !== 'ride' || sv?.captain || r.month.count > 0);
+  const Cell = ({ children, w, b, color }: any) => <T w={b ? 'black' : 'regular'} size={12} color={color} style={{ width: w }} align="center">{children}</T>;
   return (
-    <Card style={{ gap: 4 }}>
-      <T w="black" size={15}>خصم المنصة</T>
+    <Card style={{ gap: 8 }}>
+      <T w="black" size={15}>حساباتي</T>
+      {!!sv && (
+        <>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Chip label="النهارده" active={per === 'today'} onPress={() => setPer('today')} />
+            <Chip label="الشهر ده" active={per === 'month'} onPress={() => setPer('month')} />
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: C.line, paddingBottom: 4 }}>
+            <T w="bold" size={11.5} color={C.sub} style={{ flex: 1 }}>النوع</T>
+            <Cell w={34} color={C.sub}>عدد</Cell><Cell w={58} color={C.sub}>الإجمالي</Cell><Cell w={52} color={C.sub}>العمولة</Cell><Cell w={58} color={C.sub}>صافيك</Cell>
+          </View>
+          {rows.map((r) => (
+            <View key={r.svc} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 3 }}>
+              <T size={12.5} style={{ flex: 1 }}>{r.name}</T>
+              <Cell w={34}>{r[per].count}</Cell><Cell w={58}>{money(r[per].earned)}</Cell><Cell w={52} color={C.red}>{money(r[per].commission)}</Cell><Cell w={58} b color={C.green}>{money(r[per].net)}</Cell>
+            </View>
+          ))}
+          <View style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.line, paddingTop: 6 }}>
+            <T w="black" size={13} style={{ flex: 1 }}>الإجمالي</T>
+            <Cell w={34} b>{sv.total[per].count}</Cell><Cell w={58} b>{money(sv.total[per].earned)}</Cell><Cell w={52} b color={C.red}>{money(sv.total[per].commission)}</Cell><Cell w={58} b color={C.green}>{money(sv.total[per].net)}</Cell>
+          </View>
+        </>
+      )}
       {rule && <T size={12.5} color={C.dark3}>{ruleSummary(rule.kind, rule.value, rule.minAmount, 'courier')}</T>}
       <T size={12.5} color={C.dark3}>إجمالي الخصم غير المسدد: <T w="black" size={13} color={mine.due > 0 ? C.red : C.green}>{money(mine.due)}</T> • هذا الشهر {money(mine.month)}</T>
     </Card>

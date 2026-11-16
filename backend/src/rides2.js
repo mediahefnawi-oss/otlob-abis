@@ -327,6 +327,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
         commission = commissionFor(r.rows[0].final_price, { captainPct: cp.rows[0].commission_pct, typePct: tp.rows[0] && tp.rows[0].commission_pct, defaultPct: s.ride_commission_pct, minFee: s.ride_commission_min });
         const nb = await c.query('UPDATE captain_profiles SET balance = balance - $2 WHERE user_id=$1 RETURNING balance', [me(req), commission]);
         await c.query("INSERT INTO captain_ledger(user_id, kind, amount, ride_id, note) VALUES($1,'commission',$2,$3,'عمولة رحلة')", [me(req), -commission, id]);
+        await c.query("INSERT INTO commission_entries(entry_type, kind, ride_id, courier_user_id, base_amount, amount, status, svc, note) VALUES('accrual','courier',$1,$2,$3,$4,'settled','ride','عمولة رحلة') ON CONFLICT DO NOTHING", [id, me(req), money(r.rows[0].final_price), commission]);
         if (!canReceive(nb.rows[0].balance, s.ride_min_balance)) await c.query("UPDATE captain_profiles SET status='suspended', note='تم الإيقاف تلقائياً: الرصيد أقل من الحد المسموح' WHERE user_id=$1 AND status='approved'", [me(req)]);
       }
       await c.query('UPDATE rides SET status=$2, commission=COALESCE($3, commission), updated_at=NOW() WHERE id=$1', [id, to, commission]);
@@ -380,6 +381,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       const commission = commissionFor(price, { captainPct: cp.rows[0] && cp.rows[0].commission_pct, typePct: tp.rows[0] && tp.rows[0].commission_pct, defaultPct: s.ride_commission_pct, minFee: s.ride_commission_min });
       const nb = await c.query('UPDATE captain_profiles SET balance = balance - $2 WHERE user_id=$1 RETURNING balance', [row.driver_id, commission]);
       await c.query("INSERT INTO captain_ledger(user_id, kind, amount, ride_id, note) VALUES($1,'commission',$2,$3,'عمولة رحلة (تأكيد من الإدارة)')", [row.driver_id, -commission, id]);
+      await c.query("INSERT INTO commission_entries(entry_type, kind, ride_id, courier_user_id, base_amount, amount, status, svc, note) VALUES('accrual','courier',$1,$2,$3,$4,'settled','ride','عمولة رحلة (تأكيد من الإدارة)') ON CONFLICT DO NOTHING", [id, row.driver_id, money(price), commission]);
       if (nb.rowCount && !canReceive(nb.rows[0].balance, s.ride_min_balance)) await c.query("UPDATE captain_profiles SET status='suspended', note='تم الإيقاف تلقائياً: الرصيد أقل من الحد المسموح' WHERE user_id=$1 AND status='approved'", [row.driver_id]);
       await c.query("UPDATE rides SET status='completed', final_price=COALESCE(final_price, offered), commission=$2, updated_at=NOW() WHERE id=$1", [id, commission]);
       await c.query('COMMIT');

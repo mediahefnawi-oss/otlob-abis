@@ -884,3 +884,30 @@ CREATE TABLE IF NOT EXISTS broadcast_seen (
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   PRIMARY KEY (broadcast_id, user_id)
 );
+
+-- 20261223: the platform's commission per service (ride / market / errand) in the same ledger as everything else
+ALTER TABLE commission_entries ADD COLUMN IF NOT EXISTS svc TEXT NOT NULL DEFAULT '';
+ALTER TABLE commission_entries ADD COLUMN IF NOT EXISTS ride_id BIGINT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_comm_ride ON commission_entries(ride_id, kind) WHERE entry_type = 'accrual' AND ride_id IS NOT NULL;
+UPDATE commission_entries SET svc='market' WHERE svc='' AND kind='courier' AND order_id IN (SELECT id FROM orders WHERE data->>'market'='true');
+UPDATE commission_entries SET svc='errand' WHERE svc='' AND kind='courier' AND provider_id IS NULL;
+-- commissions of rides already taken from the captains' balances (settled: the money was deducted when the ride ended)
+INSERT INTO commission_entries(entry_type, kind, ride_id, courier_user_id, base_amount, amount, status, svc, note, created_at)
+  SELECT 'accrual', 'courier', r.id, l.user_id, COALESCE(r.final_price, r.offered, 0), -l.amount, 'settled', 'ride', 'عمولة رحلة', l.created_at
+  FROM captain_ledger l JOIN rides r ON r.id = l.ride_id WHERE l.kind = 'commission' AND l.amount < 0
+  ON CONFLICT DO NOTHING;
+-- closing of a whole service (rides / market / errands): archives the period, never touches the money
+CREATE TABLE IF NOT EXISTS service_closings (
+  id BIGSERIAL PRIMARY KEY,
+  svc TEXT NOT NULL CHECK (svc IN ('ride','market','errand')),
+  closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  period_from TIMESTAMPTZ,
+  closed_by BIGINT,
+  orders_count INT NOT NULL DEFAULT 0,
+  base NUMERIC(12,2) NOT NULL DEFAULT 0,
+  commission NUMERIC(12,2) NOT NULL DEFAULT 0,
+  due NUMERIC(12,2) NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
+  undone_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_service_closings ON service_closings(svc, closed_at DESC);
