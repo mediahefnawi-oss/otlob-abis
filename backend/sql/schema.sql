@@ -439,6 +439,9 @@ CREATE TABLE IF NOT EXISTS service_meta (
   sub TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- the owner's own name and position for the extra services on the home (market, rides, errand)
+ALTER TABLE service_meta ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '';
+ALTER TABLE service_meta ADD COLUMN IF NOT EXISTS sort INT NOT NULL DEFAULT 0;
 
 -- Default commissions (seeded once; afterwards the owner edits them from the panel).
 DO $$

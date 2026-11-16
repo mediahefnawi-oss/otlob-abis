@@ -645,7 +645,7 @@ export function AdminSettingsScreen({ navigation }: any) {
       <Section icon="server" title="النسخة الاحتياطية" sub="تشغيل أو إيقاف الربط مع القاعدة الاحتياطية">
         <ReplicationCard />
       </Section>
-      <Section icon="grid" title="الخدمات" sub={`${(db.services && db.services.length ? db.services.filter((x) => x.template !== 'errand').length : 6)} خدمات • أسماء وترتيب وأحجام`}>
+      <Section icon="grid" title="الخدمات" sub={`${(db.services && db.services.length ? db.services.filter((x) => x.template !== 'errand').length : 6) + 2} خدمات • أسماء وترتيب وأحجام وطلبات ماركت والتوصيلة`}>
         <ServicesManager />
       </Section>
       <Section icon="location" title="المناطق والتوصيل" sub={`${db.regions.length} منطقة • أسعار التوصيل`}>

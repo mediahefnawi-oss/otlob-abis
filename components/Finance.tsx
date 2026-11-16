@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, Image, Pressable } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
-import { useStore, publishUpdateNotice, setWelcomeLogo, setLoginImage, setAppIcon, setCatIcon, updateSettings, createService, updateService, reorderServices, deleteService } from '../lib/store';
+import { refresh as refreshStore, useStore, publishUpdateNotice, setWelcomeLogo, setLoginImage, setAppIcon, setCatIcon, updateSettings, createService, updateService, reorderServices, deleteService } from '../lib/store';
 import { TYPES, DEFAULT_CREDITS, money, fmtDateTime, isoDay, DAYS, typeKeys, serviceDefs, errandDef, TEMPLATE_LABEL } from '../lib/format';
 import { ProviderType, ServiceDef, ServiceTemplate } from '../lib/types';
 import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
-import { loginImageUrl, welcomeLogoUrl, appIconUrl, catIconUrl } from '../lib/api';
+import { loginImageUrl, welcomeLogoUrl, appIconUrl, catIconUrl, apiSetFeature } from '../lib/api';
+import { useNavigation } from '@react-navigation/native';
+import { SvcLookCard } from '../screens/adminExtra';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useRC } from '../screens/customer';
 
@@ -905,6 +907,8 @@ function ServiceSheet({ visible, def, onClose }: { visible: boolean; def: Servic
 /** Owner: rename / stop / order / resize the services and add new ones. «اطلب إيه؟ نجيبهولك» is the last row. Each row opens with a tap. */
 export function ServicesManager() {
   const { db } = useStore();
+  const nav: any = useNavigation();
+  const [extraOpen, setExtraOpen] = useState('');
   const [busy, setBusy] = useState('');
   const [openKey, setOpenKey] = useState('');
   const [edit, setEdit] = useState<ServiceDef | null>(null);
@@ -991,9 +995,33 @@ export function ServicesManager() {
                 <T w="semi" size={13} style={{ flex: 1 }}>تظهر في الرئيسية</T><Toggle value={errand.showHome} onValueChange={(x) => act('errand', updateService('errand', { showHome: x }))} />
               </View>
               <Btn small variant="soft" icon="create" title="الاسم والأيقونة" onPress={() => { setEdit(errand); setOpen(true); }} />
+              <SvcLookCard svc="errand" title="غلاف ووصف «اطلب إيه نجيبهولك»" />
             </View>
           )}
         </View>
+        {([
+          { k: 'market' as const, label: 'طلبات ماركت', emoji: '🧺', route: 'AdminMarket', feat: 'market' },
+          { k: 'rides' as const, label: 'توصيلة', emoji: '🚕', route: 'AdminRides', feat: 'rides' },
+        ]).map((x) => {
+          const on = !!db.settings.features?.[x.feat];
+          const isOpen = extraOpen === x.k;
+          return (
+            <View key={x.k} style={{ borderTopWidth: 1, borderTopColor: C.line, marginTop: 6, opacity: on ? 1 : 0.6 }}>
+              <Pressable onPress={() => setExtraOpen(isOpen ? '' : x.k)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 }}>
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.goldSoft, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center' }}><T size={20}>{x.emoji}</T></View>
+                <View style={{ flex: 1, gap: 1 }}><T w="black" size={14}>{x.label}</T><T size={11} color={C.sub}>خدمة بإدارة خاصة</T></View>
+                <Toggle value={on} onValueChange={async (v) => { setBusy(x.k); try { await apiSetFeature(x.feat, v); await refreshStore(); toast(v ? 'تم تشغيل الخدمة' : 'تم إيقاف الخدمة'); } catch (e: any) { toast(e?.message || 'تعذر التنفيذ', 'err'); } setBusy(''); }} />
+                <Icon name={isOpen ? 'chevron-down' : 'chevron-back'} size={18} color={C.sub} />
+              </Pressable>
+              {isOpen && (
+                <View style={{ gap: 10, paddingBottom: 12 }}>
+                  <Btn small icon="settings" title={x.k === 'market' ? 'إدارة المنتجات والعروض' : 'إدارة الكباتن والرحلات والأسعار'} onPress={() => nav.navigate(x.route)} />
+                  <SvcLookCard svc={x.k} title={`${x.label} في الرئيسية`} withName />
+                </View>
+              )}
+            </View>
+          );
+        })}
         <View style={{ marginTop: 8 }}><Btn title="خدمة جديدة" icon="add" onPress={() => { setEdit(null); setOpen(true); }} /></View>
       </Card>
       <ServiceSheet visible={open} def={edit} onClose={() => setOpen(false)} />

@@ -573,10 +573,13 @@ export const apiAdminRideAssign = (id: number, driverId: number) => apiRequest<{
 export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
 
 /* look of the new services (market, rides): icon picture, cover picture, description */
-export type SvcKey = 'market' | 'rides';
-export type SvcMeta = Record<SvcKey, { sub: string; icon: number; cover: number }>;
+export type SvcKey = 'market' | 'rides' | 'errand';
+export type SvcCoverKind = 'cover' | 'cover2' | 'cover3';
+export type SvcImgKind = 'icon' | SvcCoverKind;
+export type SvcMeta = Record<SvcKey, { sub: string; title: string; sort: number; icon: number; cover: number; cover2: number; cover3: number }>;
 export const apiSvcMeta = () => apiRequest<SvcMeta>('/api/svc-meta');
-export const svcImageUrl = (key: SvcKey, kind: 'icon' | 'cover', v: number) => `${API_BASE}/api/svc-image/${key}/${kind}?v=${v}`;
-export const apiAdminSvcImage = (key: SvcKey, kind: 'icon' | 'cover', image: string | null) =>
+export const svcImageUrl = (key: SvcKey, kind: SvcImgKind, v: number) => `${API_BASE}/api/svc-image/${key}/${kind}?v=${v}`;
+export const apiAdminSvcImage = (key: SvcKey, kind: SvcImgKind, image: string | null) =>
   apiRequest<{ ok: boolean }>(`/api/admin/svc-image/${key}/${kind}`, { method: image ? 'PUT' : 'DELETE', ...(image ? { body: JSON.stringify({ image }) } : {}) });
+export const apiAdminSvcMeta = (key: SvcKey, b: { sub?: string; title?: string; sort?: number }) => apiRequest<{ ok: boolean }>(`/api/admin/svc-meta/${key}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminSvcSub = (key: SvcKey, sub: string) => apiRequest<{ ok: boolean }>(`/api/admin/svc-meta/${key}`, { method: 'PATCH', body: JSON.stringify({ sub }) });

@@ -30,7 +30,7 @@ import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
 import { RegionClosedBanner } from '../components/Regions';
 import { AddressPicker } from '../components/AddressBook';
-import { GroupOrderButton, useGroupLink, useSvcMeta, MarketOffersRow } from './extra';
+import { GroupOrderButton, useGroupLink, useSvcMeta, MarketOffersRow, SvcCover } from './extra';
 import { svcImageUrl } from '../lib/api';
 import { HomeNew, AddressSheet } from '../components/HomeNew';
 import { RatingLine, useRatingStars } from '../components/Stars';
@@ -218,12 +218,18 @@ function HomeOld({ navigation }: any) {
             </Appear>
           ))}
 
-          {!!db.settings.features?.market && <Appear i={4} style={{ marginTop: 12 }}>
-            <WideCard emoji="🧺" imageUri={svc.market?.icon ? svcImageUrl('market', 'icon', svc.market.icon) : undefined} title="طلبات ماركت" sub={svc.market?.sub || 'اختار منتجاتك والمندوب يجيبها لحد بابك'} onPress={() => navigation.navigate('Market')} />
-          </Appear>}
-          {!!db.settings.features?.rides && <Appear i={5} style={{ marginTop: 12 }}>
-            <WideCard emoji="🚕" imageUri={svc.rides?.icon ? svcImageUrl('rides', 'icon', svc.rides.icon) : undefined} title="توصيلة" sub={svc.rides?.sub || 'توكتوك، موتوسيكل، ملاكي... وانت تحدد السعر'} onPress={() => navigation.navigate('RideHome')} />
-          </Appear>}
+          {[
+            { k: 'market', on: !!db.settings.features?.market, sort: svc.market?.sort || 1, i: 4 },
+            { k: 'rides', on: !!db.settings.features?.rides, sort: svc.rides?.sort || 2, i: 5 },
+          ].filter((x) => x.on).sort((x, y) => x.sort - y.sort).map((x) => x.k === 'market' ? (
+            <Appear key="market" i={x.i} style={{ marginTop: 12 }}>
+              <WideCard emoji="🧺" imageUri={svc.market?.icon ? svcImageUrl('market', 'icon', svc.market.icon) : undefined} title={svc.market?.title || 'طلبات ماركت'} sub={svc.market?.sub || 'اختار منتجاتك والمندوب يجيبها لحد بابك'} onPress={() => navigation.navigate('Market')} />
+            </Appear>
+          ) : (
+            <Appear key="rides" i={x.i} style={{ marginTop: 12 }}>
+              <WideCard emoji="🚕" imageUri={svc.rides?.icon ? svcImageUrl('rides', 'icon', svc.rides.icon) : undefined} title={svc.rides?.title || 'توصيلة'} sub={svc.rides?.sub || 'توكتوك، موتوسيكل، ملاكي... وانت تحدد السعر'} onPress={() => navigation.navigate('RideHome')} />
+            </Appear>
+          ))}
 
           {active.length > 0 && (
             <Appear style={{ marginTop: 18 }}>
@@ -237,7 +243,7 @@ function HomeOld({ navigation }: any) {
           )}
 
           {errandDef().active && errandDef().showHome && <Appear i={2} style={{ marginTop: 12 }}>
-            <WideCard art={require('../assets/images/home/ic_errand.png')} emoji={errandDef().emoji} imageUri={(db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
+            <WideCard art={require('../assets/images/home/ic_errand.png')} emoji={errandDef().emoji} imageUri={svc.errand?.icon ? svcImageUrl('errand', 'icon', svc.errand.icon) : (db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={svc.errand?.sub || errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
           </Appear>}
 
           {nearby.length > 0 && <View style={{ marginTop: 18 }}>
@@ -701,6 +707,7 @@ export function CustomOrderScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="اطلب إيه؟ نجيبهولك" onBack={() => navigation.goBack()} subtitle="اكتب طلبك والمندوب يحدد السعر ويجيبه لك" />
+      <SvcCover svc="errand" />
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: 'center' }}><Text style={{ fontSize: 70 }}>🎁</Text></View>

@@ -126,6 +126,16 @@ const roles = (...a) => (req, res, next) => { if (!req.auth || !a.includes(req.a
   ok(img.sent && img.headers['Content-Type'] === 'image/png', 'cover served');
   eq((await call('DELETE /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'icon' } })).status, 200, 'icon removed');
   eq((await call('GET /api/svc-meta')).json.market.icon, 0, 'removed');
+  // ---- the owner's own name/position for the extra services, a second and third cover, and the errand look
+  eq((await call('PATCH /api/admin/svc-meta/:key', { as: A, params: { key: 'market' }, body: { title: 'ماركت أبيس', sort: 3 } })).status, 200, 'title + position saved');
+  eq((await call('PATCH /api/admin/svc-meta/:key', { as: A, params: { key: 'market' }, body: { sort: 5000 } })).status, 400, 'bad position refused');
+  const m2 = (await call('GET /api/svc-meta')).json.market; ok(m2.title === 'ماركت أبيس' && m2.sort === 3 && m2.sub === 'كل احتياجاتك لحد بابك', 'title/sort saved without losing the description');
+  eq((await call('PUT /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'cover2' }, body: { image: png } })).status, 200, 'second cover saved');
+  eq((await call('PUT /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'errand', kind: 'cover' }, body: { image: png } })).status, 200, 'errand can have a cover');
+  const m3 = (await call('GET /api/svc-meta')).json; ok(m3.market.cover2 > 0 && m3.market.cover3 === 0 && m3.errand.cover > 0, 'covers listed');
+  eq((await call('PATCH /api/admin/svc-meta/:key', { as: A, params: { key: 'errand' }, body: { sub: 'اكتب أي حاجة' } })).status, 200, 'errand description saved');
+  await call('DELETE /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'cover2' } });
+  await call('DELETE /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'errand', kind: 'cover' } });
   // ---- discounts: percent off, optional end time, the server charges the sale price
   await feat('market', true);
   const dp = (await call('POST /api/admin/market-products', { as: A, body: { name: 'عسل', price: 100, discountPct: 20, offerText: 'خصم النهارده' } })).json.product;

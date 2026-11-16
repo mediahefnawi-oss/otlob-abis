@@ -106,14 +106,14 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
   }));
 
   /* ----- the look of the new services on the home: icon picture, cover picture, one description line ----- */
-  const SVC = ['market', 'rides'], KIND = ['icon', 'cover'];
+  const SVC = ['market', 'rides', 'errand'], KIND = ['icon', 'cover', 'cover2', 'cover3'];
   const okSvc = (k, kind) => SVC.includes(k) && (kind === undefined || KIND.includes(kind));
   app.get('/api/svc-meta', asyncRoute(async (_req, res) => {
-    const m = await pool.query('SELECT key, sub FROM service_meta');
+    const m = await pool.query('SELECT key, sub, title, sort FROM service_meta');
     const im = await pool.query("SELECT key, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'svc\\_%'");
-    const out = {}; for (const k of SVC) out[k] = { sub: '', icon: 0, cover: 0 };
-    for (const r of m.rows) if (out[r.key]) out[r.key].sub = r.sub;
-    for (const r of im.rows) { const x = /^svc_(market|rides)_(icon|cover)$/.exec(r.key); if (x) out[x[1]][x[2]] = Number(r.v); }
+    const out = {}; for (const k of SVC) out[k] = { sub: '', title: '', sort: 0, icon: 0, cover: 0, cover2: 0, cover3: 0 };
+    for (const r of m.rows) if (out[r.key]) { out[r.key].sub = r.sub; out[r.key].title = r.title || ''; out[r.key].sort = Number(r.sort) || 0; }
+    for (const r of im.rows) { const x = /^svc_(market|rides|errand)_(icon|cover|cover2|cover3)$/.exec(r.key); if (x) out[x[1]][x[2]] = Number(r.v); }
     res.set('Cache-Control', 'no-store'); res.json(out);
   }));
   app.get('/api/svc-image/:key/:kind', guard(async (req, res) => {
@@ -137,8 +137,11 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
   }));
   app.patch('/api/admin/svc-meta/:key', ...admin, guard(async (req, res) => {
     if (!okSvc(req.params.key)) throw fail(404, 'خدمة غير معروفة');
-    const sub = String((req.body || {}).sub || '').trim().slice(0, 120);
-    await pool.query("INSERT INTO service_meta(key, sub, updated_at) VALUES($1,$2,NOW()) ON CONFLICT (key) DO UPDATE SET sub=$2, updated_at=NOW()", [req.params.key, sub]);
+    const b = req.body || {};
+    await pool.query("INSERT INTO service_meta(key, sub, updated_at) VALUES($1,'',NOW()) ON CONFLICT (key) DO NOTHING", [req.params.key]);
+    if (b.sub !== undefined) await pool.query('UPDATE service_meta SET sub=$2, updated_at=NOW() WHERE key=$1', [req.params.key, String(b.sub || '').trim().slice(0, 120)]);
+    if (b.title !== undefined) await pool.query('UPDATE service_meta SET title=$2, updated_at=NOW() WHERE key=$1', [req.params.key, String(b.title || '').trim().slice(0, 40)]);
+    if (b.sort !== undefined) { const v = Number(b.sort); if (!Number.isFinite(v) || v < 0 || v > 999) throw fail(400, 'ترتيب غير صحيح'); await pool.query('UPDATE service_meta SET sort=$2, updated_at=NOW() WHERE key=$1', [req.params.key, Math.round(v)]); }
     res.json({ ok: true });
   }));
 }

@@ -330,12 +330,32 @@ export function useSvcMeta(): Partial<SvcMeta> {
 }
 /** The cover picture at the top of a service screen (nothing when the owner has not set one). */
 export function SvcCover({ svc }: { svc: SvcKey }) {
-  const m = useSvcMeta();
-  const v = m[svc]?.cover || 0;
-  if (!v) return null;
+  const m = useSvcMeta()[svc];
+  const urls = (['cover', 'cover2', 'cover3'] as const).filter((k) => !!m?.[k]).map((k) => svcImageUrl(svc, k, m![k]));
+  const [w, setW] = useState(0);
+  const [i, setI] = useState(0);
+  const ref = useRef<ScrollView>(null);
+  const n = urls.length;
+  useEffect(() => {
+    if (n < 2 || !w) return;
+    const t = setInterval(() => setI((x) => (x + 1) % n), 4000);   // slides by itself every 4 seconds
+    return () => clearInterval(t);
+  }, [n, w]);
+  useEffect(() => { if (w && n > 1) ref.current?.scrollTo({ x: i * w, animated: true }); }, [i, w, n]);
+  if (!n) return null;
   return (
-    <View style={{ marginHorizontal: 12, marginTop: 12, borderRadius: 16, overflow: 'hidden', aspectRatio: 3, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
-      <Image source={{ uri: svcImageUrl(svc, 'cover', v) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+    <View style={{ marginHorizontal: 12, marginTop: 12 }}>
+      <View onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ borderRadius: 16, overflow: 'hidden', aspectRatio: 3, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3, backgroundColor: C.line }}>
+        <ScrollView ref={ref} horizontal pagingEnabled showsHorizontalScrollIndicator={false} scrollEnabled={n > 1}
+          onMomentumScrollEnd={(e) => { if (w) setI(Math.round(e.nativeEvent.contentOffset.x / w)); }}>
+          {urls.map((u) => <Image key={u} source={{ uri: u }} style={{ width: w || 300, height: '100%' }} resizeMode="cover" />)}
+        </ScrollView>
+      </View>
+      {n > 1 && (
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 5, marginTop: 6 }}>
+          {urls.map((u, k) => <View key={u} style={{ width: k === i ? 16 : 6, height: 6, borderRadius: 3, backgroundColor: k === i ? C.green : C.line }} />)}
+        </View>
+      )}
     </View>
   );
 }
