@@ -280,7 +280,13 @@ export function useSvcMeta(): Partial<SvcMeta> {
   return m;
 }
 /** The cover picture at the top of a service screen (nothing when the owner has not set one). */
-export function useSvcCover(svc: SvcKey): string | undefined {
-  const v = useSvcMeta()[svc]?.cover || 0;
-  return v ? svcImageUrl(svc, 'cover', v) : undefined;
+export function SvcCover({ svc }: { svc: SvcKey }) {
+  const m = useSvcMeta();
+  const v = m[svc]?.cover || 0;
+  if (!v) return null;
+  return (
+    <View style={{ marginHorizontal: 12, marginTop: 12, borderRadius: 16, overflow: 'hidden', aspectRatio: 3, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 }}>
+      <Image source={{ uri: svcImageUrl(svc, 'cover', v) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+    </View>
+  );
 }
