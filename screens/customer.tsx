@@ -185,10 +185,11 @@ function HomeOld({ navigation }: any) {
                   onPress={() => navigation.navigate('Category', { type: k })}
                   style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, ...shadow }, { paddingTop: 4, paddingBottom: 8 }, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
-                  {DEFAULT_ICONS[k]
-                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={DEFAULT_ICONS[k]} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" /></View>
-                    : (db.settings.catIconV?.[k] || 0) > 0
+                  {(db.settings.catIconV?.[k] || 0) > 0
+                    // a picture the owner uploaded wins over the built-in one
                     ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" /></View>
+                    : DEFAULT_ICONS[k]
+                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={DEFAULT_ICONS[k]} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" /></View>
                     : (
                       // a service added later with no picture yet: the same cream circle with its emoji, so the tile still matches the others
                       <View style={{ width: '100%', aspectRatio: 738 / 444, alignItems: 'center', justifyContent: 'center' }}>
