@@ -104,7 +104,7 @@ export function RideHomeScreen({ navigation }: any) {
             <Card style={{ gap: 6 }}>
               <T w="black" size={17}>{STATUS_AR[ride.status] || ride.status}</T>
               <T size={13} color={C.sub}>{ride.km} كم تقريباً • {ride.minutes} دقيقة</T>
-              <T w="black" size={18} color={C.green}>{ride.finalPrice ?? ride.offered} ج</T>
+              <T w="black" size={18} color={C.green}>{ride.finalPrice != null ? `${ride.finalPrice} ج` : ride.bidding ? 'السعر حسب عروض الكباتن' : `${ride.offered} ج`}</T>
             </Card>
             {ride.status === 'searching' && (cur?.offers || []).length === 0 && <Card><T color={C.sub} align="center">مستنيين عروض الكباتن... هتظهر هنا</T></Card>}
             {ride.status === 'searching' && (cur?.offers || []).map((o) => (
@@ -146,7 +146,14 @@ export function RideHomeScreen({ navigation }: any) {
             />
             <T size={12} color={C.sub}>{target === 'from' ? 'دوس على الخريطة عشان تحدد مكان التحميل' : 'دوس على الخريطة عشان تحدد مكان الوصول'}</T>
             <Field label="ملاحظة للكابتن (اختياري) — مثال: عمارة 5 جنب الصيدلية" value={note} onChangeText={setNote} />
-            {est && (
+            {est && est.bidding && (
+              <Card style={{ gap: 8 }}>
+                <T size={13} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
+                <T w="black" size={14} align="center">الكباتن هيحددوا السعر، وإنت تختار أنسب عرض</T>
+                <Btn title="ابعت الطلب للكباتن" icon="car" onPress={request} loading={busy} />
+              </Card>
+            )}
+            {est && !est.bidding && (
               <Card style={{ gap: 8 }}>
                 <T size={13} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
                 <T w="black" size={14}>السعر المقترح {est.price} ج — اختار سعرك</T>
@@ -162,6 +169,18 @@ export function RideHomeScreen({ navigation }: any) {
           </>
         )}
       </ScrollView>
+    </View>
+  );
+}
+
+/** Bidding mode: the captain types his own price for the trip (reference = the system's suggestion). */
+function BidBox({ r, value, onChange, onSend, dark }: { r: CaptainReq; value?: number; onChange: (v: number) => void; onSend: (v: number) => void; dark?: boolean }) {
+  const v = value ?? 0;
+  return (
+    <View style={{ gap: 6 }}>
+      <Field label="" value={value ? String(value) : ''} onChangeText={(t) => onChange(Number(t.replace(/\D/g, '')) || 0)} keyboardType="number-pad" placeholder={`اكتب سعرك (المرجع حوالي ${r.suggested} ج)`} />
+      <Btn title={v ? `ابعت سعرك ${v} ج` : 'اكتب سعرك'} icon="send" small={!dark} onPress={() => (v ? onSend(v) : toast('اكتب سعرك للمشوار', 'err'))} />
+      {r.myOffer != null && <T size={12} color={dark ? '#DDEEE4' : C.goldDeep}>عرضك الحالي: {r.myOffer} ج</T>}
     </View>
   );
 }
@@ -251,27 +270,30 @@ export function CaptainScreen({ navigation }: any) {
                   <T w="black" size={20} color={left(hot) <= 8 ? '#FF8A80' : '#fff'}>{left(hot)} ث</T>
                 </View>
                 <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}><View style={{ height: 6, width: `${Math.round((left(hot) / offerSecs) * 100)}%`, backgroundColor: C.gold }} /></View>
-                <T w="black" size={26} color="#fff" align="center">{hot.offered} ج</T>
+                <T w="black" size={26} color="#fff" align="center">{hot.bidding ? 'حدد سعرك للمشوار' : `${hot.offered} ج`}</T>
                 <T size={13} color="#DDEEE4" align="center">{hot.km} كم{hot.pickupKm != null ? ` • بعيد عنك ${hot.pickupKm} كم` : ''}</T>
                 <MapView markers={[{ lat: hot.from.lat, lng: hot.from.lng, kind: 'me', label: 'العميل' }, { lat: hot.to.lat, lng: hot.to.lng, kind: 'dest', label: 'الوصول' }]} fitKey={hot.id} height={150} />
                 {!!hot.from.text && <T size={12.5} color="#DDEEE4">من: {hot.from.text}</T>}{!!hot.to.text && <T size={12.5} color="#DDEEE4">إلى: {hot.to.text}</T>}
-                <Btn title={`اقبل بـ ${hot.offered} ج`} icon="checkmark-circle" onPress={() => offer(hot)} />
+                {hot.bidding
+                  ? <BidBox r={hot} value={counter[hot.id]} onChange={(v) => setCounter((c) => ({ ...c, [hot.id]: v }))} onSend={(v) => offer(hot, v)} dark />
+                  : <Btn title={`اقبل بـ ${hot.offered} ج`} icon="checkmark-circle" onPress={() => offer(hot)} />}
                 <Btn title="تخطّي" variant="soft" small onPress={() => { skipped.current[hot.id] = true; setNow(Date.now()); }} />
               </View>
             )}
             {me.canReceive && reqs.length === 0 && <Card><T color={C.sub} align="center">مفيش طلبات دلوقتي... هتظهر هنا أول ما تيجي</T></Card>}
             {me.canReceive && reqs.map((r) => (
               <Card key={r.id} style={{ gap: 6 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black" size={16}>{r.offered} ج</T><T size={12.5} color={C.sub}>{r.km} كم{r.pickupKm != null ? ` • بعيد عنك ${r.pickupKm} كم` : ''}</T></View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black" size={16}>{r.bidding ? 'حدد سعرك' : `${r.offered} ج`}</T><T size={12.5} color={C.sub}>{r.km} كم{r.pickupKm != null ? ` • بعيد عنك ${r.pickupKm} كم` : ''}</T></View>
                 {!!r.from.text && <T size={12.5}>من: {r.from.text}</T>}{!!r.to.text && <T size={12.5}>إلى: {r.to.text}</T>}
-                <Btn title={`اقبل بـ ${r.offered} ج`} icon="checkmark-circle" small onPress={() => offer(r)} />
-                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                {r.bidding && <BidBox r={r} value={counter[r.id]} onChange={(v) => setCounter((c) => ({ ...c, [r.id]: v }))} onSend={(v) => offer(r, v)} />}
+                {!r.bidding && <Btn title={`اقبل بـ ${r.offered} ج`} icon="checkmark-circle" small onPress={() => offer(r)} />}
+                {!r.bidding && <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                   <Pressable onPress={() => setCounter((c) => ({ ...c, [r.id]: (c[r.id] ?? r.offered) - 5 }))}><Icon name="remove-circle" size={30} color={C.green} /></Pressable>
                   <T w="black" size={16}>{counter[r.id] ?? r.offered} ج</T>
                   <Pressable onPress={() => setCounter((c) => ({ ...c, [r.id]: (c[r.id] ?? r.offered) + 5 }))}><Icon name="add-circle" size={30} color={C.green} /></Pressable>
                   <Btn title="اعرض السعر ده" variant="soft" small style={{ flex: 1 }} onPress={() => offer(r, counter[r.id] ?? r.offered)} />
-                </View>
-                {r.myOffer != null && <T size={12} color={C.goldDeep}>عرضك الحالي: {r.myOffer} ج</T>}
+                </View>}
+                {!r.bidding && r.myOffer != null && <T size={12} color={C.goldDeep}>عرضك الحالي: {r.myOffer} ج</T>}
               </Card>
             ))}
             {curRide && (

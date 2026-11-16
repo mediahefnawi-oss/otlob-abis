@@ -157,9 +157,10 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
     const id = positiveId(b.typeId); if (!id) throw fail(400, 'اختر نوع المركبة');
     const t = await pool.query('SELECT * FROM ride_types WHERE id=$1 AND active', [id]);
     if (!t.rowCount) throw fail(404, 'النوع غير متاح');
+    const bidding = ((await pool.query('SELECT ride_pricing FROM app_settings WHERE id=1')).rows[0] || {}).ride_pricing === 'bidding';
     const d = await roadDistance(b.from, b.to, globalThis.fetch, true);
     const price = priceFor(t.rows[0], d.km);
-    res.json({ km: d.km, minutes: d.min, source: d.source, route: d.route || null, price, ...bounds(price, t.rows[0].adj_pct) });
+    res.json({ km: d.km, minutes: d.min, source: d.source, route: d.route || null, bidding, price, ...bounds(price, t.rows[0].adj_pct) });
   }));
 }
 module.exports = { priceFor, bounds, cleanType, roadDistance, seedTypes, register };
