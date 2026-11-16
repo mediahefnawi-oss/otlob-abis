@@ -869,3 +869,18 @@ CREATE TABLE IF NOT EXISTS premium_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_premium_log_user ON premium_log(user_id, created_at DESC);
+
+-- 20261222: owner broadcasts (a phone push + a message inside the app for everyone, or for one group)
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  audience TEXT NOT NULL DEFAULT 'all',
+  sent_to INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS broadcast_seen (
+  broadcast_id BIGINT NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (broadcast_id, user_id)
+);

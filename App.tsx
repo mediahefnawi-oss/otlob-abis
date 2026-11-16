@@ -14,6 +14,7 @@ import { initStore, useStore, useMe, useAppGate, availableCouriers, setStoreErro
 import { GuestLoginSheet, GuestAccountScreen, GuestBlockScreen } from './components/GuestGate';
 import { Overlays, Logo, toast } from './components/ui';
 import { SoundGate } from './components/SoundGate';
+import { BroadcastInbox } from './components/BroadcastInbox';
 import { LocationGate } from './components/LocationGate';
 import { SyncBanner } from './components/SyncBanner';
 import { OrderAlarmBar } from './components/OrderAlarmBar';
@@ -48,7 +49,7 @@ import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 import { GroupCartScreen, MarketScreen } from './screens/extra';
 import { RideHomeScreen, CaptainScreen } from './screens/rides';
-import { AdminMarketScreen, AdminRidesScreen } from './screens/adminExtra';
+import { AdminMarketScreen, AdminRidesScreen, AdminBroadcastScreen } from './screens/adminExtra';
 
 // the phone app must not close because of one failing action: show a message instead (a crash in a screen is caught by ErrorBoundary)
 if (Platform.OS !== 'web') {
@@ -200,6 +201,7 @@ function Root() {
         <Stack.Screen name="Captain" component={CaptainScreen} />
         <Stack.Screen name="AdminMarket" component={AdminMarketScreen} />
         <Stack.Screen name="AdminRides" component={AdminRidesScreen} />
+        <Stack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} />
         <Stack.Screen name="Provider" component={ProviderScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
         <Stack.Screen name="CustomOrder" component={isGuestId(me.id) ? GuestBlockScreen : CustomOrderScreen} />
@@ -305,6 +307,7 @@ export default function App() {
         <View style={{ flex: 1, backgroundColor: side ? C.bg : C.dark }}>
         <View style={{ flex: 1, width: '100%', maxWidth: side ? 940 : 520, alignSelf: 'center', backgroundColor: C.bg, overflow: 'hidden' }}>
           <ErrorBoundary><SoundGate /></ErrorBoundary>
+          <ErrorBoundary><BroadcastInbox /></ErrorBoundary>
           <ErrorBoundary><LocationGate /></ErrorBoundary>
           <ErrorBoundary><SyncBanner /></ErrorBoundary>
           <ErrorBoundary><UpdateBanner /></ErrorBoundary>

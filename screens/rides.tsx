@@ -28,6 +28,21 @@ function TypeTile({ t, active, onPress }: { t: RideType; active: boolean; onPres
   );
 }
 
+function TypeRow({ t, onPress }: { t: RideType; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 20, padding: 10, ...shadow }}>
+      <View style={{ width: 96, height: 62, alignItems: 'center', justifyContent: 'center' }}>
+        {t.image ? <Image source={{ uri: rideImageUrl(t) }} style={{ width: 96, height: 62 }} resizeMode="contain" /> : <Text style={{ fontSize: 40 }}>🚕</Text>}
+      </View>
+      <View style={{ flex: 1 }}>
+        <T w="black" size={16}>{t.name}</T>
+        <T w="black" size={12} color={C.green}>من {t.minFee} ج</T>
+      </View>
+      <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center' }}><Icon name="chevron-back" size={18} color={C.gold} /></View>
+    </Pressable>
+  );
+}
+
 const routePts = (a: { lat: number; lng: number }, b: { lat: number; lng: number }, r?: [number, number][] | null): [number, number][] => (r && r.length > 1 ? r : [[a.lat, a.lng], [b.lat, b.lng]]);
 
 /** The customer: choose a vehicle, point on the map, set a price near the suggested one, wait for offers. */
@@ -35,6 +50,7 @@ export function RideHomeScreen({ navigation }: any) {
   const { db } = useStore();
   const [types, setTypes] = useState<RideType[] | null>(null);
   const [typeId, setTypeId] = useState<number | null>(null);
+  const [step, setStep] = useState<'type' | 'trip'>('type');
   const [from, setFrom] = useState<RidePoint | null>(null);
   const [to, setTo] = useState<RidePoint | null>(null);
   const [est, setEst] = useState<{ km: number; minutes: number; price: number; lo: number; hi: number; route?: [number, number][] | null } | null>(null);
@@ -50,7 +66,7 @@ export function RideHomeScreen({ navigation }: any) {
   const [toText, setToText] = useState('');
 
   const loadCur = useCallback(async () => { try { setCur(await apiRideCurrent()); } catch { /* keep the last state */ } }, []);
-  useEffect(() => { apiRideTypes().then((r) => { setTypes(r.types); if (r.types[0]) setTypeId(r.types[0].id); }).catch(() => setTypes([])); loadCur(); }, [loadCur]);
+  useEffect(() => { apiRideTypes().then((r) => { setTypes(r.types); if (r.types[0]) setTypeId(r.types[0].id); if (r.types.length === 1) setStep('trip'); }).catch(() => setTypes([])); loadCur(); }, [loadCur]);
   useEffect(() => { const t = setInterval(loadCur, 4000); return () => clearInterval(t); }, [loadCur]);
   /** Sets a pin and writes its address in the field by itself (the field stays editable; no address = it stays as typed). */
   const setPin = async (which: 'from' | 'to', p: { lat: number; lng: number }) => {
@@ -119,12 +135,23 @@ export function RideHomeScreen({ navigation }: any) {
         ) : (
           <>
             {ride && ride.status === 'completed' && <Card><T w="black" align="center">{STATUS_AR.completed}</T></Card>}
-            <T w="black" size={15}>اختار المركبة</T>
-            {types === null ? <T color={C.sub}>جاري التحميل...</T> : types.length === 0 ? <Empty title="لا توجد أنواع متاحة" /> : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-                {types.map((t) => <TypeTile key={t.id} t={t} active={typeId === t.id} onPress={() => setTypeId(t.id)} />)}
-              </ScrollView>
-            )}
+            {step === 'type' ? (
+              <>
+                <T w="black" size={18}>عايز تركب إيه؟</T>
+                <T size={12.5} color={C.sub}>اختار المركبة الأول وبعدها حدد مشوارك</T>
+                {types === null ? <T color={C.sub}>جاري التحميل...</T> : types.length === 0 ? <Empty title="لا توجد أنواع متاحة" /> : types.map((t) => <TypeRow key={t.id} t={t} onPress={() => { setTypeId(t.id); setStep('trip'); }} />)}
+              </>
+            ) : (
+              <>
+                {types && types.find((t) => t.id === typeId) && (
+                  <Pressable onPress={() => types.length > 1 && setStep('type')} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 16, paddingVertical: 6, paddingHorizontal: 10, ...shadow }}>
+                    <View style={{ width: 56, height: 36, alignItems: 'center', justifyContent: 'center' }}>
+                      {types.find((t) => t.id === typeId)!.image ? <Image source={{ uri: rideImageUrl(types.find((t) => t.id === typeId)!) }} style={{ width: 56, height: 36 }} resizeMode="contain" /> : <Text style={{ fontSize: 26 }}>🚕</Text>}
+                    </View>
+                    <T w="black" size={14} style={{ flex: 1 }}>{types.find((t) => t.id === typeId)!.name}</T>
+                    {types.length > 1 && <View style={{ backgroundColor: C.greenSoft, borderRadius: 10, paddingVertical: 4, paddingHorizontal: 10 }}><T w="black" size={12} color={C.green}>تغيير</T></View>}
+                  </Pressable>
+                )}
             <Card style={{ gap: 8 }}>
               <T w="black" size={14}>من فين لفين؟</T>
               <Pressable onPress={() => setTarget('from')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -165,6 +192,8 @@ export function RideHomeScreen({ navigation }: any) {
           {!est.bidding && <T size={11} color={C.sub} align="center">السعر المقترح {est.price} ج — من {est.lo} إلى {est.hi} ج</T>}
           <Btn title={est.bidding ? 'ابعت الطلب للكباتن' : 'اطلب توصيلة'} icon="car" onPress={request} loading={busy} />
         </View>
+            )}
+              </>
             )}
           </>
         )}

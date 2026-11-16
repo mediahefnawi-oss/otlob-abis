@@ -7,6 +7,7 @@ import {
   MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketImportDefaults, apiAdminMarketSetOfferText, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
   RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission,
   SvcKey, SvcCoverKind, apiAdminSvcImage, apiAdminSvcSub, apiAdminSvcMeta, apiSvcMeta, svcImageUrl,
+  Broadcast, BroadcastAud, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
 } from '../lib/api';
 
@@ -352,5 +353,50 @@ export function SvcLookCard({ svc, title, withName }: { svc: SvcKey; title: stri
         run(() => apiAdminSvcMeta(svc, { sub, ...(withName ? { title: name, sort: n } : {}) }), 'تم الحفظ');
       }} />
     </Card>
+  );
+}
+
+/* ---------------- owner broadcasts ---------------- */
+const AUDS: { k: BroadcastAud; label: string }[] = [{ k: 'all', label: 'الكل' }, { k: 'customer', label: 'العملاء' }, { k: 'courier', label: 'المناديب' }, { k: 'captain', label: 'الكباتن' }, { k: 'provider', label: 'المحلات' }];
+export function AdminBroadcastScreen({ navigation }: any) {
+  const [title, setTitle] = useState(''); const [body, setBody] = useState(''); const [aud, setAud] = useState<BroadcastAud>('all');
+  const [list, setList] = useState<Broadcast[] | null>(null);
+  const [counts, setCounts] = useState<Record<string, number>>({}); const [pushUsers, setPushUsers] = useState(0); const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => { try { const r = await apiAdminBroadcasts(); setList(r.broadcasts); setCounts(r.counts); setPushUsers(r.pushUsers); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
+  useEffect(() => { load(); }, [load]);
+  const n = counts[aud] ?? 0;
+  const send = () => {
+    if (!title.trim()) { toast('اكتب عنوان الإشعار', 'err'); return; }
+    askConfirm('إرسال الإشعار', `هيوصل لـ ${n} مستخدم (${AUDS.find((a) => a.k === aud)?.label}). متأكد؟`, async () => {
+      setBusy(true);
+      try { const r = await apiAdminBroadcastSend({ title, body, audience: aud }); setList(r.broadcasts); setTitle(''); setBody(''); toast('تم الإرسال'); }
+      catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }
+    });
+  };
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="إرسال إشعار" subtitle="يوصل على الموبايل ويظهر جوه التطبيق عند الكل" onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+        <Card style={{ gap: 8 }}>
+          <Field label="العنوان (مثال: 🎉 عرض اليوم)" value={title} onChangeText={setTitle} />
+          <Field label="الرسالة" value={body} onChangeText={setBody} multiline />
+          <T w="bold" size={13}>يوصل لـ</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {AUDS.map((a) => <Chip key={a.k} label={`${a.label} (${counts[a.k] ?? 0})`} active={aud === a.k} onPress={() => setAud(a.k)} />)}
+          </View>
+          <Btn title={`إرسال لـ ${n} مستخدم`} icon="send" loading={busy} onPress={send} />
+          <T size={11.5} color={C.sub}>{pushUsers} مستخدم مفعّلين إشعارات الموبايل. الباقي هتظهرله الرسالة جوه التطبيق أول ما يفتحه.</T>
+        </Card>
+        <T w="black">آخر الإشعارات</T>
+        {list === null ? <T color={C.sub}>جاري التحميل...</T> : list.length === 0 ? <Empty title="لسه مفيش إشعارات" /> : list.map((b) => (
+          <Card key={b.id} style={{ gap: 4 }}>
+            <T w="black">{b.title}</T>
+            {!!b.body && <T size={13} color={C.sub}>{b.body}</T>}
+            <T size={11.5} color={C.sub}>{b.audienceAr} • {b.sentTo} مستخدم • {new Date(b.createdAt).toLocaleString('ar-EG')}</T>
+            <Btn title="حذف الرسالة من التطبيق" small variant="soft" onPress={() => askConfirm('حذف', 'هتختفي الرسالة لمن لم يشاهدها بعد (اللي وصله إشعار الموبايل مش بيتسحب).', async () => { try { setList((await apiAdminBroadcastDelete(b.id)).broadcasts); } catch (e) { toast(errText(e), 'err'); } })} />
+          </Card>
+        ))}
+      </ScrollView>
+    </View>
   );
 }

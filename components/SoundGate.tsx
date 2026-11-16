@@ -27,18 +27,18 @@ export function SoundGate() {
   }, [native, me?.id, refresh]);
 
   if (!me) return null;
-  if (!native && !['provider', 'courier'].includes(me.role)) return null;
-  const needSound = soundSupported() && !ready;
+  const staff = ['provider', 'courier'].includes(me.role);
+  const needSound = staff && soundSupported() && !ready;
   const needPush = push === 'off' || (native && push === 'denied');
   if (!needSound && !needPush) return null;
   const act = async () => {
     if (native && push === 'denied') { await openPushSettings(); return; }
-    const ok = await enableSound();
+    const ok = staff ? await enableSound() : true;
     if (needPush) {
       const r = await enablePush();
       if (!r.ok && r.error) toast(r.error, 'err'); else if (r.ok && !soundSupported()) toast('تم تفعيل الإشعارات 🔔');
     }
-    if (ok) { playNewOrderSound(); toast('تم تفعيل التنبيهات 🔔'); }
+    if (ok && staff) { playNewOrderSound(); toast('تم تفعيل التنبيهات 🔔'); }
     refresh();
   };
   const denied = native && push === 'denied';
@@ -47,7 +47,7 @@ export function SoundGate() {
       visible={!hide}
       icon="notifications"
       title={denied ? 'الإشعارات مقفولة' : 'فعّل التنبيهات'}
-      message={denied ? 'فعّلها من إعدادات الجهاز' : 'عشان توصلك الطلبات فوراً'}
+      message={denied ? 'فعّلها من إعدادات الجهاز' : staff ? 'عشان توصلك الطلبات فوراً' : 'عشان توصلك العروض وأخبار طلبك'}
       primary={{ label: denied ? 'فتح الإعدادات' : 'تفعيل الآن', onPress: () => { setHide(true); act(); } }}
       onClose={() => setHide(true)}
     />

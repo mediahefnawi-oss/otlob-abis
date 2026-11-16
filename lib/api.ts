@@ -583,3 +583,12 @@ export const apiAdminSvcImage = (key: SvcKey, kind: SvcImgKind, image: string | 
   apiRequest<{ ok: boolean }>(`/api/admin/svc-image/${key}/${kind}`, { method: image ? 'PUT' : 'DELETE', ...(image ? { body: JSON.stringify({ image }) } : {}) });
 export const apiAdminSvcMeta = (key: SvcKey, b: { sub?: string; title?: string; sort?: number }) => apiRequest<{ ok: boolean }>(`/api/admin/svc-meta/${key}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminSvcSub = (key: SvcKey, sub: string) => apiRequest<{ ok: boolean }>(`/api/admin/svc-meta/${key}`, { method: 'PATCH', body: JSON.stringify({ sub }) });
+
+/* ---- owner broadcasts: a phone push plus a message inside the app ---- */
+export type BroadcastAud = 'all' | 'customer' | 'courier' | 'provider' | 'captain';
+export type Broadcast = { id: number; title: string; body: string; audience: BroadcastAud; audienceAr: string; sentTo: number; createdAt: number };
+export const apiAdminBroadcasts = () => apiRequest<{ broadcasts: Broadcast[]; counts: Record<BroadcastAud, number>; pushUsers: number }>('/api/admin/broadcasts');
+export const apiAdminBroadcastSend = (b: { title: string; body: string; audience: BroadcastAud }) => apiRequest<{ broadcast: Broadcast; broadcasts: Broadcast[] }>('/api/admin/broadcasts', { method: 'POST', body: JSON.stringify(b) });
+export const apiAdminBroadcastDelete = (id: number) => apiRequest<{ broadcasts: Broadcast[] }>(`/api/admin/broadcasts/${id}`, { method: 'DELETE' });
+export const apiBroadcastsUnread = () => apiRequest<{ broadcasts: Broadcast[] }>('/api/broadcasts/unread');
+export const apiBroadcastSeen = (id: number) => apiRequest<{ ok: boolean }>(`/api/broadcasts/${id}/seen`, { method: 'POST' });
