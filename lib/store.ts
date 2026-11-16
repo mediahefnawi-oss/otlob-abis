@@ -11,7 +11,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiPinProvider, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiPinProvider, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiMarketOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -817,6 +817,54 @@ export async function placeCustomOrder(me: User, info: { text: string; phone: st
       db.invoices = upsertById(db.invoices, [r.invoice as Invoice]);
     });
     return { ok: true, orderId: String(r.orders[0].id) };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
+}
+
+/** "طلبات ماركت": the owner's product list, straight to the couriers. */
+export async function placeMarketOrder(me: User, info: { lines: { productId: string; qty: number }[]; phone: string; address: string; notes?: string }): Promise<Result<{ orderId: string }>> {
+  { const g = guestStop(); if (g) return g as any; }
+  { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
+  if (!info.lines.length) return { ok: false, error: 'السلة فارغة' };
+  { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
+  if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
+  if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
+  pendingWrites++;
+  try {
+    const r = await apiMarketOrder({ lines: info.lines, phone: normPhone(info.phone), address: info.address.trim(), ...(info.notes ? { notes: info.notes } : {}), ...destBody() });
+    mutate((db) => {
+      db.orders = upsertById(db.orders, r.orders as Order[]);
+      db.invoices = upsertById(db.invoices, [r.invoice as Invoice]);
+    });
+    return { ok: true, orderId: String(r.orders[0].id) };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  } finally {
+    pendingWrites--;
+  }
+}
+
+/** The owner of a group cart sends the merged lines through the normal checkout (same rules, same invoice); his own cart is left alone. */
+export async function placeGroupOrder(me: User, info: { lines: { productId: string; qty: number }[]; name: string; phone: string; address: string; notes: string }): Promise<Result<{ invoiceId: string; orderIds: string[] }>> {
+  { const g = guestStop(); if (g) return g as any; }
+  { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
+  if (!info.lines.length) return { ok: false, error: 'السلة فارغة' };
+  { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
+  if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
+  if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
+  pendingWrites++;
+  try {
+    const r = await apiCheckout({ name: info.name.trim(), phone: normPhone(info.phone), address: info.address.trim(), notes: info.notes.trim(), lines: info.lines, ...destBody() } as any);
+    mutate((db) => {
+      db.orders = upsertById(db.orders, r.orders as Order[]);
+      db.invoices = upsertById(db.invoices, [r.invoice as Invoice]);
+      db.users = db.users.map((u) => (u.id === me.id ? { ...u, address: r.address } : u));
+    });
+    setCartDest({});
+    return { ok: true, invoiceId: String(r.invoice.id), orderIds: (r.orders as Order[]).map((x) => String(x.id)) };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   } finally {

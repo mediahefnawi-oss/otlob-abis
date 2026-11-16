@@ -635,6 +635,52 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   }));
 
 
+  /** "طلبات ماركت": the owner's product list, no shop in between — the order goes straight to the couriers like a special order (auto-assigned if that is on). */
+  app.post('/api/orders/market', auth, roles('customer'), guard(async (req, res) => {
+    await requireOpen();
+    await regionClose.assertOpen(pool, Number(req.auth.sub), fail);
+    if (!(await extrasLib.featureOn(pool, 'market'))) throw fail(404, 'الخدمة غير متاحة الآن');
+    const b = req.body || {};
+    const dest = await destRule(b);
+    await rememberSpot(Number(req.auth.sub), dest);
+    const { address, phone } = checkContact(b);
+    const lines = cleanLines(b.lines);
+    if (!lines.length) throw fail(400, 'السلة فارغة');
+    const out = await withTx(async db => {
+      const pr = await db.query('SELECT id, name, price, emoji, available FROM market_products WHERE id = ANY($1::bigint[])', [lines.map(l => l.id)]);
+      const byId = new Map(pr.rows.map(r => [Number(r.id), r]));
+      const items = []; let subtotal = 0;
+      for (const l of lines) {
+        const p = byId.get(l.id);
+        if (!p || !p.available) throw fail(409, 'أحد المنتجات لم يعد متاحاً');
+        items.push({ productId: String(p.id), name: p.name, price: Number(p.price), qty: l.qty, emoji: p.emoji || '🛒' });
+        subtotal += Number(p.price) * l.qty;
+      }
+      subtotal = Math.round(subtotal * 100) / 100;
+      const fee = Number(((await db.query('SELECT market_fee FROM app_settings WHERE id=1')).rows[0] || {}).market_fee ?? 15);
+      const total = Math.round((subtotal + fee) * 100) / 100;
+      const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
+      const region = await regionOf(db, Number(req.auth.sub));
+      const d = {
+        customerName: me.rows[0].name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: 'طلبات ماركت', providerType: 'market', providerOwnerId: '', items, subtotal, deliveryFee: fee,
+        regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub), dest)),
+        history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
+      };
+      let o = (await db.query("INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,NULL,'accepted',$2,$3,$4) RETURNING *",
+        [Number(req.auth.sub), total, region ? region.id : null, JSON.stringify(d)])).rows[0];
+      const inv = (await db.query("INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,'delivery',$3,$4) RETURNING *", [
+        Number(req.auth.sub), o.id, total,
+        JSON.stringify({ number: `INV-${o.order_number}`, customerName: d.customerName, phone, address, parts: [{ orderId: String(o.id), providerId: 'market', providerName: 'طلبات ماركت', providerType: 'market', items, subtotal, deliveryFee: fee }] }),
+      ])).rows[0];
+      o = (await db.query('UPDATE orders SET updated_at=NOW(), data=$1 WHERE id=$2 RETURNING *', [JSON.stringify({ ...o.data, groupId: String(inv.id), invoiceId: String(inv.id) }), o.id])).rows[0];
+      o = await tryAutoAssign(db, o);
+      return { o, inv };
+    });
+    await notifyCouriers([out.o]);
+    res.status(201).json({ invoice: invoiceJson(out.inv), orders: [orderJson(out.o)] });
+  }));
+
+
   /* ---------- free-text requests (supermarket / pharmacy): the shop prices them ---------- */
   const MAX_IMAGE = 600000; // characters of base64 text
   app.post('/api/orders/request', auth, roles('customer'), guard(async (req, res) => {

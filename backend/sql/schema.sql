@@ -306,6 +306,131 @@ CREATE TABLE IF NOT EXISTS site_images (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Rides (inDrive style), phase 1: the vehicle types the owner manages (switch "rides" in app_settings.features, OFF by default).
+CREATE TABLE IF NOT EXISTS ride_types (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  base_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
+  per_km NUMERIC(10,2) NOT NULL DEFAULT 0,
+  min_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
+  adj_pct INT NOT NULL DEFAULT 30,
+  sort_order INT NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  image BYTEA,
+  mime TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Rides phase 2: captains (a captain is a courier account with a vehicle profile), ride requests, offers and the commission ledger.
+CREATE TABLE IF NOT EXISTS captain_profiles (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  type_id INT REFERENCES ride_types(id) ON DELETE SET NULL,
+  model TEXT NOT NULL DEFAULT '',
+  color TEXT NOT NULL DEFAULT '',
+  plate TEXT NOT NULL DEFAULT '',
+  national_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','suspended','needs_photo')),
+  note TEXT NOT NULL DEFAULT '',
+  commission_pct NUMERIC(5,2),
+  balance NUMERIC(12,2) NOT NULL DEFAULT 0,
+  auto_receive BOOLEAN NOT NULL DEFAULT TRUE,
+  can_counter BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS captain_photos (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('car','license','driver','selfie')),
+  image BYTEA NOT NULL,
+  mime TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, kind)
+);
+CREATE TABLE IF NOT EXISTS rides (
+  id BIGSERIAL PRIMARY KEY,
+  customer_id BIGINT NOT NULL REFERENCES users(id),
+  type_id INT REFERENCES ride_types(id) ON DELETE SET NULL,
+  from_lat DOUBLE PRECISION NOT NULL, from_lng DOUBLE PRECISION NOT NULL, from_text TEXT NOT NULL DEFAULT '',
+  to_lat DOUBLE PRECISION NOT NULL, to_lng DOUBLE PRECISION NOT NULL, to_text TEXT NOT NULL DEFAULT '',
+  km NUMERIC(8,1) NOT NULL, minutes INT NOT NULL DEFAULT 0,
+  suggested NUMERIC(10,2) NOT NULL, offered NUMERIC(10,2) NOT NULL, final_price NUMERIC(10,2),
+  status TEXT NOT NULL DEFAULT 'searching' CHECK (status IN ('searching','assigned','arrived','started','completed','cancelled','expired')),
+  driver_id BIGINT REFERENCES users(id),
+  commission NUMERIC(10,2),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_rides_status ON rides(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rides_customer ON rides(customer_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rides_driver ON rides(driver_id, status);
+CREATE TABLE IF NOT EXISTS ride_offers (
+  id BIGSERIAL PRIMARY KEY,
+  ride_id BIGINT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+  driver_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  price NUMERIC(10,2) NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','accepted','rejected','withdrawn')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (ride_id, driver_id)
+);
+CREATE TABLE IF NOT EXISTS captain_ledger (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('topup','commission','adjust')),
+  amount NUMERIC(12,2) NOT NULL,
+  ride_id BIGINT REFERENCES rides(id) ON DELETE SET NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_user ON captain_ledger(user_id, created_at DESC);
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_commission_pct NUMERIC(5,2) NOT NULL DEFAULT 15;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_commission_min NUMERIC(8,2) NOT NULL DEFAULT 5;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_min_balance NUMERIC(10,2) NOT NULL DEFAULT -50;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_auto_dispatch BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_offer_secs INT NOT NULL DEFAULT 25;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_radius_km NUMERIC(5,1) NOT NULL DEFAULT 5;
+ALTER TABLE ride_types ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(5,2);
+
+-- Group order (one shared cart per shop, each friend adds from his own account) and the owner's "market" catalogue.
+CREATE TABLE IF NOT EXISTS group_carts (
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  owner_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider_id BIGINT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','ordered','cancelled')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_group_carts_owner ON group_carts(owner_id, status);
+CREATE TABLE IF NOT EXISTS group_items (
+  id BIGSERIAL PRIMARY KEY,
+  cart_id BIGINT NOT NULL REFERENCES group_carts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  qty INT NOT NULL CHECK (qty BETWEEN 1 AND 50),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (cart_id, user_id, product_id)
+);
+CREATE TABLE IF NOT EXISTS market_products (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT '',
+  price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  emoji TEXT NOT NULL DEFAULT '🛒',
+  available BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INT NOT NULL DEFAULT 0,
+  image BYTEA,
+  mime TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS market_fee NUMERIC(8,2) NOT NULL DEFAULT 15;
+
+-- Look of the new services on the home (market, rides): a description line; the pictures live in site_images (svc_<key>_icon / svc_<key>_cover).
+CREATE TABLE IF NOT EXISTS service_meta (
+  key TEXT PRIMARY KEY,
+  sub TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Default commissions (seeded once; afterwards the owner edits them from the panel).
 DO $$
 BEGIN

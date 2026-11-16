@@ -1,5 +1,6 @@
 import { CourierPhotoCard } from '../components/CourierPhoto';
 import React, { useEffect, useState } from 'react';
+import { useNavigation } from '@react-navigation/native';
 import { View, FlatList, ScrollView, Pressable } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,6 +36,8 @@ function useCourierLists() {
 
 /** Home: availability, today's numbers, current area, and shortcuts to the orders page. */
 export function CourierWorkScreen({ go }: any) {
+  const nav: any = useNavigation();
+  const { db } = useStore();
   const { me, offers, mine, done } = useCourierLists();
   const doneToday = done.filter((o) => isToday(o.updatedAt));
   const earn = doneToday.reduce((s, o) => s + (o.courierFee ?? o.deliveryFee), 0);
@@ -71,6 +74,15 @@ export function CourierWorkScreen({ go }: any) {
           <Stat icon="checkmark-done" label="تم تسليمها اليوم" value={doneToday.length} />
           <Stat icon="bicycle" label="جارية الآن" value={mine.length} color={C.orange} soft={C.orangeSoft} />
         </View>
+        {!!db.settings.features?.rides && (
+          <Pressable onPress={() => nav.navigate('Captain')}>
+            <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Icon name="car" size={26} color={C.green} />
+              <View style={{ flex: 1 }}><T w="black" size={15}>كابتن توصيلة</T><T size={12} color={C.sub}>سجّل مركبتك واستقبل طلبات التوصيلة</T></View>
+              <Icon name="chevron-back" size={18} color={C.sub} />
+            </Card>
+          </Pressable>
+        )}
         <CourierFinanceCard />
         <Card style={{ gap: 8 }}>
           <RegionPicker value={me.regionId} onChange={async (id) => { const r = await updateProfile({ regionId: id }); if (!r.ok) toast(r.error, 'err'); else toast('تم تحديد منطقتك'); }} label="أنا الآن في منطقة" />

@@ -176,7 +176,7 @@ const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
-const SCHEMA_VERSION = 20261215;
+const SCHEMA_VERSION = 20261218;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -205,6 +205,7 @@ async function ensureSchema() {
       client.release();
     }
   }
+  if (schemaState === 'ok') { try { await require('./rides').seedTypes(pool); } catch (e) { console.error('ride types seed skipped:', e.message); } }
   const username = process.env.OWNER_USERNAME;
   const phone = process.env.OWNER_PHONE || '01000000000';
   const existing = await pool.query("SELECT id FROM users WHERE role='admin' AND phone=$1", [phone]);
@@ -1104,6 +1105,10 @@ require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, set
 require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./premium').register(app, { pool, auth, roles, asyncRoute, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); authMemo.clear(); }, pushToUsers });
 require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
+require('./rides').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
+require('./rides2').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers });
+require('./group').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });
+require('./market').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });
 extrasLib.register(app, { pool, auth, roles, asyncRoute, positiveId, services, pushToUsers, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 require('./tracking')(app, { pool, auth, roles, asyncRoute, positiveId });
 ratingsLib.registerRatingRoutes(app, { pool, auth, roles, asyncRoute, positiveId });

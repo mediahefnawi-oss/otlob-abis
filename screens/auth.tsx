@@ -52,6 +52,12 @@ export function WelcomeScreen({ navigation }: any) {
               <T w="bold" size={12.5} color="#fff">انضم كمندوب</T>
             </Pressable>
           </View>
+          {!!db.settings.features?.rides && (
+            <Pressable onPress={() => navigation.navigate('Register', { role: 'captain' })} style={[styles.joinBtn, { flex: 0, alignSelf: 'stretch' }]}>
+              <Icon name="car" size={18} color={C.gold} />
+              <T w="bold" size={12.5} color="#fff">انضم ككابتن توصيلة</T>
+            </Pressable>
+          )}
           {Platform.OS === 'web' && !!db.settings.apkUrl && (
             <Pressable onPress={() => Linking.openURL(db.settings.apkUrl as string)} style={[styles.joinBtn, { flex: 0, alignSelf: 'stretch' }]}>
               <Icon name="download" size={18} color={C.gold} />
@@ -139,7 +145,9 @@ export function LoginScreen({ navigation }: any) {
 
 export function RegisterScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
-  const [role, setRole] = useState<'customer' | 'provider' | 'courier'>(route.params?.role || 'customer');
+  const [role, setRole] = useState<'customer' | 'provider' | 'courier' | 'captain'>(route.params?.role || 'customer');
+  const { db } = useStore();
+  const kind: 'customer' | 'provider' | 'courier' = role === 'captain' ? 'courier' : role; // a captain is a courier account plus a vehicle profile
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [phone2, setPhone2] = useState('');
@@ -158,18 +166,19 @@ export function RegisterScreen({ navigation, route }: any) {
     { k: 'customer', l: 'عميل', i: 'person' },
     { k: 'provider', l: 'مقدم خدمة', i: 'storefront' },
     { k: 'courier', l: 'مندوب', i: 'bicycle' },
-  ] as const;
+    ...(db.settings.features?.rides ? [{ k: 'captain', l: 'كابتن توصيلة', i: 'car' }] : []),
+  ] as { k: 'customer' | 'provider' | 'courier' | 'captain'; l: string; i: string }[];
 
   const submit = async () => {
     setBusy(true);
     setErr('');
     const r = await register({
-      name, phone, phone2: role === 'customer' ? phone2 : undefined, pass, role, address, vehicle, regionId: regionId || undefined,
-      provider: role === 'provider' ? { type: ptype, name: pname, desc: pdesc, deliveryFee: 0 } : undefined,
+      name, phone, phone2: kind === 'customer' ? phone2 : undefined, pass, role: kind, address, vehicle, regionId: regionId || undefined,
+      provider: kind === 'provider' ? { type: ptype, name: pname, desc: pdesc, deliveryFee: 0 } : undefined,
     });
     setBusy(false);
     if (!r.ok) setErr(r.error);
-    else toast(role === 'customer' ? 'تم إنشاء حسابك بنجاح 🎉' : 'تم إرسال طلبك للمراجعة من الإدارة');
+    else toast(kind === 'customer' ? 'تم إنشاء حسابك بنجاح 🎉' : 'تم إرسال طلبك للمراجعة من الإدارة');
   };
 
   return (
@@ -190,21 +199,21 @@ export function RegisterScreen({ navigation, route }: any) {
               </Pressable>
             ))}
           </View>
-          {role !== 'customer' && (
+          {kind !== 'customer' && (
             <View style={{ flexDirection: 'row', gap: 8, backgroundColor: C.goldSoft, padding: 10, borderRadius: 12 }}>
               <Icon name="information-circle" size={18} color={C.goldDeep} />
               <T size={12} color={C.goldDeep} style={{ flex: 1 }}>
-                {role === 'provider' ? 'سيتم مراجعة طلبك من إدارة التطبيق، وبعد القبول يمكنك استقبال الطلبات.' : 'سيتم مراجعة طلبك من الإدارة، وبعد القبول يمكنك العمل واستقبال طلبات التوصيل.'}
+                {role === 'captain' ? 'سيتم مراجعة طلبك من الإدارة. بعد القبول افتح «كابتن توصيلة» من لوحتك وارفع بيانات مركبتك وصورك (العربية والرخصتين وصورتك) لمراجعتها.' : kind === 'provider' ? 'سيتم مراجعة طلبك من إدارة التطبيق، وبعد القبول يمكنك استقبال الطلبات.' : 'سيتم مراجعة طلبك من الإدارة، وبعد القبول يمكنك العمل واستقبال طلبات التوصيل.'}
               </T>
             </View>
           )}
-          <Field label={role === 'provider' ? 'اسم المسؤول' : 'الاسم بالكامل'} icon="person" value={name} onChangeText={setName} placeholder="الاسم" />
+          <Field label={kind === 'provider' ? 'اسم المسؤول' : 'الاسم بالكامل'} icon="person" value={name} onChangeText={setName} placeholder="الاسم" />
           <Field label="رقم الهاتف" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="01xxxxxxxxx" />
-          {role === 'customer' && <Field label="رقم هاتف آخر (اختياري)" icon="call" value={phone2} onChangeText={setPhone2} keyboardType="phone-pad" placeholder="رقم احتياطي لو الأول مردش" />}
+          {kind === 'customer' && <Field label="رقم هاتف آخر (اختياري)" icon="call" value={phone2} onChangeText={setPhone2} keyboardType="phone-pad" placeholder="رقم احتياطي لو الأول مردش" />}
           <Field label="كلمة المرور" icon="lock-closed" value={pass} onChangeText={setPass} secureTextEntry placeholder="8 أحرف على الأقل" />
-          {(role === 'customer' || role === 'provider') && <RegionPicker value={regionId} onChange={setRegionId} label={role === 'provider' ? 'منطقة مكانك (تظهر للعملاء والمندوب)' : 'اسم المنطقة'} />}
-          <Field label={role === 'provider' ? 'عنوان النشاط بالتفصيل' : 'العنوان التفصيلي'} icon="location" value={address} onChangeText={setAddress} placeholder="رقم العمارة، الشارع، علامة مميزة" />
-          {role === 'courier' && (
+          {(kind === 'customer' || kind === 'provider') && <RegionPicker value={regionId} onChange={setRegionId} label={kind === 'provider' ? 'منطقة مكانك (تظهر للعملاء والمندوب)' : 'اسم المنطقة'} />}
+          <Field label={kind === 'provider' ? 'عنوان النشاط بالتفصيل' : 'العنوان التفصيلي'} icon="location" value={address} onChangeText={setAddress} placeholder="رقم العمارة، الشارع، علامة مميزة" />
+          {kind === 'courier' && (
             <View style={{ gap: 6 }}>
               <T w="semi" size={13} color={C.dark3}>وسيلة التوصيل</T>
               <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -212,7 +221,7 @@ export function RegisterScreen({ navigation, route }: any) {
               </View>
             </View>
           )}
-          {role === 'provider' && (
+          {kind === 'provider' && (
             <>
               <View style={{ gap: 6 }}>
                 <T w="semi" size={13} color={C.dark3}>نوع النشاط</T>
@@ -230,7 +239,7 @@ export function RegisterScreen({ navigation, route }: any) {
               <T size={12.5} color={C.red} style={{ flex: 1 }}>{err}</T>
             </View>
           )}
-          <Btn title={role === 'customer' ? 'إنشاء الحساب' : 'إرسال طلب الانضمام'} loading={busy} onPress={submit} />
+          <Btn title={kind === 'customer' ? 'إنشاء الحساب' : 'إرسال طلب الانضمام'} loading={busy} onPress={submit} />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
