@@ -30,6 +30,7 @@ import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
 import { RegionClosedBanner } from '../components/Regions';
 import { AddressPicker } from '../components/AddressBook';
+import { GroupOrderButton, useGroupLink } from './extra';
 import { HomeNew, AddressSheet } from '../components/HomeNew';
 import { RatingLine, useRatingStars } from '../components/Stars';
 import { SchedulePicker } from '../components/Schedule';
@@ -93,6 +94,7 @@ export function HomeScreen({ navigation }: any) {
   return <HomeOld navigation={navigation} />;
 }
 function HomeOld({ navigation }: any) {
+  useGroupLink(navigation); // a shared-cart link opened on the web goes straight to that cart
   const rc = useRC();
   const { db, cart } = useStore();
   const me = useMe()!;
@@ -212,6 +214,13 @@ function HomeOld({ navigation }: any) {
               <WideCard art={require('../assets/images/home/ic_maker.png')} emoji={TYPES[k].emoji} imageUri={(db.settings.catIconV?.[k] || 0) > 0 ? catIconUrl(k, db.settings.catIconV![k]) : undefined} title={TYPES[k].label} sub={serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'} onPress={() => navigation.navigate('Category', { type: k })} tint="#FBE3EC" />
             </Appear>
           ))}
+
+          {!!db.settings.features?.market && <Appear i={4} style={{ marginTop: 12 }}>
+            <WideCard emoji="🧺" title="طلبات ماركت" sub="اختار منتجاتك والمندوب يجيبها لحد بابك" onPress={() => navigation.navigate('Market')} />
+          </Appear>}
+          {!!db.settings.features?.rides && <Appear i={5} style={{ marginTop: 12 }}>
+            <WideCard emoji="🚕" title="توصيلة" sub="توكتوك، موتوسيكل، ملاكي... وانت تحدد السعر" onPress={() => navigation.navigate('RideHome')} />
+          </Appear>}
 
           {active.length > 0 && (
             <Appear style={{ marginTop: 18 }}>
@@ -463,6 +472,7 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13} style={{ flex: 1 }}>التوصيل من منطقة هذا المكان إلى منطقتك غير متاح حالياً</T>
         </View>
       )}
+      {!blocked && !requestOnly && !isBooking(p.type) && <GroupOrderButton navigation={navigation} providerId={p.id} />}
       {(p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} />}
       {!blocked && (requestOnly || isMakerTpl(p.type)) && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>

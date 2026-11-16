@@ -497,3 +497,63 @@ export const apiPremium = () => apiRequest<PremiumView>('/api/admin/premium');
 export const apiPremiumSave = (cfg: PremiumCfg) => apiRequest<PremiumView>('/api/admin/premium', { method: 'PUT', body: JSON.stringify(cfg) });
 export const apiPremiumActivate = (phone: string, days: number) => apiRequest<PremiumView>('/api/admin/premium/activate', { method: 'POST', body: JSON.stringify({ phone, days }) });
 export const apiPremiumCancel = (phone: string) => apiRequest<PremiumView>('/api/admin/premium/cancel', { method: 'POST', body: JSON.stringify({ phone }) });
+
+/* ---------------- group order, market, rides (all behind the owner's switches) ---------------- */
+export type GroupItem = { id: number; productId: number; name: string; emoji: string; price: number; qty: number; line: number; available: boolean; canRemove: boolean };
+export type GroupMember = { userId: number; name: string; isOwner: boolean; items: GroupItem[]; subtotal: number };
+export type GroupCart = { code: string; status: 'open' | 'ordered' | 'cancelled'; providerId: number; providerName: string; isOwner: boolean; expiresAt: string; members: GroupMember[]; total: number; lines?: { productId: string; qty: number }[] };
+export const apiGroupOpen = (providerId: string) => apiRequest<{ code: string; reused: boolean }>('/api/group-carts', { method: 'POST', body: JSON.stringify({ providerId: Number(providerId) }) });
+export const apiGroupGet = (code: string) => apiRequest<{ cart: GroupCart }>(`/api/group-carts/${encodeURIComponent(code)}`);
+export const apiGroupSet = (code: string, productId: string | number, qty: number) => apiRequest<{ cart: GroupCart }>(`/api/group-carts/${encodeURIComponent(code)}/items`, { method: 'PUT', body: JSON.stringify({ productId: Number(productId), qty }) });
+export const apiGroupRemove = (code: string, itemId: number) => apiRequest<{ cart: GroupCart }>(`/api/group-carts/${encodeURIComponent(code)}/items/${itemId}`, { method: 'DELETE' });
+export const apiGroupDone = (code: string) => apiRequest<{ ok: boolean }>(`/api/group-carts/${encodeURIComponent(code)}/done`, { method: 'POST' });
+export const apiGroupCancel = (code: string) => apiRequest<{ ok: boolean }>(`/api/group-carts/${encodeURIComponent(code)}/cancel`, { method: 'POST' });
+
+export type MarketProduct = { id: number; name: string; category: string; price: number; emoji: string; available: boolean; sort: number; image: string | null };
+export const apiMarketProducts = () => apiRequest<{ products: MarketProduct[]; fee: number }>('/api/market-products');
+export const apiMarketOrder = (input: { lines: { productId: string; qty: number }[]; phone: string; address: string; notes?: string; destMode?: string; destLat?: number; destLng?: number }) =>
+  apiRequest<{ orders: any[]; invoice: any }>('/api/orders/market', { method: 'POST', body: JSON.stringify(input) });
+export const marketImageUrl = (p: { image: string | null }) => (p.image ? `${API_BASE}${p.image}` : '');
+export const apiAdminMarketList = () => apiRequest<{ products: MarketProduct[] }>('/api/admin/market-products');
+export const apiAdminMarketAdd = (b: { name: string; price: number; category?: string; emoji?: string }) => apiRequest<{ product: MarketProduct }>('/api/admin/market-products', { method: 'POST', body: JSON.stringify(b) });
+export const apiAdminMarketEdit = (id: number, b: Partial<{ name: string; price: number; category: string; emoji: string; available: boolean }>) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
+export const apiAdminMarketDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/market-products/${id}`, { method: 'DELETE' });
+export const apiAdminMarketImage = (id: number, image: string) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}/image`, { method: 'PUT', body: JSON.stringify({ image }) });
+export const apiAdminMarketFee = () => apiRequest<{ fee: number }>('/api/admin/market-settings');
+export const apiAdminMarketSetFee = (fee: number) => apiRequest<{ ok: boolean }>('/api/admin/market-settings', { method: 'PATCH', body: JSON.stringify({ fee }) });
+
+export type RideType = { id: number; name: string; baseFee: number; perKm: number; minFee: number; adjPct: number; sort: number; active: boolean; image: string | null };
+export type RidePoint = { lat: number; lng: number; text?: string };
+export type RideOffer = { id: number; price: number; status: string; driver: { id: number; name: string; model: string; color: string; plate: string } };
+export type Ride = { id: number; status: string; typeId: number; from: RidePoint; to: RidePoint; km: number; minutes: number; suggested: number; offered: number; finalPrice: number | null; driverId: number | null; expiresAt: string };
+export const rideImageUrl = (t: { image: string | null }) => (t.image ? `${API_BASE}${t.image}` : '');
+export const apiRideTypes = () => apiRequest<{ types: RideType[] }>('/api/ride-types');
+export const apiRideEstimate = (from: RidePoint, to: RidePoint, typeId: number) => apiRequest<{ km: number; minutes: number; source: string; price: number; lo: number; hi: number }>('/api/rides/estimate', { method: 'POST', body: JSON.stringify({ from, to, typeId }) });
+export const apiRideCreate = (from: RidePoint, to: RidePoint, typeId: number, price: number) => apiRequest<{ ride: Ride; notified: number }>('/api/rides', { method: 'POST', body: JSON.stringify({ from, to, typeId, price }) });
+export const apiRideCurrent = () => apiRequest<{ ride: Ride | null; offers: RideOffer[] }>('/api/rides/current');
+export const apiRideAcceptOffer = (id: number, offerId: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/accept-offer`, { method: 'POST', body: JSON.stringify({ offerId }) });
+export const apiRideCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/cancel`, { method: 'POST' });
+// the captain
+export type CaptainMe = { status: string; note: string; typeId: number; typeName: string; model: string; color: string; plate: string; balance: number; photos: string[]; autoReceive: boolean; canReceive: boolean };
+export const apiCaptainMe = () => apiRequest<{ profile: CaptainMe | null }>('/api/captain/me');
+export const apiCaptainProfile = (b: { typeId: number; model: string; color: string; plate: string; nationalId?: string }) => apiRequest<{ ok: boolean; status: string }>('/api/captain/profile', { method: 'PUT', body: JSON.stringify(b) });
+export const apiCaptainPhoto = (kind: 'car' | 'license' | 'driver' | 'selfie', image: string) => apiRequest<{ ok: boolean }>(`/api/captain/photos/${kind}`, { method: 'PUT', body: JSON.stringify({ image }) });
+export type CaptainReq = Ride & { myOffer: number | null; pickupKm: number | null };
+export const apiCaptainRequests = () => apiRequest<{ requests: CaptainReq[]; offerSecs: number }>('/api/captain/requests');
+export const apiCaptainOffer = (id: number, price?: number) => apiRequest<{ ok: boolean; accepted: boolean }>(`/api/captain/requests/${id}/offer`, { method: 'POST', body: JSON.stringify(price === undefined ? {} : { price }) });
+export const apiCaptainStatus = (id: number, status: 'arrived' | 'started' | 'completed') => apiRequest<{ ok: boolean; commission: number | null }>(`/api/captain/rides/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
+// the owner
+export const apiAdminRideTypes = () => apiRequest<{ types: RideType[] }>('/api/admin/ride-types');
+export const apiAdminRideTypeSave = (id: number | null, b: any) => apiRequest<{ type: RideType }>(id ? `/api/admin/ride-types/${id}` : '/api/admin/ride-types', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(b) });
+export const apiAdminRideTypeDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/ride-types/${id}`, { method: 'DELETE' });
+export const apiAdminRideTypeImage = (id: number, image: string) => apiRequest<{ type: RideType }>(`/api/admin/ride-types/${id}/image`, { method: 'PUT', body: JSON.stringify({ image }) });
+export const apiAdminRideTypeCommission = (id: number, commissionPct: number | null) => apiRequest<{ ok: boolean }>(`/api/admin/ride-types/${id}/commission`, { method: 'PATCH', body: JSON.stringify({ commissionPct }) });
+export type AdminCaptain = { id: number; name: string; phone: string; status: string; note: string; typeName: string; model: string; color: string; plate: string; balance: number; commissionPct: number | null; autoReceive: boolean; photos: string[] };
+export const apiAdminCaptains = (status?: string) => apiRequest<{ captains: AdminCaptain[] }>(`/api/admin/captains${status ? `?status=${status}` : ''}`);
+export const apiAdminCaptainSet = (id: number, b: any) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
+export const apiAdminCaptainBalance = (id: number, amount: number, note?: string) => apiRequest<{ ok: boolean; balance: number }>(`/api/admin/captains/${id}/balance`, { method: 'POST', body: JSON.stringify({ amount, note }) });
+export const apiAdminRideSettings = () => apiRequest<{ commissionPct: number; commissionMin: number; minBalance: number; autoDispatch: boolean; offerSecs: number; radiusKm: number }>('/api/admin/rides/settings');
+export const apiAdminRideSettingsSave = (b: any) => apiRequest<{ ok: boolean }>('/api/admin/rides/settings', { method: 'PATCH', body: JSON.stringify(b) });
+export const apiAdminRides = (status = '') => apiRequest<{ rides: (Ride & { customer: string; driver: string | null })[] }>(`/api/admin/rides${status ? `?status=${status}` : ''}`);
+export const apiAdminRideAssign = (id: number, driverId: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/assign`, { method: 'POST', body: JSON.stringify({ driverId }) });
+export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
