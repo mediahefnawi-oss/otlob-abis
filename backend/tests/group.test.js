@@ -13,6 +13,7 @@ const roles = (...a) => (req, res, next) => { if (!req.auth || !a.includes(req.a
 (async () => {
   const pool = new Pool(); const q = (t, p) => pool.query(t, p);
   const notes = [];
+  await q('TRUNCATE market_products RESTART IDENTITY'); await q('UPDATE app_settings SET market_fee=15 WHERE id=1'); // repeatable runs
   G.register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });
   M.register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });
   // the real orders module, with open auth, only to reach /api/orders/market (it uses the real roles check below)
