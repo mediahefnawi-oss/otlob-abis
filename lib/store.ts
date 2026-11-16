@@ -22,6 +22,7 @@ import { applyTheme } from './theme';
 import { kmFee } from './geo';
 import { apiJson } from './finance';
 import { hash, normPhone, isBooking, applyServices } from './format';
+import { stopCourierTracking } from './location';
 
 const DB_KEY = 'abis_db_v3';
 const SESSION_KEY = 'abis_session_v3';
@@ -597,7 +598,9 @@ export async function login(phone: string, pass: string): Promise<Result<{ user:
 export async function switchMode(to: 'customer' | 'main'): Promise<Result> {
   try {
     loginEpoch++;
+    const wasCourier = state.userId ? state.db.users.find((u) => u.id === state.userId)?.role === 'courier' : false;
     const { user: su } = await apiSwitch(to);
+    if (wasCourier && to === 'customer') stopCourierTracking().catch(() => {});
     lastSyncTag = null;
     mirrorUser(su);
     syncRemote();

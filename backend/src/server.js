@@ -120,7 +120,7 @@ function backupPhone(v, mainPhone) {
   return { ok: true, phone: p };
 }
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-function tokenFor(user, as) { return jwt.sign({ sub: String(user.id), role: user.role, ...(as === 'customer' && user.role === 'provider' ? { as: 'customer' } : {}) }, process.env.JWT_SECRET, { expiresIn: process.env.TOKEN_TTL || '30d', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' }); }
+function tokenFor(user, as) { return jwt.sign({ sub: String(user.id), role: user.role, ...(as === 'customer' && (user.role === 'provider' || user.role === 'courier') ? { as: 'customer' } : {}) }, process.env.JWT_SECRET, { expiresIn: process.env.TOKEN_TTL || '30d', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' }); }
 async function authCore(req, res, next, allowInactive) {
   const h = req.headers.authorization || '';
   if (!h.startsWith('Bearer ')) return res.status(401).json({ error: 'يلزم تسجيل الدخول' });
@@ -141,7 +141,7 @@ async function authCore(req, res, next, allowInactive) {
     }
     if (!allowInactive && user.status !== 'active') return res.status(403).json({ error: 'الحساب غير مفعّل. تواصل مع الدعم' });
     // a shop owner can use the app as a customer: the token carries as:'customer', honoured ONLY for a provider account (never admin / staff)
-    const asCustomer = claims.as === 'customer' && user.role === 'provider';
+    const asCustomer = claims.as === 'customer' && (user.role === 'provider' || user.role === 'courier');
     req.auth = { ...claims, sub: String(user.id), role: asCustomer ? 'customer' : user.role, baseRole: user.role, status: user.status };
     return next();
   } catch (err) { return next(err); }
@@ -386,8 +386,14 @@ app.post('/api/auth/switch', auth, asyncRoute(async (req, res) => {
   const r = await pool.query('SELECT * FROM users WHERE id=$1 AND deleted_at IS NULL', [req.auth.sub]);
   if (!r.rowCount) return res.status(404).json({ error: 'الحساب غير موجود' });
   const row = r.rows[0];
-  if (row.role !== 'provider') return res.status(403).json({ error: 'التحويل لعميل متاح لأصحاب المتاجر ومقدمي الخدمات فقط' });
+  if (row.role !== 'provider' && row.role !== 'courier') return res.status(403).json({ error: 'التحويل لعميل متاح لأصحاب المتاجر والمناديب فقط' });
   if (to === 'customer') { const mt = await maintenanceState('customer'); if (!mt.enabled) return res.status(503).json({ error: mt.message }); }
+  if (to === 'customer' && row.role === 'courier') {
+    // a courier in the middle of a delivery or a ride cannot leave it; and while he is a customer he is not offered new work
+    const busy = await pool.query("SELECT (SELECT COUNT(*) FROM orders WHERE courier_user_id=$1 AND status IN ('accepted','quoted','ready','picked_up','on_the_way','arrived'))::int AS o, (SELECT COUNT(*) FROM rides WHERE driver_id=$1 AND status IN ('assigned','arrived','started'))::int AS r", [row.id]);
+    if (busy.rows[0].o > 0 || busy.rows[0].r > 0) return res.status(409).json({ error: 'عندك طلب أو رحلة شغالة. خلّصها الأول وبعدين اتحول لعميل' });
+    await pool.query('UPDATE users SET available=FALSE WHERE id=$1', [row.id]);
+  }
   const a = { role: to === 'customer' ? 'customer' : row.role };
   res.json({ token: tokenFor(row, to), user: meJson(row, a) });
 }));

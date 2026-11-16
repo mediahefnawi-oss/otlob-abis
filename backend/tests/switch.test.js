@@ -21,7 +21,10 @@ const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), `${m}: got $
   eq(mk.meJson(row, r.req.auth).role, 'customer', '/me shows customer'); eq(mk.meJson(row, r.req.auth).baseRole, 'provider', '/me tells the real role');
   eq(mk.meJson(row, (await run(mk.tokenFor(row))).req.auth).baseRole, undefined, 'no baseRole when not switched');
 
-  for (const role of ['admin', 'supervisor', 'courier', 'customer']) {            // the claim can never lift or change anyone else's role
+  row = { id: 9, role: 'courier', status: 'active', name: 'مندوب' };
+  r = await run(mk.tokenFor(row, 'customer')); eq(r.req.auth.role, 'customer', 'a courier can switch to the customer view'); eq(r.req.auth.baseRole, 'courier', 'courier base role kept');
+  eq(mk.meJson(row, r.req.auth).baseRole, 'courier', '/me tells the real role (courier)');
+  for (const role of ['admin', 'supervisor', 'customer']) {            // the claim can never lift or change anyone else's role
     row = { id: 8, role, status: 'active', name: 'x' };
     const forged = jwt.sign({ sub: '8', role, as: 'customer' });
     r = await run(forged);
