@@ -84,8 +84,12 @@ export function OrderCard({ o, onPress, perspective, children }: { o: Order; onP
   const t = o.providerType === 'custom' ? null : TYPES[o.providerType];
   const { db } = useStore();
   const prov = o.providerId ? db.providers.find((x) => x.id === o.providerId) : undefined;
+  const kind = o.market ? { e: '🧺', l: 'طلب طلبات ماركت', g: true } : o.providerType === 'custom' ? { e: '🎁', l: 'طلب اطلب إيه نجيبهولك', g: true } : { e: t?.emoji || '🛒', l: `طلب من ${t?.label || 'محل'}`, g: false };
   return (
     <Card onPress={onPress} style={{ gap: 10 }}>
+      {(perspective === 'courier' || perspective === 'admin') && (
+        <View style={{ flexDirection: 'row' }}><View style={{ backgroundColor: kind.g ? C.green : C.dark, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 }}><T w="black" size={12} color={kind.g ? '#fff' : C.gold}>{kind.e} {kind.l}</T></View></View>
+      )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         {prov && perspective !== 'provider' && perspective !== 'courier' ? <ProviderLogo p={prov} size={44} /> : <EmojiBubble emoji={o.providerType === 'custom' ? '🎁' : t!.emoji} size={44} bg={t ? t.soft : C.goldSoft} />}
         <View style={{ flex: 1 }}>
