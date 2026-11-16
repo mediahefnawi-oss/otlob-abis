@@ -40,7 +40,7 @@ const R2 = require('../src/rides2.js');
   const extrasLib = { featureOn: async () => switchOn };
   const pushToUsers = async (ids, p) => { pushes.push({ ids, p }); };
   R.register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, clearCaches() {} });
-  R2.register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers });
+  R2.register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers, hashPassword: async (p) => 'h:' + p });
   const mk = async (n, role) => (await q("INSERT INTO users(name, phone, password_hash, role, status, available) VALUES($1,$2,'x',$3,'active',TRUE) RETURNING id", [n, '012' + String(Math.floor(Math.random() * 1e8)).padStart(8, '0'), role])).rows[0].id;
   const aId = await mk('admin', 'admin'), cId = await mk('cust', 'customer'), c2Id = await mk('cust2', 'customer'), d1 = await mk('cap1', 'courier'), d2 = await mk('cap2', 'courier');
   const A = { sub: aId, role: 'admin' }, C = { sub: cId, role: 'customer' }, C2 = { sub: c2Id, role: 'customer' }, D1 = { sub: d1, role: 'courier' }, D2 = { sub: d2, role: 'courier' };
@@ -171,6 +171,29 @@ const R2 = require('../src/rides2.js');
   eq(Number((await q('SELECT final_price FROM rides WHERE id=$1', [bid])).rows[0].final_price), 90, 'final price = the accepted bid');
   await call('POST /api/rides/:id/cancel', { as: C, params: { id: bid } });
   await call('PATCH /api/admin/rides/settings', { as: A, body: { pricing: 'fixed' } });
+
+  // ---- the owner controls a ride by hand: cancel, confirm, and opens a captain account
+  const ra = await call('POST /api/rides', { as: C, body: { ...body, price: est.price } }); eq(ra.status, 200, 'ride for the admin cancel test');
+  eq((await call('POST /api/admin/rides/:id/cancel', { as: D1, params: { id: ra.json.ride.id } })).status, 403, 'a captain cannot cancel from the admin');
+  eq((await call('POST /api/admin/rides/:id/cancel', { as: A, params: { id: ra.json.ride.id } })).status, 200, 'owner cancels a searching ride');
+  eq((await call('POST /api/admin/rides/:id/cancel', { as: A, params: { id: ra.json.ride.id } })).status, 409, 'cannot cancel twice');
+  const rb = await call('POST /api/rides', { as: C, body: { ...body, price: est.price } });
+  eq((await call('POST /api/admin/rides/:id/complete', { as: A, params: { id: rb.json.ride.id } })).status, 409, 'cannot confirm a ride that has no captain');
+  eq((await call('POST /api/captain/requests/:id/offer', { as: D1, params: { id: rb.json.ride.id }, body: {} })).status, 200, 'captain takes it');
+  const bal0 = Number((await q('SELECT balance FROM captain_profiles WHERE user_id=$1', [d1])).rows[0].balance);
+  const cm = await call('POST /api/admin/rides/:id/complete', { as: A, params: { id: rb.json.ride.id } });
+  eq(cm.status, 200, 'owner confirms the ride');
+  eq(Number((await q('SELECT balance FROM captain_profiles WHERE user_id=$1', [d1])).rows[0].balance), Math.round((bal0 - cm.json.commission) * 100) / 100, 'the commission was taken once');
+  eq((await q('SELECT status FROM rides WHERE id=$1', [rb.json.ride.id])).rows[0].status, 'completed', 'ride completed');
+  eq((await call('POST /api/admin/rides/:id/complete', { as: A, params: { id: rb.json.ride.id } })).status, 409, 'cannot confirm twice (no double commission)');
+  const nc = { name: 'كابتن جديد', phone: '01099998888', password: 'abcd1234', typeId: (await q('SELECT id FROM ride_types ORDER BY id LIMIT 1')).rows[0].id, model: 'تيوكتوك', color: 'أخضر', plate: '123' };
+  eq((await call('POST /api/admin/captains', { as: D1, body: nc })).status, 403, 'a captain cannot add captains');
+  eq((await call('POST /api/admin/captains', { as: A, body: { ...nc, phone: '123' } })).status, 400, 'bad phone refused');
+  eq((await call('POST /api/admin/captains', { as: A, body: { ...nc, password: 'short' } })).status, 400, 'short password refused');
+  const nr = await call('POST /api/admin/captains', { as: A, body: nc }); eq(nr.status, 200, 'owner adds a captain');
+  eq((await q('SELECT status FROM captain_profiles WHERE user_id=$1', [nr.json.id])).rows[0].status, 'approved', 'the new captain is approved at once');
+  eq((await call('POST /api/admin/captains', { as: A, body: nc })).status, 409, 'same phone refused');
+  await q('DELETE FROM users WHERE id=$1', [nr.json.id]);
 
   // switch OFF closes the customer/captain side, the owner's panel still works
   switchOn = false;

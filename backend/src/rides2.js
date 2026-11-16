@@ -26,7 +26,7 @@ function commissionFor(price, { captainPct, typePct, defaultPct, minFee }) {
 /** Pure: may a captain receive rides with this balance and threshold (threshold is negative: how far below zero is allowed)? */
 const canReceive = (balance, minBalance) => Number(balance) >= Number(minBalance);
 
-function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers }) {
+function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers, hashPassword = (p) => require('bcryptjs').hash(p, 12) }) {
   const fail = (status, error) => Object.assign(new Error(error), { http: status });
   const guard = fn => asyncRoute(async (req, res) => { try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; } });
   const admin = [auth, roles('admin')];
@@ -83,6 +83,25 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       FROM captain_profiles p JOIN users u ON u.id=p.user_id LEFT JOIN ride_types t ON t.id=p.type_id
       WHERE ($1::text IS NULL OR p.status=$1) ORDER BY (p.status='pending') DESC, p.updated_at DESC LIMIT 300`, [st]);
     res.json({ captains: r.rows.map(x => ({ id: Number(x.user_id), name: x.name, phone: x.phone, status: x.status, note: x.note, typeName: x.type_name, model: x.model, color: x.color, plate: x.plate, balance: Number(x.balance), commissionPct: x.commission_pct === null ? null : Number(x.commission_pct), autoReceive: x.auto_receive, photos: x.photos })) });
+  }));
+  /** the owner opens a captain account by hand: a courier user + an approved captain profile */
+  app.post('/api/admin/captains', ...admin, guard(async (req, res) => {
+    const b = req.body || {}, name = str(b.name, 80), phone = String(b.phone || '').replace(/\s+/g, ''), password = String(b.password || '');
+    if (name.length < 3) throw fail(400, 'اكتب اسم الكابتن بالكامل');
+    if (!/^01[0-9]{9}$/.test(phone)) throw fail(400, 'رقم الهاتف غير صحيح');
+    if (password.length < 8) throw fail(400, 'كلمة المرور يجب ألا تقل عن 8 أحرف');
+    const typeId = positiveId(b.typeId); if (!typeId) throw fail(400, 'اختر نوع المركبة');
+    const t = await pool.query('SELECT 1 FROM ride_types WHERE id=$1', [typeId]); if (!t.rowCount) throw fail(400, 'نوع المركبة غير موجود');
+    const dup = await pool.query('SELECT 1 FROM users WHERE phone=$1', [phone]); if (dup.rowCount) throw fail(409, 'الرقم مسجل بالفعل');
+    const hash = await hashPassword(password);
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const u = await c.query("INSERT INTO users(name,phone,password_hash,role,address,status,vehicle) VALUES($1,$2,$3,'courier','كابتن توصيلة','active','توصيلة') RETURNING id", [name, phone, hash]);
+      await c.query("INSERT INTO captain_profiles(user_id, type_id, model, color, plate, status) VALUES($1,$2,$3,$4,$5,'approved')", [u.rows[0].id, typeId, str(b.model, 60), str(b.color, 30), str(b.plate, 20)]);
+      await c.query('COMMIT');
+      res.json({ ok: true, id: Number(u.rows[0].id) });
+    } catch (e) { try { await c.query('ROLLBACK'); } catch { /* already */ } throw e; } finally { c.release(); }
   }));
   app.get('/api/admin/captains/:id/photo/:kind', ...admin, guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id || !KINDS.includes(req.params.kind)) return res.status(404).end();
@@ -336,6 +355,37 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     push([did], 'رحلة جديدة لك', `سعر ${money(r.rows[0].offered)} ج`, `ride-${id}`);
     push([Number(u.rows[0].customer_id)], 'كابتنك في الطريق', 'تم تعيين كابتن لرحلتك', `ride-${id}`);
     res.json({ ok: true });
+  }));
+  /** the owner cancels any ride that is not finished yet */
+  app.post('/api/admin/rides/:id/cancel', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const u = await pool.query("UPDATE rides SET status='cancelled', updated_at=NOW() WHERE id=$1 AND status IN ('searching','assigned','arrived','started') RETURNING customer_id, driver_id", [id]);
+    if (!u.rowCount) throw fail(409, 'لا يمكن إلغاء هذه الرحلة');
+    await pool.query("UPDATE ride_offers SET status='rejected' WHERE ride_id=$1 AND status='open'", [id]);
+    push([Number(u.rows[0].customer_id)], 'رحلتك', 'تم إلغاء الرحلة من الإدارة', `ride-${id}`);
+    if (u.rows[0].driver_id) push([Number(u.rows[0].driver_id)], 'رحلة ملغاة', 'تم إلغاء الرحلة من الإدارة', `ride-${id}`);
+    res.json({ ok: true });
+  }));
+  /** the owner confirms a ride as finished (same commission as when the captain finishes it) */
+  app.post('/api/admin/rides/:id/complete', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const r = await c.query("SELECT customer_id, driver_id, final_price, offered, type_id FROM rides WHERE id=$1 AND status IN ('assigned','arrived','started') FOR UPDATE", [id]);
+      if (!r.rowCount || !r.rows[0].driver_id) { await c.query('ROLLBACK'); throw fail(409, 'لا يمكن تأكيد هذه الرحلة (لازم يكون لها كابتن)'); }
+      const row = r.rows[0], price = row.final_price ?? row.offered, s = await settings();
+      const cp = await c.query('SELECT commission_pct FROM captain_profiles WHERE user_id=$1', [row.driver_id]);
+      const tp = await c.query('SELECT commission_pct FROM ride_types WHERE id=$1', [row.type_id]);
+      const commission = commissionFor(price, { captainPct: cp.rows[0] && cp.rows[0].commission_pct, typePct: tp.rows[0] && tp.rows[0].commission_pct, defaultPct: s.ride_commission_pct, minFee: s.ride_commission_min });
+      const nb = await c.query('UPDATE captain_profiles SET balance = balance - $2 WHERE user_id=$1 RETURNING balance', [row.driver_id, commission]);
+      await c.query("INSERT INTO captain_ledger(user_id, kind, amount, ride_id, note) VALUES($1,'commission',$2,$3,'عمولة رحلة (تأكيد من الإدارة)')", [row.driver_id, -commission, id]);
+      if (nb.rowCount && !canReceive(nb.rows[0].balance, s.ride_min_balance)) await c.query("UPDATE captain_profiles SET status='suspended', note='تم الإيقاف تلقائياً: الرصيد أقل من الحد المسموح' WHERE user_id=$1 AND status='approved'", [row.driver_id]);
+      await c.query("UPDATE rides SET status='completed', final_price=COALESCE(final_price, offered), commission=$2, updated_at=NOW() WHERE id=$1", [id, commission]);
+      await c.query('COMMIT');
+      push([Number(row.customer_id)], 'رحلتك', 'وصلت بالسلامة', `ride-${id}`);
+      res.json({ ok: true, commission });
+    } catch (e) { try { await c.query('ROLLBACK'); } catch { /* already */ } throw e; } finally { c.release(); }
   }));
 }
 module.exports = { commissionFor, canReceive, register };

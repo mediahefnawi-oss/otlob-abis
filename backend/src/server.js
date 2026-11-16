@@ -1127,7 +1127,7 @@ require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, po
 require('./premium').register(app, { pool, auth, roles, asyncRoute, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); authMemo.clear(); }, pushToUsers });
 require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./rides').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
-require('./rides2').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers });
+require('./rides2').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers, hashPassword: (p) => bcrypt.hash(p, 12) });
 require('./group').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });
 require('./market').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });
 extrasLib.register(app, { pool, auth, roles, asyncRoute, positiveId, services, pushToUsers, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
