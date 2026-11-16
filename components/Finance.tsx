@@ -686,42 +686,82 @@ export function ProviderFinanceCard({ providerId }: { providerId: string }) {
   );
 }
 /** Courier: the platform deduction per delivered order and what is owed. */
+/** Courier home: one small card (today's net) that opens the full "حساباتي" page. */
 export function CourierFinanceCard() {
   const mine = useMyCommission('courier');
-  const [per, setPer] = useState<'today' | 'month'>('today');
-  if (!mine) return null;
-  const rule = mine.rules[0];
-  const sv = mine.services;
-  const rows = (sv?.rows || []).filter((r) => r.svc !== 'ride' || sv?.captain || r.month.count > 0);
-  const Cell = ({ children, w, b, color }: any) => <T w={b ? 'black' : 'regular'} size={12} color={color} style={{ width: w }} align="center">{children}</T>;
+  const nav: any = useNavigation();
+  const t = mine?.services?.total.today;
+  if (!mine || !t) return null;
   return (
-    <Card style={{ gap: 8 }}>
-      <T w="black" size={15}>حساباتي</T>
-      {!!sv && (
-        <>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Chip label="النهارده" active={per === 'today'} onPress={() => setPer('today')} />
-            <Chip label="الشهر ده" active={per === 'month'} onPress={() => setPer('month')} />
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: C.line, paddingBottom: 4 }}>
-            <T w="bold" size={11.5} color={C.sub} style={{ flex: 1 }}>النوع</T>
-            <Cell w={34} color={C.sub}>عدد</Cell><Cell w={58} color={C.sub}>الإجمالي</Cell><Cell w={52} color={C.sub}>العمولة</Cell><Cell w={58} color={C.sub}>صافيك</Cell>
-          </View>
-          {rows.map((r) => (
-            <View key={r.svc} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 3 }}>
-              <T size={12.5} style={{ flex: 1 }}>{r.name}</T>
-              <Cell w={34}>{r[per].count}</Cell><Cell w={58}>{money(r[per].earned)}</Cell><Cell w={52} color={C.red}>{money(r[per].commission)}</Cell><Cell w={58} b color={C.green}>{money(r[per].net)}</Cell>
+    <Pressable onPress={() => nav.navigate('CourierAccounts')}>
+      <View style={{ backgroundColor: C.dark, borderRadius: 20, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Icon name="wallet" size={26} color={C.gold} />
+        <View style={{ flex: 1 }}>
+          <T w="black" size={15} color="#fff">صافيك النهارده {money(t.net)}</T>
+          <T size={12} color="#B8CFC6">{t.count} عملية • عمولة التطبيق {money(t.commission)}</T>
+        </View>
+        <T w="black" size={13} color={C.gold}>التفاصيل</T>
+        <Icon name="chevron-back" size={16} color={C.gold} />
+      </View>
+    </Pressable>
+  );
+}
+
+/** The courier's own page: totals first, then one card per kind of work (not a cramped table). */
+export function CourierAccountsScreen({ navigation }: any) {
+  const mine = useMyCommission('courier');
+  const [per, setPer] = useState<'today' | 'month'>('today');
+  const sv = mine?.services;
+  const rule = mine?.rules[0];
+  const rows = (sv?.rows || []).filter((r) => r.svc !== 'ride' || sv?.captain || r.month.count > 0);
+  const Fig = ({ label, value, color, dark }: { label: string; value: string; color?: string; dark?: boolean }) => (
+    <View style={{ flex: 1, backgroundColor: dark ? '#12382F' : '#F3F6F3', borderRadius: 12, paddingVertical: 8, alignItems: 'center', gap: 2 }}>
+      <T size={11} color={dark ? '#B8CFC6' : C.sub}>{label}</T>
+      <T w="black" size={14.5} color={color || (dark ? '#fff' : C.text)}>{value}</T>
+    </View>
+  );
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="حساباتي" subtitle="أرباحك وعمولة التطبيق" onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
+        {!sv ? <Empty icon="wallet" title="لا توجد بيانات بعد" /> : (
+          <>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Chip label="النهارده" active={per === 'today'} onPress={() => setPer('today')} />
+              <Chip label="الشهر ده" active={per === 'month'} onPress={() => setPer('month')} />
             </View>
-          ))}
-          <View style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.line, paddingTop: 6 }}>
-            <T w="black" size={13} style={{ flex: 1 }}>الإجمالي</T>
-            <Cell w={34} b>{sv.total[per].count}</Cell><Cell w={58} b>{money(sv.total[per].earned)}</Cell><Cell w={52} b color={C.red}>{money(sv.total[per].commission)}</Cell><Cell w={58} b color={C.green}>{money(sv.total[per].net)}</Cell>
-          </View>
-        </>
-      )}
-      {rule && <T size={12.5} color={C.dark3}>{ruleSummary(rule.kind, rule.value, rule.minAmount, 'courier')}</T>}
-      <T size={12.5} color={C.dark3}>إجمالي الخصم غير المسدد: <T w="black" size={13} color={mine.due > 0 ? C.red : C.green}>{money(mine.due)}</T> • هذا الشهر {money(mine.month)}</T>
-    </Card>
+            <View style={{ backgroundColor: C.dark, borderRadius: 20, padding: 14, gap: 10 }}>
+              <T size={12} color="#B8CFC6">الإجمالي (كل الأنواع) • صافيك</T>
+              <T w="black" size={26} color={C.gold}>{money(sv.total[per].net)}</T>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Fig dark label="عدد العمليات" value={String(sv.total[per].count)} />
+                <Fig dark label="الإجمالي" value={money(sv.total[per].earned)} />
+                <Fig dark label="عمولة التطبيق" value={money(sv.total[per].commission)} color="#FF9A8D" />
+              </View>
+            </View>
+            {rows.map((r) => (
+              <Card key={r.svc} style={{ gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <T w="black" size={14.5} style={{ flex: 1 }}>{r.name}</T>
+                  <T size={12} color={C.sub}>{r[per].count} عملية</T>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Fig label="الإجمالي" value={money(r[per].earned)} />
+                  <Fig label="العمولة" value={money(r[per].commission)} color={C.red} />
+                  <Fig label="صافيك" value={money(r[per].net)} color={C.green} />
+                </View>
+              </Card>
+            ))}
+          </>
+        )}
+        {mine && (
+          <Card style={{ gap: 4 }}>
+            {rule && <T size={12.5} color={C.dark3}>{ruleSummary(rule.kind, rule.value, rule.minAmount, 'courier')}</T>}
+            <T size={12.5} color={C.dark3}>إجمالي الخصم غير المسدد: <T w="black" size={13} color={mine.due > 0 ? C.red : C.green}>{money(mine.due)}</T> • هذا الشهر {money(mine.month)}</T>
+          </Card>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 

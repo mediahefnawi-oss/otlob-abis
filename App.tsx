@@ -36,7 +36,7 @@ import { CourierWorkScreen, CourierOrdersScreen, CourierProfileScreen } from './
 import {
   AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen, AdminSupervisorsScreen, AdminSupportScreen, SupervisorOrdersScreen,
 } from './screens/admin';
-import { AdminFinanceScreen } from './components/Finance';
+import { AdminFinanceScreen, CourierAccountsScreen } from './components/Finance';
 import { SupportInbox, useSupportUnread } from './components/SupportChat';
 import { AdminOffersScreen } from './components/Offers';
 import { AdminCouponsScreen } from './components/Coupons';
@@ -199,6 +199,7 @@ function Root() {
         <Stack.Screen name="Market" component={isGuestId(me.id) ? GuestBlockScreen : MarketScreen} />
         <Stack.Screen name="RideHome" component={isGuestId(me.id) ? GuestBlockScreen : RideHomeScreen} />
         <Stack.Screen name="Captain" component={CaptainScreen} />
+        <Stack.Screen name="CourierAccounts" component={CourierAccountsScreen} />
         <Stack.Screen name="AdminMarket" component={AdminMarketScreen} />
         <Stack.Screen name="AdminRides" component={AdminRidesScreen} />
         <Stack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} />

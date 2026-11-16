@@ -74,19 +74,7 @@ export function CourierWorkScreen({ go }: any) {
           <Stat icon="checkmark-done" label="تم تسليمها اليوم" value={doneToday.length} />
           <Stat icon="bicycle" label="جارية الآن" value={mine.length} color={C.orange} soft={C.orangeSoft} />
         </View>
-        {!!db.settings.features?.rides && (
-          <Pressable onPress={() => nav.navigate('Captain')}>
-            <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <Icon name="car" size={26} color={C.green} />
-              <View style={{ flex: 1 }}><T w="black" size={15}>كابتن توصيلة</T><T size={12} color={C.sub}>سجّل مركبتك واستقبل طلبات التوصيلة</T></View>
-              <Icon name="chevron-back" size={18} color={C.sub} />
-            </Card>
-          </Pressable>
-        )}
-        <CourierFinanceCard />
-        <Card style={{ gap: 8 }}>
-          <RegionPicker value={me.regionId} onChange={async (id) => { const r = await updateProfile({ regionId: id }); if (!r.ok) toast(r.error, 'err'); else toast('تم تحديد منطقتك'); }} label="أنا الآن في منطقة" />
-        </Card>
+        <SectionTitle title="شغلي دلوقتي" />
         <Pressable onPress={() => open('offers')}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Icon name="radio" size={26} color={C.goldDeep} />
@@ -109,6 +97,21 @@ export function CourierWorkScreen({ go }: any) {
             <Icon name="chevron-back" size={18} color={C.sub} />
           </Card>
         </Pressable>
+        <SectionTitle title="حساباتي" />
+        <CourierFinanceCard />
+        <SectionTitle title="إعدادات الشغل" />
+        <Card style={{ gap: 8 }}>
+          <RegionPicker value={me.regionId} onChange={async (id) => { const r = await updateProfile({ regionId: id }); if (!r.ok) toast(r.error, 'err'); else toast('تم تحديد منطقتك'); }} label="أنا الآن في منطقة" />
+        </Card>
+        {!!db.settings.features?.rides && (
+          <Pressable onPress={() => nav.navigate('Captain')}>
+            <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Icon name="car" size={26} color={C.green} />
+              <View style={{ flex: 1 }}><T w="black" size={15}>كابتن توصيلة</T><T size={12} color={C.sub}>سجّل مركبتك واستقبل طلبات التوصيلة</T></View>
+              <Icon name="chevron-back" size={18} color={C.sub} />
+            </Card>
+          </Pressable>
+        )}
       </View>
     </ScrollView>
   );
