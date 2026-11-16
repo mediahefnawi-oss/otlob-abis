@@ -97,8 +97,8 @@ export function RideHomeScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="توصيلة" subtitle={ride?.bidding || est?.bidding ? 'حدد وجهتك والكباتن يحددوا السعر' : 'حدد وجهتك واختار السعر اللي يناسبك'} onBack={() => navigation.goBack()} />
-      {!live && <SvcCover svc="rides" />}
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+        {!live && <View style={{ marginHorizontal: -4, marginTop: -12 }}><SvcCover svc="rides" /></View>}
         {live && ride ? (
           <>
             <Card style={{ gap: 6 }}>
@@ -148,11 +148,8 @@ export function RideHomeScreen({ navigation }: any) {
             />
             <T size={12} color={C.sub}>{target === 'from' ? 'دوس على الخريطة عشان تحدد مكان التحميل' : 'دوس على الخريطة عشان تحدد مكان الوصول'}</T>
             <Field label="ملاحظة للكابتن (اختياري) — مثال: عمارة 5 جنب الصيدلية" value={note} onChangeText={setNote} />
-          </>
-        )}
-      </ScrollView>
-      {!live && est && (
-        <View style={{ backgroundColor: '#fff', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 14, gap: 8, borderTopLeftRadius: 18, borderTopRightRadius: 18, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, elevation: 8 }}>
+            {est && (
+        <View style={{ backgroundColor: '#fff', padding: 14, gap: 8, borderRadius: 18, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, elevation: 4, paddingBottom: 14 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <T size={12.5} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
             {est.bidding
@@ -163,7 +160,10 @@ export function RideHomeScreen({ navigation }: any) {
                   <T w="black" size={20} color={C.green}>{price} ج</T>
                   <Pressable onPress={() => setPrice((v) => Math.min(est.hi, v + 5))} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Icon name="add" size={18} color={C.green} /></Pressable>
                 </View>
-              )}
+                    )}
+          </>
+        )}
+      </ScrollView>
           </View>
           {!est.bidding && <T size={11} color={C.sub} align="center">السعر المقترح {est.price} ج — من {est.lo} إلى {est.hi} ج</T>}
           <Btn title={est.bidding ? 'ابعت الطلب للكباتن' : 'اطلب توصيلة'} icon="car" onPress={request} loading={busy} />

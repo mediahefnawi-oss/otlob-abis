@@ -247,7 +247,6 @@ export function MarketScreen({ navigation, route }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="طلبات ماركت" subtitle="اختار منتجاتك والمندوب يجيبها لحد بابك" onBack={() => (checkout ? setCheckout(false) : navigation.goBack())} />
-      <SvcCover svc="market" />
       {state === 'load' ? <Empty title="جاري التحميل..." /> : state === 'err' ? <Empty title="الخدمة غير متاحة الآن" /> : checkout ? (
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
@@ -274,7 +273,8 @@ export function MarketScreen({ navigation, route }: any) {
         </KeyboardAvoidingView>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 100 }}>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: Platform.OS === 'web' ? 190 : 100 }}>
+            <View style={{ marginHorizontal: -4, marginTop: -12 }}><SvcCover svc="market" /></View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {cats.map((c) => <Chip key={c} label={c} active={cat === c} onPress={() => setCat(c)} />)}
             </ScrollView>
@@ -308,7 +308,7 @@ export function MarketScreen({ navigation, route }: any) {
             </View>
           </ScrollView>
           {count > 0 && (
-            <View style={{ position: 'absolute', left: 16, right: 16, bottom: 16 }}>
+            <View style={{ position: 'absolute', left: 16, right: 16, bottom: Platform.OS === 'web' ? 96 : 16 }}>
               <Pressable onPress={() => setCheckout(true)} style={[{ backgroundColor: C.green, borderRadius: 16, paddingVertical: 13, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, shadow]}>
                 <T w="black" color="#fff">🛒 {count} منتجات</T>
                 <T w="black" color="#fff">{subtotal} ج{unpriced > 0 ? ' + المندوب يكمّل' : ''}  ›</T>
