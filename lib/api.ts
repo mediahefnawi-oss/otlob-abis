@@ -564,6 +564,9 @@ export const apiAdminCaptainBalance = (id: number, amount: number, note?: string
 export const apiAdminRideSettings = () => apiRequest<{ commissionPct: number; commissionMin: number; minBalance: number; autoDispatch: boolean; offerSecs: number; radiusKm: number; pricing: 'fixed' | 'bidding' }>('/api/admin/rides/settings');
 export const apiAdminRideSettingsSave = (b: any) => apiRequest<{ ok: boolean }>('/api/admin/rides/settings', { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminRides = (status = '') => apiRequest<{ rides: (Ride & { customer: string; driver: string | null })[] }>(`/api/admin/rides${status ? `?status=${status}` : ''}`);
+export const apiAdminRideCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/cancel`, { method: 'POST' });
+export const apiAdminRideComplete = (id: number) => apiRequest<{ ok: boolean; commission: number }>(`/api/admin/rides/${id}/complete`, { method: 'POST' });
+export const apiAdminCaptainAdd = (b: { name: string; phone: string; password: string; typeId: number; model?: string; color?: string; plate?: string }) => apiRequest<{ ok: boolean; id: number }>('/api/admin/captains', { method: 'POST', body: JSON.stringify(b) });
 export const apiAdminRideAssign = (id: number, driverId: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/assign`, { method: 'POST', body: JSON.stringify({ driverId }) });
 export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
 

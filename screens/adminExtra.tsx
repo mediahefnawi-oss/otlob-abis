@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, Pressable, Text, Image } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast } from '../components/ui';
+import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog } from '../components/ui';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import {
   MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
   RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission,
   SvcKey, apiAdminSvcImage, apiAdminSvcSub, apiSvcMeta, svcImageUrl,
-  AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign,
+  AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
 } from '../lib/api';
 
+const askConfirm = (title: string, message: string, onConfirm: () => void) => confirmDialog({ title, message, confirmText: 'تأكيد', onConfirm });
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
 const PHOTO_AR = { car: 'العربية', license: 'رخصة المركبة', driver: 'رخصة القيادة', selfie: 'شخصية' };
 const num = (v: string) => Number(String(v).replace(/[^\d.\-]/g, ''));
@@ -129,6 +130,42 @@ function CommissionRow({ type }: { type: RideType }) {
   );
 }
 
+/** Owner: opens a captain account by hand (already approved, no photos needed). */
+function AddCaptainCard({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [types, setTypes] = useState<RideType[]>([]);
+  const [f, setF] = useState({ name: '', phone: '', password: '', model: '', color: '', plate: '' });
+  const [typeId, setTypeId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open && !types.length) apiAdminRideTypes().then((r) => { setTypes(r.types); if (r.types[0]) setTypeId(r.types[0].id); }).catch(() => {}); }, [open, types.length]);
+  const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
+  const save = async () => {
+    if (!typeId) return toast('اختر نوع المركبة', 'err');
+    setBusy(true);
+    try { await apiAdminCaptainAdd({ ...f, typeId }); toast('تم إضافة الكابتن'); setF({ name: '', phone: '', password: '', model: '', color: '', plate: '' }); setOpen(false); onDone(); }
+    catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }
+  };
+  if (!open) return <Btn title="إضافة حساب كابتن" icon="person-add" variant="soft" onPress={() => setOpen(true)} />;
+  return (
+    <Card style={{ gap: 8 }}>
+      <T w="black">إضافة حساب كابتن</T>
+      <Field label="الاسم بالكامل" value={f.name} onChangeText={set('name')} />
+      <Field label="رقم الهاتف (01xxxxxxxxx)" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" />
+      <Field label="كلمة المرور (8 أحرف على الأقل)" value={f.password} onChangeText={set('password')} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        {types.map((t) => <Chip key={t.id} label={t.name} active={typeId === t.id} onPress={() => setTypeId(t.id)} />)}
+      </ScrollView>
+      <Field label="موديل المركبة" value={f.model} onChangeText={set('model')} />
+      <Field label="اللون" value={f.color} onChangeText={set('color')} />
+      <Field label="رقم اللوحة" value={f.plate} onChangeText={set('plate')} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn title="حفظ" icon="checkmark" style={{ flex: 1 }} onPress={save} loading={busy} />
+        <Btn title="إلغاء" variant="soft" style={{ flex: 1 }} onPress={() => setOpen(false)} />
+      </View>
+    </Card>
+  );
+}
+
 function CaptainsTab() {
   const [list, setList] = useState<AdminCaptain[] | null>(null);
   const [open, setOpen] = useState<number | null>(null);
@@ -138,9 +175,10 @@ function CaptainsTab() {
   const run = async (fn: () => Promise<any>, ok?: string) => { try { await fn(); if (ok) toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
   const ST: Record<string, string> = { pending: 'تحت المراجعة', approved: 'مفعّل', rejected: 'مرفوض', suspended: 'موقوف', needs_photo: 'يحتاج صورة أوضح' };
   if (list === null) return <Empty title="جاري التحميل..." />;
-  if (!list.length) return <Empty title="لا يوجد كباتن بعد" />;
+  if (!list.length) return <><AddCaptainCard onDone={load} /><Empty title="لا يوجد كباتن بعد" /></>;
   return (
     <>
+      <AddCaptainCard onDone={load} />
       {list.map((c) => (
         <Card key={c.id} style={{ gap: 8 }}>
           <Pressable onPress={() => setOpen(open === c.id ? null : c.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -214,6 +252,12 @@ function RidesTab() {
         <Card key={r.id} style={{ gap: 6 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رحلة #{r.id} • {r.customer}</T><T size={12} color={C.sub}>{r.status}</T></View>
           <T size={12.5} color={C.sub}>{r.km} كم • {r.finalPrice ?? r.offered} ج • الكابتن: {r.driver || '—'}</T>
+          {['searching', 'assigned', 'arrived', 'started'].includes(r.status) && (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Btn title="إلغاء الرحلة" small variant="soft" style={{ flex: 1 }} onPress={() => askConfirm('إلغاء الرحلة', `إلغاء رحلة #${r.id}؟`, async () => { try { await apiAdminRideCancel(r.id); toast('تم الإلغاء'); load(); } catch (e) { toast(errText(e), 'err'); } })} />
+              {!!r.driver && r.status !== 'searching' && <Btn title="تأكيد الإنهاء" small style={{ flex: 1 }} onPress={() => askConfirm('تأكيد الإنهاء', `تأكيد إنهاء رحلة #${r.id}؟ هتتخصم عمولة الكابتن.`, async () => { try { const x = await apiAdminRideComplete(r.id); toast(`تم التأكيد — العمولة ${x.commission} ج`); load(); } catch (e) { toast(errText(e), 'err'); } })} />}
+            </View>
+          )}
           {['searching', 'assigned'].includes(r.status) && (
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
               <View style={{ flex: 1 }}><Field label="رقم الكابتن (من تبويب الكباتن)" value={driver[r.id] || ''} onChangeText={(v) => setDriver({ ...driver, [r.id]: v })} keyboardType="number-pad" /></View>
