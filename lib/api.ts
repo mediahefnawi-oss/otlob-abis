@@ -207,7 +207,7 @@ export async function apiDecideProvider(id: string | number, status: 'active' | 
 }
 
 /** Session, profile and owner-account endpoints (phase 1). */
-export type ServerUser = { baseRole?: string; premiumUntil?: number; id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; homeLat?: number; homeLng?: number; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean };
+export type ServerUser = { baseRole?: string; premiumUntil?: number; id: string; name: string; phone: string; phone2?: string; role: string; address: string; status: string; createdAt?: string; regionId?: string | null; homeLat?: number; homeLng?: number; vehicle?: string; available?: boolean; availableSince?: number; accountFlag?: string; flagNote?: string; supRegions?: string[]; supportChat?: boolean; manager?: boolean; mgrPerms?: string[] };
 
 export async function apiMe() {
   return apiRequest<{ user: ServerUser }>('/api/me');

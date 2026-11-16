@@ -36,6 +36,9 @@ export interface User {
   supRegions?: string[];
   // supervisor: the owner allowed him to work the support chat
   supportChat?: boolean;
+  // manager: an owner-created staff account that runs as admin inside these permissions (see backend/src/managers.js)
+  manager?: boolean;
+  mgrPerms?: string[];
   baseRole?: Role; // a shop owner using the app as a customer: role = 'customer', baseRole = 'provider'
 }
 

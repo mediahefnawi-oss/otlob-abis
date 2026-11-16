@@ -12,7 +12,7 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminPinProvider, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminPinProvider, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor, createManager, updateManager, deleteManager,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
 import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
@@ -89,11 +89,153 @@ function AppSwitch({ compact }: { compact?: boolean }) {
   );
 }
 
+/* ---------------- Managers: permissions ---------------- */
+export const MGR_GROUPS: { title: string; items: { k: string; l: string }[] }[] = [
+  { title: 'الطلبات والعملاء', items: [
+    { k: 'orders', l: 'متابعة الطلبات وتغيير حالتها' },
+    { k: 'users', l: 'إدارة المستخدمين (إيقاف/تفعيل) والتقييمات' },
+    { k: 'support', l: 'الدعم والشكاوى' },
+  ] },
+  { title: 'مقدمو الخدمة والمنتجات', items: [
+    { k: 'providers', l: 'قبول وإدارة المحلات والمنتجات والعروض' },
+    { k: 'couriers', l: 'إدارة المندوبين والكباتن' },
+  ] },
+  { title: 'المالية والإشعارات', items: [
+    { k: 'finance_view', l: 'عرض المالية والتقارير (قراءة فقط)' },
+    { k: 'finance_edit', l: 'التقفيل وتعديل العمولات والأرصدة' },
+    { k: 'notify', l: 'إرسال إشعارات للمستخدمين' },
+  ] },
+];
+const MGR_SHORT: Record<string, string> = { orders: 'الطلبات', users: 'المستخدمين', support: 'الدعم', providers: 'الخدمات', couriers: 'المناديب', finance_view: 'المالية (عرض)', finance_edit: 'المالية (كامل)', notify: 'الإشعارات' };
+/** what the signed-in account may open: the owner can do everything, a manager only what he was given */
+export function useCan() {
+  const me = useMe();
+  return (perm: string) => !!me && me.role === 'admin' && (!me.manager || (me.mgrPerms || []).includes(perm) || (perm === 'finance_view' && (me.mgrPerms || []).includes('finance_edit')));
+}
+export function AdminManagersScreen({ navigation }: any) {
+  const rc = useRC();
+  const { db } = useStore();
+  const list = db.users.filter((u) => u.manager);
+  const [sheet, setSheet] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pw, setPw] = useState('');
+  const [perms, setPerms] = useState<string[]>([]);
+  const [newPw, setNewPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const editing = editId ? list.find((u) => u.id === editId) : undefined;
+  const openNew = () => { setEditId(null); setName(''); setPhone(''); setPw(''); setPerms(['orders', 'support']); setSheet(true); };
+  const openEdit = (u: typeof list[number]) => { setEditId(u.id); setName(u.name); setPerms(u.mgrPerms || []); setNewPw(''); setSheet(true); };
+  const flip = (k: string) => setPerms((p) => {
+    const on = p.includes(k);
+    let n = on ? p.filter((x) => x !== k) : [...p, k];
+    if (k === 'finance_edit' && !on && !n.includes('finance_view')) n = [...n, 'finance_view'];
+    if (k === 'finance_view' && on) n = n.filter((x) => x !== 'finance_edit');
+    return n;
+  });
+  const save = async () => {
+    setBusy(true);
+    const r = editing ? await updateManager(editing.id, { name: name.trim(), perms }) : await createManager({ name: name.trim(), phone: phone.trim(), password: pw, perms });
+    setBusy(false);
+    if (!r.ok) return toast(r.error, 'err');
+    setSheet(false);
+    toast(editing ? 'تم حفظ الصلاحيات' : 'تم إضافة المدير ✅');
+  };
+  const savePw = async () => {
+    if (!editing) return;
+    setBusy(true);
+    const r = await adminResetPassword(editing.id, newPw);
+    setBusy(false);
+    if (!r.ok) return toast(r.error, 'err');
+    setNewPw('');
+    toast('تم تعيين كلمة المرور');
+  };
+  const toggle = async () => {
+    if (!editing) return;
+    const r = await setUserStatus(editing.id, editing.status === 'suspended' ? 'active' : 'suspended');
+    if (!r.ok) return toast(r.error, 'err');
+    toast(editing.status === 'suspended' ? 'تم تفعيل الحساب' : 'تم إيقاف الحساب');
+  };
+  const remove = () => editing && confirmDialog({ title: 'حذف المدير؟', message: 'سيتم إيقاف الحساب نهائياً ولن يستطيع الدخول.', danger: true, confirmText: 'حذف', onConfirm: async () => {
+    const r = await deleteManager(editing.id);
+    if (!r.ok) return toast(r.error, 'err');
+    setSheet(false);
+    toast('تم حذف المدير');
+  } } as any);
+  const summary = (u: typeof list[number]) => (u.mgrPerms || []).map((k) => MGR_SHORT[k]).filter(Boolean).join(' · ') || 'بدون صلاحيات';
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="المديرون" subtitle={`${list.length} حساب`} onBack={() => navigation.goBack()} />
+      <FlatList
+        data={list}
+        keyExtractor={(u) => u.id}
+        refreshControl={rc}
+        contentContainerStyle={{ padding: 16, gap: 12 }}
+        ListHeaderComponent={(
+          <View style={{ gap: 10 }}>
+            <Btn title="إضافة مدير جديد" icon="person-add" onPress={openNew} />
+            <Btn variant="outline" title="سجل نشاط المديرين" icon="time" onPress={() => navigation.navigate('AdminLog')} />
+          </View>
+        )}
+        ListEmptyComponent={<Empty icon="key" title="لا يوجد مديرون" text="أضف مديراً واختر له الصلاحيات اللي تناسبه" />}
+        renderItem={({ item, index }) => (
+          <Appear i={index}>
+            <Card onPress={() => openEdit(item)} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <IconBubble icon="key" color={C.goldDeep} bg={C.goldSoft} size={46} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <T w="bold" size={15}>{item.name}</T>
+                <T size={11.5} color={C.sub}>{item.phone}</T>
+                <T size={11.5} color={C.dark3}>{summary(item)}</T>
+              </View>
+              <AcctPill s={item.status} />
+            </Card>
+          </Appear>
+        )}
+      />
+      <Sheet visible={sheet} onClose={() => setSheet(false)} title={editing ? 'تعديل مدير' : 'مدير جديد'}>
+        <ScrollView style={{ maxHeight: 560 }} contentContainerStyle={{ gap: 12 }}>
+          <Field label="الاسم" icon="person" value={name} onChangeText={setName} />
+          {!editing && <Field label="رقم الموبايل (للدخول)" icon="call" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />}
+          {!editing && <Field label="كلمة المرور (8 أحرف على الأقل)" icon="key" value={pw} onChangeText={setPw} secureTextEntry autoCapitalize="none" />}
+          {MGR_GROUPS.map((g) => (
+            <View key={g.title} style={{ gap: 6 }}>
+              <T w="bold" size={13} color={C.green}>{g.title}</T>
+              <Card style={{ gap: 10 }}>
+                {g.items.map((it) => (
+                  <View key={it.k} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <T size={13} style={{ flex: 1 }}>{it.l}</T>
+                    <Toggle value={perms.includes(it.k)} onValueChange={() => flip(it.k)} />
+                  </View>
+                ))}
+              </Card>
+            </View>
+          ))}
+          <View style={{ backgroundColor: C.goldSoft, borderRadius: 14, padding: 12 }}>
+            <T size={11.5} color={C.dark3}>🔒 ممنوع على أي مدير دائماً: إضافة أو حذف مديرين أو مشرفين، تغيير كلمات السر، حذف البيانات، إعدادات التطبيق والسيرفر، والتراجع عن التغييرات.</T>
+          </View>
+          <Btn title="حفظ" icon="checkmark" loading={busy} disabled={name.trim().length < 3 || (!editing && (!/^01[0-9]{9}$/.test(phone.trim()) || pw.length < 8))} onPress={save} />
+          {editing && (
+            <>
+              <View style={{ height: 1, backgroundColor: C.line }} />
+              <Field label="كلمة مرور جديدة" icon="key" value={newPw} onChangeText={setNewPw} secureTextEntry autoCapitalize="none" />
+              <Btn variant="outline" title="تعيين كلمة المرور" disabled={busy || newPw.length < 8} onPress={savePw} />
+              <Btn variant={editing.status === 'suspended' ? 'green' : 'danger'} icon={editing.status === 'suspended' ? 'play' : 'ban'} title={editing.status === 'suspended' ? 'إعادة تفعيل' : 'إيقاف الحساب'} onPress={toggle} />
+              <Btn variant="ghost" icon="trash" title="حذف المدير" onPress={remove} />
+            </>
+          )}
+        </ScrollView>
+      </Sheet>
+    </View>
+  );
+}
+
 /* ---------------- Dashboard ---------------- */
 export function AdminDashboardScreen({ navigation, go }: any) {
   const rc = useRC();
   const { db } = useStore();
   const me = useMe()!;
+  const can = useCan();
   const supUnread = useSupportUnread(true);
   const orders = db.orders;
   const delivered = orders.filter((o) => o.status === 'delivered');
@@ -123,19 +265,20 @@ export function AdminDashboardScreen({ navigation, go }: any) {
   const todaySales = todayDone.reduce((sum, o) => sum + o.total, 0);
   const stuck = orders.filter((o) => inStaffQueue(o)).length;
   const shortcuts = [
-    { label: 'العملاء', route: 'AdminCustomers', icon: 'people', color: C.goldDeep, bg: C.goldSoft, badge: 0 },
-    { label: 'المناديب على الخريطة', route: 'CouriersMap', icon: 'map', color: C.orange, bg: C.orangeSoft, badge: 0 },
-    { label: 'شات الدعم', route: 'AdminSupport', icon: 'chatbubbles', color: C.goldDeep, bg: C.goldSoft, badge: supUnread },
-    { label: 'العروض والخصومات', route: 'AdminOffers', icon: 'pricetags', color: C.red, bg: C.redSoft, badge: 0 },
-    { label: 'أكواد الخصم', route: 'AdminCoupons', icon: 'ticket', color: C.green, bg: C.greenSoft, badge: 0 },
-    { label: 'منتجات ماركت', route: 'AdminMarket', icon: 'basket', color: C.green, bg: C.greenSoft, badge: 0 },
-    { label: 'إرسال إشعار للمستخدمين', route: 'AdminBroadcast', icon: 'notifications', color: C.orange, bg: C.orangeSoft, badge: 0 },
-    { label: 'التوصيلة والكباتن', route: 'AdminRides', icon: 'car', color: C.green, bg: C.greenSoft, badge: 0 },
-    { label: 'تشغيل الميزات', route: 'AdminFeatures', icon: 'options', color: C.green, bg: C.greenSoft, badge: 0 },
-    { label: 'سجل التغييرات', route: 'AdminLog', icon: 'time', color: C.goldDeep, bg: C.goldSoft, badge: 0 },
-    { label: 'التقييمات', route: 'AdminRatings', icon: 'star', color: C.goldDeep, bg: C.goldSoft, badge: 0 },
-    { label: 'المشرفون', route: 'AdminSupervisors', icon: 'shield-checkmark', color: C.green, bg: C.greenSoft, badge: 0 },
-  ];
+    { label: 'العملاء', route: 'AdminCustomers', icon: 'people', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'users' },
+    { label: 'المناديب على الخريطة', route: 'CouriersMap', icon: 'map', color: C.orange, bg: C.orangeSoft, badge: 0, perm: 'couriers' },
+    { label: 'شات الدعم', route: 'AdminSupport', icon: 'chatbubbles', color: C.goldDeep, bg: C.goldSoft, badge: supUnread, perm: 'support' },
+    { label: 'العروض والخصومات', route: 'AdminOffers', icon: 'pricetags', color: C.red, bg: C.redSoft, badge: 0, perm: 'providers' },
+    { label: 'أكواد الخصم', route: 'AdminCoupons', icon: 'ticket', color: C.green, bg: C.greenSoft, badge: 0, perm: 'providers' },
+    { label: 'منتجات ماركت', route: 'AdminMarket', icon: 'basket', color: C.green, bg: C.greenSoft, badge: 0, perm: 'providers' },
+    { label: 'إرسال إشعار للمستخدمين', route: 'AdminBroadcast', icon: 'notifications', color: C.orange, bg: C.orangeSoft, badge: 0, perm: 'notify' },
+    { label: 'التوصيلة والكباتن', route: 'AdminRides', icon: 'car', color: C.green, bg: C.greenSoft, badge: 0, perm: 'orders' },
+    { label: 'تشغيل الميزات', route: 'AdminFeatures', icon: 'options', color: C.green, bg: C.greenSoft, badge: 0, perm: 'owner' },
+    { label: 'سجل التغييرات', route: 'AdminLog', icon: 'time', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'any' },
+    { label: 'التقييمات', route: 'AdminRatings', icon: 'star', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'users' },
+    { label: 'المشرفون', route: 'AdminSupervisors', icon: 'shield-checkmark', color: C.green, bg: C.greenSoft, badge: 0, perm: 'owner' },
+    { label: 'المديرون', route: 'AdminManagers', icon: 'key', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'owner' },
+  ].filter((x) => (x.perm === 'any' ? true : x.perm === 'owner' ? !me.manager : can(x.perm)));
   const max = Math.max(1, ...bars.map((b) => b.n));
   const recent = [...orders].sort((a, b) => b.createdAt - a.createdAt).slice(0, 6);
 
@@ -143,7 +286,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="لوحة الإدارة" subtitle={`مرحباً ${me.name}`} />
       <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 30 }}>
-        <AppSwitch compact />
+        {!me.manager && <AppSwitch compact />}
 
         {(pendingProv.length > 0 || pendingCour.length > 0 || pendingCust.length > 0) && (
           <Appear>

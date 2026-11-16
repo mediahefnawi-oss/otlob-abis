@@ -6,7 +6,7 @@
 const AUD = ['all', 'customer', 'courier', 'provider', 'captain'];
 const AUD_AR = { all: 'الكل', customer: 'العملاء', courier: 'المناديب', provider: 'المحلات', captain: 'الكباتن' };
 const WHERE = {
-  all: "u.role <> 'admin'",
+  all: "u.role NOT IN ('admin','manager')",
   customer: "u.role = 'customer'",
   courier: "u.role = 'courier'",
   provider: "u.role = 'provider'",

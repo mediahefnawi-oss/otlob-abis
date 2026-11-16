@@ -482,7 +482,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS flag_note TEXT NOT NULL DEFAULT '';
 -- supervisors (owner-created staff): the role is allowed, and the areas they run are kept as "1,4,7"
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('customer','provider','courier','admin','supervisor'));
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('customer','provider','courier','admin','supervisor','manager'));
+-- managers (owner-created staff with chosen admin permissions): the permission keys are kept as "orders,users,support"
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mgr_perms TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS sup_regions TEXT NOT NULL DEFAULT '';
 -- delivery price from the shop's area to the customer's area (each direction has its own price)
 CREATE TABLE IF NOT EXISTS route_prices (

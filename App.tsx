@@ -34,7 +34,7 @@ import { OrderDetailScreen, ApptDetailScreen, InvoiceScreen, ChatScreen, Support
 import { ProviderOrdersScreen, ProviderCatalogScreen, ProviderInvoicesScreen, ProviderProfileScreen } from './screens/provider';
 import { CourierWorkScreen, CourierOrdersScreen, CourierProfileScreen } from './screens/courier';
 import {
-  AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen, AdminSupervisorsScreen, AdminSupportScreen, SupervisorOrdersScreen,
+  AdminDashboardScreen, AdminProvidersScreen, AdminCouriersScreen, AdminOrdersScreen, AdminDetailScreen, AdminSettingsScreen, AdminCustomersScreen, AdminCustomerScreen, AdminSupervisorsScreen, AdminManagersScreen, AdminSupportScreen, SupervisorOrdersScreen,
 } from './screens/admin';
 import { AdminFinanceScreen, CourierAccountsScreen } from './components/Finance';
 import { SupportInbox, useSupportUnread } from './components/SupportChat';
@@ -135,13 +135,17 @@ function Main({ navigation }: any) {
   } else {
     const pend = db.providers.filter((p) => p.status === 'pending').length;
     const pendC = db.users.filter((u) => u.role === 'courier' && u.status === 'pending').length;
+    const mp = me.manager ? me.mgrPerms || [] : null; // a manager sees only the tabs his permissions open
+    const has = (k: string) => !mp || mp.includes(k);
     tabs = [
       { key: 'dash', label: 'الرئيسية', icon: 'stats-chart', render: (go) => <AdminDashboardScreen navigation={navigation} go={go} /> },
-      { key: 'orders', label: 'الطلبات', icon: 'receipt', render: () => <AdminOrdersScreen navigation={navigation} /> },
-      { key: 'finance', label: 'المالية', icon: 'cash', render: () => <AdminFinanceScreen /> },
-      { key: 'providers', label: 'الخدمات', icon: 'storefront', badge: pend, render: () => <AdminProvidersScreen navigation={navigation} /> },
-      { key: 'couriers', label: 'المناديب', icon: 'bicycle', badge: pendC, render: () => <AdminCouriersScreen navigation={navigation} /> },
-      { key: 'settings', label: 'الإعدادات', icon: 'settings', render: () => <AdminSettingsScreen navigation={navigation} /> },
+      ...(has('orders') ? [{ key: 'orders', label: 'الطلبات', icon: 'receipt', render: () => <AdminOrdersScreen navigation={navigation} /> }] : []),
+      ...(has('finance_view') || has('finance_edit') ? [{ key: 'finance', label: 'المالية', icon: 'cash', render: () => <AdminFinanceScreen /> }] : []),
+      ...(has('providers') ? [{ key: 'providers', label: 'الخدمات', icon: 'storefront', badge: pend, render: () => <AdminProvidersScreen navigation={navigation} /> }] : []),
+      ...(has('couriers') ? [{ key: 'couriers', label: 'المناديب', icon: 'bicycle', badge: pendC, render: () => <AdminCouriersScreen navigation={navigation} /> }] : []),
+      mp
+        ? { key: 'profile', label: 'حسابي', icon: 'person', render: () => <ProfileScreen navigation={navigation} /> }
+        : { key: 'settings', label: 'الإعدادات', icon: 'settings', render: () => <AdminSettingsScreen navigation={navigation} /> },
     ];
   }
   return <TabHost tabs={tabs} />;
@@ -217,6 +221,7 @@ function Root() {
         <Stack.Screen name="AdminCustomers" component={AdminCustomersScreen} />
         <Stack.Screen name="AdminCustomer" component={AdminCustomerScreen} />
         <Stack.Screen name="AdminSupervisors" component={AdminSupervisorsScreen} />
+        <Stack.Screen name="AdminManagers" component={AdminManagersScreen} />
         <Stack.Screen name="AdminSupport" component={AdminSupportScreen} />
         <Stack.Screen name="CouriersMap" component={CouriersMapScreen} />
         <Stack.Screen name="AdminOffers" component={AdminOffersScreen} />

@@ -6,7 +6,7 @@ const jsonish = x => { if (typeof x !== 'string' || !/^[\[{].*[\]}]$/s.test(x)) 
 const norm = p => (p || []).map(x => (x instanceof Date ? x.toISOString() : jsonish(x)));
 class Pool {
   constructor() { this.sql = new SQL(url, { max: 10 }); }
-  async query(t, p) { return wrap(await this.sql.unsafe(t, norm(p))); }
+  async query(t, p) { try { return wrap(await this.sql.unsafe(t, norm(p))); } catch (e) { if (e && e.errno) e.code = e.errno; throw e; } } // node-pg exposes the SQLSTATE as .code
   async connect() { const c = await this.sql.reserve(); return { query: async (t, p) => wrap(await c.unsafe(t, norm(p))), release: () => c.release() }; }
   async end() { await this.sql.close(); }
 }

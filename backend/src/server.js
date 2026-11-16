@@ -106,7 +106,7 @@ async function maintenanceState(role) {
   return { enabled: false, message: hours.renderMessage(h, next), phase };
 }
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const cleanUser = row => ({ premiumUntil: row.premium_until ? new Date(row.premium_until).getTime() : 0, id: String(row.id), name: row.name, phone: row.phone, phone2: row.phone2 || '', role: row.role, address: row.address, ...(row.home_lat != null && row.home_lng != null ? { homeLat: Number(row.home_lat), homeLng: Number(row.home_lng) } : {}), status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supportChat: row.role === 'supervisor' ? !!row.support_chat : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
+const cleanUser = row => ({ premiumUntil: row.premium_until ? new Date(row.premium_until).getTime() : 0, id: String(row.id), name: row.name, phone: row.phone, phone2: row.phone2 || '', role: row.role === 'manager' ? 'admin' : row.role, ...(row.role === 'manager' ? { manager: true, mgrPerms: managersLib.parsePerms(row.mgr_perms) } : {}), address: row.address, ...(row.home_lat != null && row.home_lng != null ? { homeLat: Number(row.home_lat), homeLng: Number(row.home_lng) } : {}), status: row.status, createdAt: row.created_at, regionId: row.region_id ? String(row.region_id) : null, vehicle: row.vehicle || '', available: !!row.available, availableSince: row.available_since ? new Date(row.available_since).getTime() : undefined, supportChat: row.role === 'supervisor' ? !!row.support_chat : undefined, supRegions: row.role === 'supervisor' ? String(row.sup_regions || '').split(',').filter(Boolean) : undefined });
 const positiveId = value => {
   const n = Number(value);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
@@ -121,6 +121,7 @@ function backupPhone(v, mainPhone) {
 }
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 function tokenFor(user, as) { return jwt.sign({ sub: String(user.id), role: user.role, ...(as === 'customer' && (user.role === 'provider' || user.role === 'courier') ? { as: 'customer' } : {}) }, process.env.JWT_SECRET, { expiresIn: process.env.TOKEN_TTL || '30d', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' }); }
+const managersLib = require('./managers');
 async function authCore(req, res, next, allowInactive) {
   const h = req.headers.authorization || '';
   if (!h.startsWith('Bearer ')) return res.status(401).json({ error: 'يلزم تسجيل الدخول' });
@@ -135,7 +136,7 @@ async function authCore(req, res, next, allowInactive) {
     // changes must take effect immediately for every protected API request.
     let user = authMemo.get(String(claims.sub));
     if (!user) {
-      const result = await pool.query('SELECT id, role, status, deleted_at FROM users WHERE id=$1', [claims.sub]);
+      const result = await pool.query('SELECT id, role, status, deleted_at, mgr_perms FROM users WHERE id=$1', [claims.sub]);
       if (!result.rowCount || result.rows[0].deleted_at) return res.status(401).json({ error: 'الحساب غير موجود' });
       user = authMemo.set(String(claims.sub), result.rows[0]);
     }
@@ -143,6 +144,13 @@ async function authCore(req, res, next, allowInactive) {
     // a shop owner can use the app as a customer: the token carries as:'customer', honoured ONLY for a provider account (never admin / staff)
     const asCustomer = claims.as === 'customer' && (user.role === 'provider' || user.role === 'courier');
     req.auth = { ...claims, sub: String(user.id), role: asCustomer ? 'customer' : user.role, baseRole: user.role, status: user.status };
+    if (user.role === 'manager') {
+      // a manager runs as the admin, but only inside the permissions the owner gave him (see managers.js)
+      const perms = managersLib.parsePerms(user.mgr_perms);
+      req.auth = { ...req.auth, role: 'admin', baseRole: 'manager', mgrPerms: perms };
+      const denied = await managersLib.gate(pool, req.method, req.originalUrl, perms);
+      if (denied) return res.status(403).json({ error: denied });
+    }
     return next();
   } catch (err) { return next(err); }
 }
@@ -157,7 +165,7 @@ async function optionalAuth(req, _res, next) {
     const claims = jwt.verify(h.slice(7), process.env.JWT_SECRET, { issuer: 'otlob-abis-api', audience: 'otlob-abis-app' });
     let row = authMemo.get(String(claims.sub));
     if (!row) { const r = await pool.query('SELECT id, role, status FROM users WHERE id=$1', [claims.sub]); if (r.rowCount) row = authMemo.set(String(claims.sub), r.rows[0]); }
-    if (row) req.viewer = { id: String(row.id), role: row.role, status: row.status };
+    if (row) req.viewer = { id: String(row.id), role: row.role === 'manager' ? 'admin' : row.role, status: row.status };
   } catch {}
   next();
 }
@@ -178,7 +186,7 @@ const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
-const SCHEMA_VERSION = 20261223;
+const SCHEMA_VERSION = 20261224;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -366,7 +374,7 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
   loginOk(lkey);
   const user = result.rows[0];
   if (user.status === 'suspended' || user.status === 'rejected') return res.status(403).json({ error: 'الحساب غير مفعّل. تواصل مع الدعم' });
-  if (user.role !== 'admin') {
+  if (user.role !== 'admin' && user.role !== 'manager') {
     const mt = await maintenanceState(user.role);
     if (!mt.enabled) return res.status(503).json({ error: mt.message });
   }
@@ -1128,6 +1136,7 @@ require('./premium').register(app, { pool, auth, roles, asyncRoute, clearCaches:
 require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });
 require('./rides').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 require('./rides2').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers, hashPassword: (p) => bcrypt.hash(p, 12) });
+managersLib.register(app, { pool, auth, roles, asyncRoute, positiveId, hashPassword: p => bcrypt.hash(p, 12), clearAuth: () => authMemo.clear(), freePhone, cleanUser });
 require('./broadcast').register(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./group').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });
 require('./market').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });

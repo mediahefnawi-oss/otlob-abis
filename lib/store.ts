@@ -163,6 +163,7 @@ const fromServer = (s: ServerUser, old?: User): User => ({
   flagNote: s.flagNote || '',
   supRegions: s.supRegions,
   supportChat: !!s.supportChat,
+  ...(s.manager ? { manager: true, mgrPerms: s.mgrPerms || [] } : {}),
   createdAt: s.createdAt ? Date.parse(s.createdAt) || Date.now() : old?.createdAt ?? Date.now(),
 });
 
@@ -171,7 +172,7 @@ function mirrorUser(s: ServerUser) {
   const next = fromServer(s, old);
   const same = old && (old.premiumUntil || 0) === (next.premiumUntil || 0) && old.name === next.name && old.phone === next.phone && (old.phone2 || '') === (next.phone2 || '') && old.role === next.role && old.baseRole === next.baseRole
     && old.address === next.address && old.status === next.status && (old.regionId ?? null) === (next.regionId ?? null)
-    && old.available === next.available && old.vehicle === next.vehicle && (old.accountFlag || '') === (next.accountFlag || '') && (old.flagNote || '') === (next.flagNote || '') && !!old.supportChat === !!next.supportChat;
+    && old.available === next.available && old.vehicle === next.vehicle && (old.accountFlag || '') === (next.accountFlag || '') && (old.flagNote || '') === (next.flagNote || '') && !!old.supportChat === !!next.supportChat && !!old.manager === !!next.manager && (old.mgrPerms || []).join() === (next.mgrPerms || []).join();
   if (same) return;
   mutate((db) => {
     db.users = old ? db.users.map((u) => (u.id === s.id ? next : u)) : [...db.users, next];
@@ -888,6 +889,29 @@ export async function placeGroupOrder(me: User, info: { lines: { productId: stri
   } finally {
     pendingWrites--;
   }
+}
+
+/* ---------- managers (owner-created staff with a chosen set of admin permissions) ---------- */
+export async function createManager(i: { name: string; phone: string; password: string; perms: string[] }): Promise<Result> {
+  try {
+    const r = await apiJson<{ user: ServerUser }>('/api/admin/managers', 'POST', i);
+    mutate((db) => { db.users = [...db.users.filter((u) => u.id !== r.user.id), fromServer(r.user)]; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function updateManager(id: string, patch: { name?: string; perms?: string[] }): Promise<Result> {
+  try {
+    const r = await apiJson<{ user: ServerUser }>(`/api/admin/managers/${encodeURIComponent(id)}`, 'PATCH', patch);
+    mutate((db) => { db.users = db.users.map((u) => (u.id === id ? fromServer(r.user, u) : u)); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+export async function deleteManager(id: string): Promise<Result> {
+  try {
+    await apiJson(`/api/admin/managers/${encodeURIComponent(id)}`, 'DELETE');
+    mutate((db) => { db.users = db.users.filter((u) => u.id !== id); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 
 /* ---------- supervisors (owner-created staff who run the orders of their areas) ---------- */
