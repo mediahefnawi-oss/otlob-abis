@@ -844,7 +844,7 @@ export async function placeCustomOrder(me: User, info: { text: string; phone: st
 }
 
 /** "طلبات ماركت": the owner's product list, straight to the couriers. */
-export async function placeMarketOrder(me: User, info: { lines: { productId: string; qty: number }[]; phone: string; address: string; notes?: string }): Promise<Result<{ orderId: string }>> {
+export async function placeMarketOrder(me: User, info: { lines: { productId: string; qty: number; size?: string }[]; phone: string; address: string; notes?: string }): Promise<Result<{ orderId: string }>> {
   { const g = guestStop(); if (g) return g as any; }
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (!info.lines.length) return { ok: false, error: 'السلة فارغة' };

@@ -16,6 +16,55 @@ const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مر�
 const PHOTO_AR = { car: 'العربية', license: 'رخصة المركبة', driver: 'رخصة القيادة', selfie: 'شخصية' };
 const num = (v: string) => Number(String(v).replace(/[^\d.\-]/g, ''));
 
+/* sizes / weights of a product ("ربع كيلو"، "نص لتر"...): the presets are one tap, any other name can be typed */
+type SizeRow = { label: string; price: string };
+const SIZE_PRESETS = ['ربع كيلو', 'نص كيلو', 'كيلو', 'ربع لتر', 'نص لتر', 'لتر', 'قطعة', 'علبة', 'دستة', 'كرتونة'];
+const toRows = (z?: { label: string; price: number | null }[]): SizeRow[] => (z || []).map((x) => ({ label: x.label, price: x.price == null ? '' : String(x.price) }));
+const fromRows = (r: SizeRow[]) => r.map((x) => ({ label: x.label.trim(), price: x.price.trim() === '' ? null : num(x.price) }));
+function SizesEditor({ rows, onChange }: { rows: SizeRow[]; onChange: (r: SizeRow[]) => void }) {
+  const [custom, setCustom] = useState('');
+  const has = (l: string) => rows.some((x) => x.label === l);
+  const toggle = (l: string) => onChange(has(l) ? rows.filter((x) => x.label !== l) : [...rows, { label: l, price: '' }]);
+  const addCustom = () => { const l = custom.trim(); if (!l || has(l)) return; onChange([...rows, { label: l, price: '' }]); setCustom(''); };
+  return (
+    <View style={{ gap: 8 }}>
+      <T w="bold" size={13}>اختار الأحجام (أو اكتب حجم من عندك)</T>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{[...SIZE_PRESETS, ...rows.map((x) => x.label).filter((l) => !SIZE_PRESETS.includes(l))].map((l) => <Chip key={l} label={l} active={has(l)} onPress={() => toggle(l)} />)}</View>
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+        <View style={{ flex: 1 }}><Field label="حجم آخر (مثال: 3 كيلو، شوال)" value={custom} onChangeText={setCustom} /></View>
+        <Btn title="إضافة" small variant="soft" onPress={addCustom} />
+      </View>
+      {rows.length > 0 && <T w="bold" size={13}>سعر كل حجم (فاضي = المندوب يسعّره)</T>}
+      {rows.map((r, i) => (
+        <View key={r.label} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+          <View style={{ flex: 1 }}><T w="bold" size={13}>{r.label}</T></View>
+          <View style={{ width: 110 }}><Field label="السعر (ج)" value={r.price} onChangeText={(v) => onChange(rows.map((x, j) => (j === i ? { ...x, price: v } : x)))} keyboardType="number-pad" /></View>
+          <Pressable onPress={() => onChange(rows.filter((_, j) => j !== i))} hitSlop={8} style={{ paddingBottom: 14 }}><Icon name="trash-outline" size={20} color={C.red} /></Pressable>
+        </View>
+      ))}
+    </View>
+  );
+}
+/** Owner: the details text and the sizes of an existing product. */
+function DetailsEditor({ p, onSave }: { p: MarketProduct; onSave: (b: { description: string; sizes: { label: string; price: number | null }[] }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [desc, setDesc] = useState(p.description || '');
+  const [sized, setSized] = useState(!!p.sizes?.length);
+  const [rows, setRows] = useState<SizeRow[]>(toRows(p.sizes));
+  if (!open) return <Btn title={p.sizes?.length ? `الأحجام والتفاصيل (${p.sizes.length})` : 'الأحجام والتفاصيل'} icon="options" small variant="soft" onPress={() => setOpen(true)} />;
+  return (
+    <View style={{ gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+      <Field label="تفاصيل المنتج (تظهر للعميل لما يفتحه)" value={desc} onChangeText={setDesc} multiline />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Chip label="سعر واحد" active={!sized} onPress={() => setSized(false)} />
+        <Chip label="بأحجام / أوزان" active={sized} onPress={() => setSized(true)} />
+      </View>
+      {sized && <SizesEditor rows={rows} onChange={setRows} />}
+      <Btn title="حفظ" icon="checkmark" small onPress={() => { if (sized && !rows.length) return toast('اختار حجم واحد على الأقل', 'err'); onSave({ description: desc.trim(), sizes: sized ? fromRows(rows) : [] }); setOpen(false); }} />
+    </View>
+  );
+}
+
 /* ---------------- market products ---------------- */
 /** Owner: a discount on one product (percent, optional hours until it ends, optional button text of its own). */
 function DiscountEditor({ p, onSave }: { p: MarketProduct; onSave: (b: { discountPct: number | null; offerUntil: string | null; offerText: string }) => void }) {
@@ -61,10 +110,17 @@ function OfferTextCard() {
 export function AdminMarketScreen({ navigation }: any) {
   const [list, setList] = useState<MarketProduct[] | null>(null);
   const [name, setName] = useState(''); const [price, setPrice] = useState(''); const [cat, setCat] = useState(''); const [emoji, setEmoji] = useState('');
+  const [desc, setDesc] = useState(''); const [sized, setSized] = useState(false); const [rows, setRows] = useState<SizeRow[]>([]);
   const load = useCallback(async () => { try { setList((await apiAdminMarketList()).products); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
   useEffect(() => { load(); }, [load]);
   const run = async (fn: () => Promise<any>, ok?: string) => { try { await fn(); if (ok) toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
-  const add = () => run(async () => { await apiAdminMarketAdd({ name, price: price.trim() === '' ? null : num(price), category: cat, emoji: emoji || '🛒' }); setName(''); setPrice(''); }, 'تمت الإضافة');
+  const add = () => {
+    if (sized && !rows.length) return toast('اختار حجم واحد على الأقل', 'err');
+    return run(async () => {
+      await apiAdminMarketAdd({ name, price: sized || price.trim() === '' ? null : num(price), category: cat, emoji: emoji || '🛒', ...(desc.trim() ? { description: desc.trim() } : {}), ...(sized ? { sizes: fromRows(rows) } : {}) });
+      setName(''); setPrice(''); setDesc(''); setRows([]); setSized(false);
+    }, 'تمت الإضافة');
+  };
   const pic = (id: number) => run(async () => { const img = await pickImage(); if (img) await apiAdminMarketImage(id, img); }, 'تم رفع الصورة');
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -80,7 +136,13 @@ export function AdminMarketScreen({ navigation }: any) {
         <Card style={{ gap: 8 }}>
           <T w="black">إضافة منتج</T>
           <Field label="الاسم" value={name} onChangeText={setName} />
-          <Field label="السعر (ج) — سيبه فاضي لو المندوب هو اللي يسعّره" value={price} onChangeText={setPrice} keyboardType="number-pad" />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Chip label="سعر واحد" active={!sized} onPress={() => setSized(false)} />
+            <Chip label="بأحجام / أوزان" active={sized} onPress={() => setSized(true)} />
+          </View>
+          {!sized && <Field label="السعر (ج) — سيبه فاضي لو المندوب هو اللي يسعّره" value={price} onChangeText={setPrice} keyboardType="number-pad" />}
+          {sized && <SizesEditor rows={rows} onChange={setRows} />}
+          <Field label="تفاصيل المنتج (اختياري — تظهر للعميل لما يفتح المنتج)" value={desc} onChangeText={setDesc} multiline />
           <Field label="القسم (مثال: ألبان)" value={cat} onChangeText={setCat} />
           <Field label="إيموجي (اختياري)" value={emoji} onChangeText={setEmoji} />
           <Btn title="أضف" icon="add-circle" onPress={add} />
@@ -91,16 +153,17 @@ export function AdminMarketScreen({ navigation }: any) {
               <View style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: '#EEF3EE', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                 {p.image ? <Image source={{ uri: marketImageUrl(p) }} style={{ width: 52, height: 52 }} /> : <Text style={{ fontSize: 26 }}>{p.emoji}</Text>}
               </View>
-              <View style={{ flex: 1 }}><T w="black">{p.name}</T><T size={12} color={C.sub}>{p.category || 'بدون قسم'} • {p.price == null ? 'بدون سعر (المندوب يسعّره)' : `${p.price} ج`}</T></View>
+              <View style={{ flex: 1 }}><T w="black">{p.name}</T><T size={12} color={C.sub}>{p.category || 'بدون قسم'} • {p.sizes?.length ? `${p.sizes.length} أحجام: ${p.sizes.map((z) => z.label).join('، ')}` : p.price == null ? 'بدون سعر (المندوب يسعّره)' : `${p.price} ج`}</T></View>
               <Chip label={p.available ? 'متاح' : 'موقوف'} active={p.available} onPress={() => run(() => apiAdminMarketEdit(p.id, { available: !p.available }))} />
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Btn title="صورة" small variant="soft" style={{ flex: 1 }} onPress={() => pic(p.id)} />
-              <Btn title="سعر +5" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: (p.price ?? 0) + 5 }))} />
-              <Btn title="سعر -5" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: Math.max(0, (p.price ?? 0) - 5) }))} />
-              <Btn title={p.price == null ? 'له سعر' : 'بدون سعر'} small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: p.price == null ? 10 : null }))} />
+              {!p.sizes?.length && <Btn title="سعر +5" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: (p.price ?? 0) + 5 }))} />}
+              {!p.sizes?.length && <Btn title="سعر -5" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: Math.max(0, (p.price ?? 0) - 5) }))} />}
+              {!p.sizes?.length && <Btn title={p.price == null ? 'له سعر' : 'بدون سعر'} small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: p.price == null ? 10 : null }))} />}
               <Btn title="حذف" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketDelete(p.id), 'تم الحذف')} />
             </View>
+            <DetailsEditor key={`d-${p.id}-${p.sizes?.length}-${p.description}`} p={p} onSave={(b) => run(() => apiAdminMarketEdit(p.id, b), 'تم حفظ التفاصيل')} />
             <DiscountEditor key={`${p.id}-${p.discountPct}-${p.offerUntil}`} p={p} onSave={(b) => run(() => apiAdminMarketEdit(p.id, b), 'تم حفظ العرض')} />
           </Card>
         ))}

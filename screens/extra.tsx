@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, ScrollView, Pressable, Text, Linking, Platform, Image, KeyboardAvoidingView, useWindowDimensions } from 'react-native';
 import { C, shadow } from '../lib/theme';
-import { T, Icon, Card, Btn, Empty, Header, Field, Chip, Stepper, toast } from '../components/ui';
+import { T, Icon, Card, Btn, Empty, Header, Field, Chip, Stepper, Sheet, toast } from '../components/ui';
 import { DeliveryPin } from '../components/Location';
 import { AddressPicker } from '../components/AddressBook';
 import { useStore, useMe, placeMarketOrder, placeGroupOrder } from '../lib/store';
@@ -206,7 +206,10 @@ export function MarketOffersRow({ navigation }: { navigation: any }) {
 }
 
 /** the market basket survives leaving the screen (and closing the app): kept per account until the order is sent */
-const marketBasket: { [uid: string]: { [id: number]: number } } = {};
+const marketBasket: { [uid: string]: { [key: string]: number } } = {};
+/** a basket line is a product, or a product + one of its sizes: "12" or "12|نص كيلو" */
+const lineKey = (id: number, size?: string) => (size ? `${id}|${size}` : String(id));
+const splitKey = (k: string) => { const i = k.indexOf('|'); return i < 0 ? { id: Number(k), size: '' } : { id: Number(k.slice(0, i)), size: k.slice(i + 1) }; };
 const basketKey = (uid: string) => `market_basket_v1:${uid}`;
 export function MarketScreen({ navigation, route }: any) {
   const me = useMe()!;
@@ -214,7 +217,8 @@ export function MarketScreen({ navigation, route }: any) {
   const [items, setItems] = useState<MarketProduct[]>([]);
   const [state, setState] = useState<'load' | 'ok' | 'err'>('load');
   const [cat, setCat] = useState('الكل');
-  const [qty, setQty] = useState<{ [id: number]: number }>(() => ({ ...(marketBasket[me.id] || {}) }));
+  const [qty, setQty] = useState<{ [key: string]: number }>(() => ({ ...(marketBasket[me.id] || {}) }));
+  const [open, setOpen] = useState<MarketProduct | null>(null); // the product whose details / sizes are showing
   const [phone, setPhone] = useState(me.phone);
   const [address, setAddress] = useState(me.address);
   const [busy, setBusy] = useState(false);
@@ -227,25 +231,27 @@ export function MarketScreen({ navigation, route }: any) {
       setItems(r.products); setState('ok'); if (r.offerText) setOfferText(r.offerText);
       // the saved basket comes back (without products that are gone or no longer available)
       storage.getItem(basketKey(me.id)).then((raw) => {
-        let saved: { [id: number]: number } = {};
+        let saved: { [key: string]: number } = {};
         try { saved = raw ? JSON.parse(raw) : {}; } catch { saved = {}; }
-        const ok = (id: number) => r.products.some((x) => x.id === id && x.available);
+        // a line stays only while its product is available (and, for a sized one, that size still exists)
+        const ok = (k: string) => { const { id, size } = splitKey(k); const p = r.products.find((x) => x.id === id && x.available); return !!p && (size ? !!p.sizes?.some((z) => z.label === size) : !p.sizes?.length); };
         setQty((cur) => {
-          const next: { [id: number]: number } = {};
-          for (const k of Object.keys({ ...saved, ...cur })) { const id = Number(k); const n = Number(cur[id] ?? saved[id]); if (ok(id) && n > 0) next[id] = Math.min(50, n); }
+          const next: { [key: string]: number } = {};
+          for (const k of Object.keys({ ...saved, ...cur })) { const n = Number(cur[k] ?? saved[k]); if (ok(k) && n > 0) next[k] = Math.min(50, n); }
           return next;
         });
         setSynced(true);
       }).catch(() => setSynced(true));
       const add = Number(route?.params?.addId);   // "وفّر واطلب" on the home: open with that product already in the cart
-      if (add && r.products.some((x) => x.id === add && x.available)) setQty((q) => ({ ...q, [add]: q[add] || 1 }));
+      const addP = add ? r.products.find((x) => x.id === add && x.available) : undefined;
+      if (addP) { if (addP.sizes?.length) setOpen(addP); else setQty((q) => ({ ...q, [String(add)]: q[String(add)] || 1 })); }
       if (route?.params?.offers) setCat(OFFERS);
     }).catch(() => setState('err'));
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!synced) return;
-    const clean: { [id: number]: number } = {};
-    for (const k of Object.keys(qty)) if (qty[Number(k)] > 0) clean[Number(k)] = qty[Number(k)];
+    const clean: { [key: string]: number } = {};
+    for (const k of Object.keys(qty)) if (qty[k] > 0) clean[k] = qty[k];
     marketBasket[me.id] = clean;
     storage.setItem(basketKey(me.id), JSON.stringify(clean)).catch(() => {});
   }, [qty, me.id, synced]);
@@ -253,16 +259,23 @@ export function MarketScreen({ navigation, route }: any) {
   const cats: string[] = ['الكل', ...(hasOffers ? [OFFERS] : []), ...(Array.from(new Set(items.map((x) => x.category).filter(Boolean))) as string[])];
   const shown = items.filter((x) => cat === 'الكل' || (cat === OFFERS ? !!x.onOffer : x.category === cat));
   const eff = (x?: MarketProduct) => (x ? (x.salePrice ?? x.price) : null);
-  const lines: { productId: string; qty: number }[] = Object.keys(qty).map((id) => ({ productId: id, qty: Number(qty[Number(id)]) })).filter((l) => l.qty > 0);
-  const priced = (l: { productId: string; qty: number }) => eff(items.find((x) => String(x.id) === l.productId));
+  const lines: { productId: string; qty: number; size?: string; key: string }[] = Object.keys(qty).map((k) => ({ key: k, productId: String(splitKey(k).id), size: splitKey(k).size || undefined, qty: Number(qty[k]) })).filter((l) => l.qty > 0);
+  const priced = (l: { productId: string; size?: string }) => {
+    const p = items.find((x) => String(x.id) === l.productId);
+    if (!p) return null;
+    if (l.size) { const z = p.sizes?.find((x) => x.label === l.size); return z ? (z.salePrice ?? z.price) : null; }
+    return eff(p);
+  };
   const subtotal = lines.reduce((s, l) => s + (priced(l) || 0) * l.qty, 0);
   const unpriced = lines.filter((l) => priced(l) == null).length;
   const count = lines.reduce((s, l) => s + l.qty, 0);
-  const set = (id: number, d: number) => setQty((q) => ({ ...q, [id]: Math.max(0, Math.min(50, (q[id] || 0) + d)) }));
+  const set = (key: string, d: number) => setQty((q) => ({ ...q, [key]: Math.max(0, Math.min(50, (q[key] || 0) + d)) }));
+  const inBasket = (p: MarketProduct) => lines.filter((l) => l.productId === String(p.id)).reduce((s, l) => s + l.qty, 0);
+  const priceText = (p: MarketProduct) => (p.sizes?.length ? (eff(p) == null ? 'سعر المندوب' : `من ${eff(p)} ج`) : p.price == null ? 'سعر المندوب' : `${eff(p)} ج`);
   const tile = Math.floor((width - 16 * 2 - 8 * 2) / 3);
   const send = async () => {
     setBusy(true);
-    const r = await placeMarketOrder(me, { lines, phone, address });
+    const r = await placeMarketOrder(me, { lines: lines.map((l) => ({ productId: l.productId, qty: l.qty, ...(l.size ? { size: l.size } : {}) })), phone, address });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
     marketBasket[me.id] = {}; storage.setItem(basketKey(me.id), '{}').catch(() => {});
@@ -278,13 +291,13 @@ export function MarketScreen({ navigation, route }: any) {
             <Card style={{ gap: 10 }}>
               <T w="black" size={15}>سلتك</T>
               <T size={11.5} color={C.sub}>زوّد أو قلّل الكمية، أو احذف المنتج، قبل ما تبعت الطلب</T>
-              {lines.map((l) => { const p = items.find((x) => String(x.id) === l.productId); return p ? (
-                <View key={l.productId} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              {lines.map((l) => { const p = items.find((x) => String(x.id) === l.productId); const pr = priced(l); return p ? (
+                <View key={l.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <View style={{ flex: 1 }}>
-                    <T w="bold" size={13.5} numberOfLines={2}>{p.name}</T>
-                    <T size={12} w="bold" color={eff(p) == null ? C.goldDeep : C.sub}>{eff(p) == null ? 'المندوب يسعّره' : `${(eff(p) || 0) * l.qty} ج`}</T>
+                    <T w="bold" size={13.5} numberOfLines={2}>{l.size ? `${p.name} — ${l.size}` : p.name}</T>
+                    <T size={12} w="bold" color={pr == null ? C.goldDeep : C.sub}>{pr == null ? 'المندوب يسعّره' : `${pr * l.qty} ج`}</T>
                   </View>
-                  <Stepper qty={l.qty} onAdd={() => set(p.id, 1)} onSub={() => { if (l.qty === 1 && lines.length === 1) setCheckout(false); set(p.id, -1); }} />
+                  <Stepper qty={l.qty} onAdd={() => set(l.key, 1)} onSub={() => { if (l.qty === 1 && lines.length === 1) setCheckout(false); set(l.key, -1); }} />
                 </View>
               ) : null; })}
               <View style={{ height: 1, backgroundColor: C.line }} />
@@ -312,30 +325,31 @@ export function MarketScreen({ navigation, route }: any) {
             </ScrollView>
             {shown.length === 0 && <Empty title="لا توجد منتجات" />}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {shown.map((p) => { const q = qty[p.id] || 0; return (
-                <View key={p.id} style={[{ width: tile, backgroundColor: '#fff', borderRadius: 16, padding: 6, gap: 3, borderWidth: q > 0 ? 1.5 : 0, borderColor: C.green }, shadow]}>
+              {shown.map((p) => { const q = inBasket(p); const sized = !!p.sizes?.length; return (
+                <Pressable key={p.id} onPress={() => setOpen(p)} style={[{ width: tile, backgroundColor: '#fff', borderRadius: 16, padding: 6, gap: 3, borderWidth: q > 0 ? 1.5 : 0, borderColor: C.green }, shadow]}>
                   <View style={{ width: '100%', aspectRatio: 1.15, borderRadius: 12, backgroundColor: '#F1F5F1', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                     {p.image ? <Image source={{ uri: marketImageUrl(p) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Text style={{ fontSize: 34 }}>{p.emoji}</Text>}
                     {p.onOffer && <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: '#E5322D', borderRadius: 7, paddingHorizontal: 5 }}><T size={9.5} w="black" color="#fff">-{p.discountPct}%</T></View>}
-                    {p.price == null && <View style={{ position: 'absolute', top: 4, right: 4, backgroundColor: C.goldSoft, borderRadius: 7, paddingHorizontal: 5 }}><T size={9} w="bold" color={C.goldDeep}>بدون سعر</T></View>}
+                    {p.price == null && !sized && <View style={{ position: 'absolute', top: 4, right: 4, backgroundColor: C.goldSoft, borderRadius: 7, paddingHorizontal: 5 }}><T size={9} w="bold" color={C.goldDeep}>بدون سعر</T></View>}
                   </View>
                   <T w="bold" size={12} numberOfLines={2} style={{ minHeight: 30 }}>{p.name}</T>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <View style={{ flex: 1 }}>
-                      <T size={12} w="black" color={p.price == null ? C.goldDeep : p.onOffer ? '#C4251F' : C.green} numberOfLines={1}>{p.price == null ? 'سعر المندوب' : `${eff(p)} ج`}</T>
-                      {p.onOffer && <T size={10} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{p.price} ج</T>}
+                      <T size={12} w="black" color={eff(p) == null ? C.goldDeep : p.onOffer ? '#C4251F' : C.green} numberOfLines={1}>{priceText(p)}</T>
+                      {p.onOffer && !sized && <T size={10} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{p.price} ج</T>}
+                      {sized && <T size={10} color={C.sub} numberOfLines={1}>{p.sizes!.length} أحجام</T>}
                     </View>
-                    {q === 0 && <Pressable onPress={() => set(p.id, 1)} hitSlop={6} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.green, alignItems: 'center', justifyContent: 'center' }}><Icon name="add" size={18} color="#fff" /></Pressable>}
+                    {!sized && q === 0 && <Pressable onPress={() => set(lineKey(p.id), 1)} hitSlop={6} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.green, alignItems: 'center', justifyContent: 'center' }}><Icon name="add" size={18} color="#fff" /></Pressable>}
                   </View>
-                  {p.onOffer && q === 0 && <Pressable onPress={() => set(p.id, 1)}><View style={{ backgroundColor: C.green, borderRadius: 9, paddingVertical: 3 }}><T size={10.5} w="black" color="#fff" align="center" numberOfLines={1}>{p.offerText || offerText}</T></View></Pressable>}
-                  {q > 0 && (
+                  {!sized && q > 0 && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#E6F3EA', borderRadius: 10, paddingHorizontal: 4, height: 28 }}>
-                      <Pressable onPress={() => set(p.id, 1)} hitSlop={6}><Icon name="add-circle" size={22} color={C.green} /></Pressable>
+                      <Pressable onPress={() => set(lineKey(p.id), 1)} hitSlop={6}><Icon name="add-circle" size={22} color={C.green} /></Pressable>
                       <T w="black" size={13}>{q}</T>
-                      <Pressable onPress={() => set(p.id, -1)} hitSlop={6}><Icon name={q === 1 ? 'trash-outline' : 'remove-circle'} size={22} color={q === 1 ? C.red : C.green} /></Pressable>
+                      <Pressable onPress={() => set(lineKey(p.id), -1)} hitSlop={6}><Icon name={q === 1 ? 'trash-outline' : 'remove-circle'} size={22} color={q === 1 ? C.red : C.green} /></Pressable>
                     </View>
                   )}
-                </View>
+                  {sized && <View style={{ backgroundColor: q > 0 ? '#E6F3EA' : C.green, borderRadius: 10, height: 28, alignItems: 'center', justifyContent: 'center' }}><T size={11.5} w="black" color={q > 0 ? C.green : '#fff'}>{q > 0 ? `في السلة: ${q}` : 'اختار الحجم'}</T></View>}
+                </Pressable>
               ); })}
             </View>
           </ScrollView>
@@ -349,6 +363,28 @@ export function MarketScreen({ navigation, route }: any) {
           )}
         </>
       )}
+      <Sheet visible={!!open} onClose={() => setOpen(null)} title={open ? `${open.emoji} ${open.name}` : ''}>
+        {open && (
+          <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ gap: 12 }}>
+            {open.image && <Image source={{ uri: marketImageUrl(open) }} style={{ width: '100%', height: 170, borderRadius: 14 }} resizeMode="cover" />}
+            {!!open.description && <T size={13} color={C.dark3}>{open.description}</T>}
+            {open.onOffer && <T size={12} w="black" color="#C4251F">🔥 عرض خصم {open.discountPct}%{open.offerUntil ? ` لحد ${new Date(open.offerUntil).toLocaleDateString('ar-EG')}` : ''}</T>}
+            {(open.sizes?.length ? open.sizes.map((z) => ({ label: z.label, price: z.salePrice ?? z.price, was: z.salePrice != null && z.price != null && z.salePrice !== z.price ? z.price : null })) : [{ label: '', price: eff(open), was: open.onOffer ? open.price : null }]).map((z) => {
+              const key = lineKey(open.id, z.label); const n = qty[key] || 0;
+              return (
+                <View key={key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    {!!z.label && <T w="bold" size={14}>{z.label}</T>}
+                    <T size={12.5} w="bold" color={z.price == null ? C.goldDeep : C.green}>{z.price == null ? 'المندوب يسعّره' : `${z.price} ج`}{z.was != null ? <T size={11} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{`  ${z.was} ج`}</T> : null}</T>
+                  </View>
+                  <Stepper qty={n} onAdd={() => set(key, 1)} onSub={() => set(key, -1)} />
+                </View>
+              );
+            })}
+            <Btn title={count > 0 ? `تمام — السلة ${count} منتجات` : 'إغلاق'} icon="checkmark" onPress={() => setOpen(null)} />
+          </ScrollView>
+        )}
+      </Sheet>
     </View>
   );
 }

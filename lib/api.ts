@@ -516,15 +516,16 @@ export const apiGroupRemove = (code: string, itemId: number) => apiRequest<{ car
 export const apiGroupDone = (code: string) => apiRequest<{ ok: boolean }>(`/api/group-carts/${encodeURIComponent(code)}/done`, { method: 'POST' });
 export const apiGroupCancel = (code: string) => apiRequest<{ ok: boolean }>(`/api/group-carts/${encodeURIComponent(code)}/cancel`, { method: 'POST' });
 
-export type MarketProduct = { id: number; name: string; category: string; price: number | null; discountPct?: number | null; offerText?: string; offerUntil?: string | null; salePrice?: number | null; onOffer?: boolean; emoji: string; available: boolean; sort: number; image: string | null };
+export type MarketSize = { label: string; price: number | null; salePrice?: number | null };
+export type MarketProduct = { id: number; name: string; category: string; description?: string; sizes?: MarketSize[]; price: number | null; discountPct?: number | null; offerText?: string; offerUntil?: string | null; salePrice?: number | null; onOffer?: boolean; emoji: string; available: boolean; sort: number; image: string | null };
 export const apiMarketProducts = () => apiRequest<{ products: MarketProduct[]; fee: number; offerText?: string }>('/api/market-products');
-export const apiMarketOrder = (input: { lines: { productId: string; qty: number }[]; phone: string; address: string; notes?: string; destMode?: string; destLat?: number; destLng?: number }) =>
+export const apiMarketOrder = (input: { lines: { productId: string; qty: number; size?: string }[]; phone: string; address: string; notes?: string; destMode?: string; destLat?: number; destLng?: number }) =>
   apiRequest<{ orders: any[]; invoice: any }>('/api/orders/market', { method: 'POST', body: JSON.stringify(input) });
 export const marketImageUrl = (p: { image: string | null }) => (p.image ? `${API_BASE}${p.image}` : '');
 export const apiAdminMarketList = () => apiRequest<{ products: MarketProduct[] }>('/api/admin/market-products');
 export const apiAdminMarketImportDefaults = () => apiRequest<{ ok: boolean; added: number; total: number }>('/api/admin/market-products/import-defaults', { method: 'POST' });
-export const apiAdminMarketAdd = (b: { name: string; price: number | null; category?: string; emoji?: string; discountPct?: number | null; offerText?: string; offerUntil?: string | null }) => apiRequest<{ product: MarketProduct }>('/api/admin/market-products', { method: 'POST', body: JSON.stringify(b) });
-export const apiAdminMarketEdit = (id: number, b: Partial<{ name: string; price: number | null; category: string; emoji: string; available: boolean; discountPct: number | null; offerText: string; offerUntil: string | null }>) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
+export const apiAdminMarketAdd = (b: { name: string; price: number | null; sizes?: { label: string; price: number | null }[]; description?: string; category?: string; emoji?: string; discountPct?: number | null; offerText?: string; offerUntil?: string | null }) => apiRequest<{ product: MarketProduct }>('/api/admin/market-products', { method: 'POST', body: JSON.stringify(b) });
+export const apiAdminMarketEdit = (id: number, b: Partial<{ name: string; price: number | null; sizes: { label: string; price: number | null }[]; description: string; category: string; emoji: string; available: boolean; discountPct: number | null; offerText: string; offerUntil: string | null }>) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminMarketDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/market-products/${id}`, { method: 'DELETE' });
 export const apiAdminMarketImage = (id: number, image: string) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}/image`, { method: 'PUT', body: JSON.stringify({ image }) });
 export const apiAdminMarketFee = () => apiRequest<{ fee: number; offerText?: string }>('/api/admin/market-settings');

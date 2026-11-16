@@ -1,6 +1,20 @@
 'use strict';
 /** "طلبات ماركت": a product list the owner manages; the order goes straight to the couriers (see /api/orders/market). Switch "market" (OFF). */
 const NAME_MAX = 60;
+/** sizes of one product: up to 12, a name each (unique) and a price or none (the courier prices it). Returns null when something is wrong. */
+function cleanSizes(raw) {
+  if (!Array.isArray(raw) || raw.length > 12) return null;
+  const out = [], seen = new Set();
+  for (const z of raw) {
+    const label = String((z && z.label) || '').trim();
+    if (!label || label.length > 20 || seen.has(label)) return null;
+    seen.add(label);
+    let price = null;
+    if (z.price !== null && z.price !== undefined && z.price !== '') { const v = Number(z.price); if (!Number.isFinite(v) || v < 0 || v > 100000) return null; price = Math.round(v * 100) / 100; }
+    out.push({ label, price });
+  }
+  return out;
+}
 function cleanProduct(b, partial = false) {
   b = b || {}; const out = {};
   if (!partial || b.name !== undefined) { const n = String(b.name || '').trim(); if (!n || n.length > NAME_MAX) return null; out.name = n; }
@@ -8,6 +22,13 @@ function cleanProduct(b, partial = false) {
     if (b.price === null || b.price === undefined || b.price === '') out.price = null;   // no price: the courier prices it
     else { const v = Number(b.price); if (!Number.isFinite(v) || v < 0 || v > 100000) return null; out.price = Math.round(v * 100) / 100; }
   }
+  if (b.sizes !== undefined) {
+    const z = cleanSizes(b.sizes); if (!z) return null;
+    out.sizes = JSON.stringify(z);
+    // the price column keeps the cheapest priced size (shown as "من X ج"); no priced size = the courier prices it
+    if (z.length) { const ps = z.filter(x => x.price != null).map(x => x.price); out.price = ps.length ? Math.min(...ps) : null; }
+  }
+  if (b.description !== undefined) out.description = String(b.description || '').trim().slice(0, 500);
   if (b.category !== undefined) out.category = String(b.category).trim().slice(0, 30);
   if (b.emoji !== undefined) out.emoji = String(b.emoji).trim().slice(0, 8) || '🛒';
   if (b.discountPct !== undefined) {
@@ -24,18 +45,28 @@ function cleanProduct(b, partial = false) {
   return out;
 }
 /** Pure: the price a customer pays now. A discount applies only to a priced product and only until offer_until (if set). */
+function discountOf(row, now = Date.now()) {
+  const pct = row.discount_pct == null ? 0 : Number(row.discount_pct);
+  return pct > 0 && (!row.offer_until || new Date(row.offer_until).getTime() > now) ? pct : 0;
+}
 function salePrice(row, now = Date.now()) {
   if (row.price == null) return { price: null, active: false };
-  const base = Number(row.price), pct = row.discount_pct == null ? 0 : Number(row.discount_pct);
-  const live = pct > 0 && (!row.offer_until || new Date(row.offer_until).getTime() > now);
-  return { price: live ? Math.round(base * (100 - pct)) / 100 : base, active: live };
+  const base = Number(row.price), pct = discountOf(row, now);
+  return { price: pct ? Math.round(base * (100 - pct)) / 100 : base, active: pct > 0 };
+}
+const sizesOf = row => (Array.isArray(row.sizes) ? row.sizes : []);
+/** Pure: the price of one size (the discount of the product applies to every priced size). */
+function sizePrice(row, size, now = Date.now()) {
+  if (size.price == null) return { price: null, was: null, active: false };
+  const pct = discountOf(row, now), base = Number(size.price);
+  return { price: pct ? Math.round(base * (100 - pct)) / 100 : base, was: pct ? base : null, active: pct > 0 };
 }
 function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib }) {
   const fail = (status, error) => Object.assign(new Error(error), { http: status });
   const guard = fn => asyncRoute(async (req, res) => { try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; } });
   const admin = [auth, roles('admin')];
-  const COLS = 'id, name, category, price, discount_pct, offer_text, offer_until, emoji, available, sort_order, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
-  const out = r => { const sp = salePrice(r); return ({ id: r.id, name: r.name, category: r.category, price: r.price == null ? null : Number(r.price), discountPct: r.discount_pct == null ? null : Number(r.discount_pct), offerText: r.offer_text || '', offerUntil: r.offer_until ? new Date(r.offer_until).toISOString() : null, salePrice: sp.price, onOffer: sp.active, emoji: r.emoji, available: r.available, sort: r.sort_order, image: r.has_image ? `/api/market-image/${r.id}?v=${r.v}` : null }); };
+  const COLS = 'id, name, category, description, price, sizes, discount_pct, offer_text, offer_until, emoji, available, sort_order, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
+  const out = r => { const sp = salePrice(r); return ({ id: r.id, name: r.name, category: r.category, description: r.description || '', price: r.price == null ? null : Number(r.price), discountPct: r.discount_pct == null ? null : Number(r.discount_pct), offerText: r.offer_text || '', offerUntil: r.offer_until ? new Date(r.offer_until).toISOString() : null, salePrice: sp.price, onOffer: sp.active, sizes: sizesOf(r).map(z => { const q = sizePrice(r, z); return { label: z.label, price: z.price == null ? null : Number(z.price), salePrice: q.price }; }), emoji: r.emoji, available: r.available, sort: r.sort_order, image: r.has_image ? `/api/market-image/${r.id}?v=${r.v}` : null }); };
 
   app.get('/api/admin/market-products', ...admin, guard(async (_req, res) => {
     res.json({ products: (await pool.query(`SELECT ${COLS} FROM market_products ORDER BY sort_order, id`)).rows.map(out) });
@@ -43,7 +74,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
   app.post('/api/admin/market-products', ...admin, guard(async (req, res) => {
     const c = cleanProduct(req.body); if (!c) throw fail(400, 'البيانات غير صحيحة (الاسم والسعر)');
     const n = await pool.query('SELECT COUNT(*)::int AS c FROM market_products'); if (n.rows[0].c >= 2000) throw fail(409, 'الحد الأقصى 2000 منتج');
-    const r = await pool.query(`INSERT INTO market_products(name, price, category, emoji, available, sort_order, discount_pct, offer_text, offer_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${COLS}`, [c.name, c.price, c.category || '', c.emoji || '🛒', c.available !== false, c.sort_order || 0, c.discount_pct ?? null, c.offer_text || '', c.offer_until ?? null]);
+    const r = await pool.query(`INSERT INTO market_products(name, price, category, emoji, available, sort_order, discount_pct, offer_text, offer_until, sizes, description) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11) RETURNING ${COLS}`, [c.name, c.price, c.category || '', c.emoji || '🛒', c.available !== false, c.sort_order || 0, c.discount_pct ?? null, c.offer_text || '', c.offer_until ?? null, c.sizes || '[]', c.description || '']);
     res.status(201).json({ product: out(r.rows[0]) });
   }));
   /** one tap: adds the ready-made list of products (no prices). Products with the same name are skipped, so it is safe to press twice. */
@@ -60,7 +91,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
     const c = cleanProduct(req.body, true); if (!c || !Object.keys(c).length) throw fail(400, 'البيانات غير صحيحة');
     const keys = Object.keys(c);
-    const r = await pool.query(`UPDATE market_products SET ${keys.map((k, i) => `${k}=$${i + 2}`).join(', ')}, updated_at=NOW() WHERE id=$1 RETURNING ${COLS}`, [id, ...keys.map(k => c[k])]);
+    const r = await pool.query(`UPDATE market_products SET ${keys.map((k, i) => `${k}=$${i + 2}${k === 'sizes' ? '::jsonb' : ''}`).join(', ')}, updated_at=NOW() WHERE id=$1 RETURNING ${COLS}`, [id, ...keys.map(k => c[k])]);
     if (!r.rowCount) throw fail(404, 'المنتج غير موجود');
     res.json({ product: out(r.rows[0]) });
   }));
@@ -145,4 +176,4 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
     res.json({ ok: true });
   }));
 }
-module.exports = { cleanProduct, salePrice, register };
+module.exports = { cleanProduct, cleanSizes, salePrice, sizePrice, sizesOf, register };

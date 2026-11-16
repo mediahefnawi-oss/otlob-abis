@@ -461,7 +461,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   /* ---------- placing orders ---------- */
   /** The cart lines the app sent, cleaned. */
   const cleanLines = raw => (Array.isArray(raw) ? raw : []).slice(0, 100)
-    .map(l => ({ id: positiveId(l && l.productId), qty: Math.floor(Number(l && l.qty)) }))
+    .map(l => ({ id: positiveId(l && l.productId), qty: Math.floor(Number(l && l.qty)), size: typeof (l && l.size) === 'string' ? l.size.trim().slice(0, 20) : '' }))
     .filter(l => l.id && l.qty > 0 && l.qty <= 50);
   /** The server prices a cart: products grouped by shop, with the offers taken off, exactly as the customer saw them. */
   async function buildGroups(lines) {
@@ -648,14 +648,21 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const lines = cleanLines(b.lines);
     if (!lines.length) throw fail(400, 'السلة فارغة');
     const out = await withTx(async db => {
-      const pr = await db.query('SELECT id, name, price, discount_pct, offer_until, emoji, available FROM market_products WHERE id = ANY($1::bigint[])', [lines.map(l => l.id)]);
+      const pr = await db.query('SELECT id, name, price, sizes, discount_pct, offer_until, emoji, available FROM market_products WHERE id = ANY($1::bigint[])', [lines.map(l => l.id)]);
       const byId = new Map(pr.rows.map(r => [Number(r.id), r]));
       const items = []; let base = 0;
       for (const l of lines) {
         const p = byId.get(l.id);
         if (!p || !p.available) throw fail(409, 'أحد المنتجات لم يعد متاحاً');
-        const sp = require('./market').salePrice(p), priced = sp.price != null;   // a live discount is charged by the server, never trusted from the app
-        items.push({ productId: String(p.id), name: p.name, price: priced ? sp.price : null, ...(sp.active ? { was: Number(p.price) } : {}), qty: l.qty, emoji: p.emoji || '🛒' });
+        const M = require('./market'), sizes = M.sizesOf(p);
+        let sp, label = '', was = null;   // a live discount is charged by the server, never trusted from the app
+        if (sizes.length) {
+          const z = sizes.find(x => x.label === l.size);
+          if (!z) throw fail(400, `اختار الحجم لـ ${p.name}`);
+          const q = M.sizePrice(p, z); sp = { price: q.price, active: q.active }; label = z.label; was = q.was;
+        } else { sp = M.salePrice(p); was = sp.active ? Number(p.price) : null; }
+        const priced = sp.price != null;
+        items.push({ productId: String(p.id), name: label ? `${p.name} — ${label}` : p.name, ...(label ? { size: label } : {}), price: priced ? sp.price : null, ...(was != null ? { was } : {}), qty: l.qty, emoji: p.emoji || '🛒' });
         if (priced) base += sp.price * l.qty;
       }
       base = Math.round(base * 100) / 100;

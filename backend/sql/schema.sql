@@ -430,6 +430,10 @@ ALTER TABLE market_products ALTER COLUMN price DROP NOT NULL;
 ALTER TABLE market_products ADD COLUMN IF NOT EXISTS discount_pct NUMERIC(5,2);
 ALTER TABLE market_products ADD COLUMN IF NOT EXISTS offer_until TIMESTAMPTZ;
 ALTER TABLE market_products ADD COLUMN IF NOT EXISTS offer_text TEXT NOT NULL DEFAULT '';
+-- sizes / weights of a product ("ربع كيلو", "نص لتر"...): [{"label":"نص كيلو","price":15}], price null = the courier prices it; [] = one price (the price column)
+ALTER TABLE market_products ADD COLUMN IF NOT EXISTS sizes JSONB NOT NULL DEFAULT '[]'::jsonb;
+-- details of a product shown to the customer when he opens it (origin, pack, notes...)
+ALTER TABLE market_products ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS market_offer_text TEXT NOT NULL DEFAULT 'وفّر واطلب';
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS market_fee NUMERIC(8,2) NOT NULL DEFAULT 15;
 
