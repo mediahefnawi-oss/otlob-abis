@@ -99,6 +99,22 @@ const roles = (...a) => (req, res, next) => { if (!req.auth || !a.includes(req.a
   eq((await call('POST /api/orders/market', { as: Mh, body: { ...body, lines: [] }, table: oroutes })).status, 400, 'empty cart refused');
   await feat('market', false);
   eq((await call('POST /api/orders/market', { as: Mh, body, table: oroutes })).status, 404, 'closed while OFF');
+
+  // ---- look of the new services
+  eq((await call('PATCH /api/admin/svc-meta/:key', { as: Mh, params: { key: 'market' }, body: { sub: 'x' } })).status, 403, 'customer cannot edit the look');
+  eq((await call('PATCH /api/admin/svc-meta/:key', { as: A, params: { key: 'nope' }, body: { sub: 'x' } })).status, 404, 'unknown service');
+  eq((await call('PATCH /api/admin/svc-meta/:key', { as: A, params: { key: 'market' }, body: { sub: 'كل احتياجاتك لحد بابك' } })).status, 200, 'description saved');
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  eq((await call('PUT /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'icon' }, body: { image: png } })).status, 200, 'icon saved');
+  eq((await call('PUT /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'cover' }, body: { image: png } })).status, 200, 'cover saved');
+  eq((await call('PUT /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'weird' }, body: { image: png } })).status, 404, 'bad kind');
+  eq((await call('PUT /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'rides', kind: 'icon' }, body: { image: 'data:text/html;base64,AAAA' } })).status, 400, 'non-image refused');
+  const meta = (await call('GET /api/svc-meta')).json;
+  ok(meta.market.sub === 'كل احتياجاتك لحد بابك' && meta.market.icon > 0 && meta.market.cover > 0 && meta.rides.icon === 0, 'meta: ' + JSON.stringify(meta));
+  const img = await call('GET /api/svc-image/:key/:kind', { params: { key: 'market', kind: 'cover' } });
+  ok(img.sent && img.headers['Content-Type'] === 'image/png', 'cover served');
+  eq((await call('DELETE /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'icon' } })).status, 200, 'icon removed');
+  eq((await call('GET /api/svc-meta')).json.market.icon, 0, 'removed');
   console.log(`group+market: ${pass} passed, ${bad} failed`);
   await pool.end(); process.exit(bad ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

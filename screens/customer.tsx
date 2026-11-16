@@ -30,7 +30,8 @@ import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
 import { RegionClosedBanner } from '../components/Regions';
 import { AddressPicker } from '../components/AddressBook';
-import { GroupOrderButton, useGroupLink } from './extra';
+import { GroupOrderButton, useGroupLink, useSvcMeta } from './extra';
+import { svcImageUrl } from '../lib/api';
 import { HomeNew, AddressSheet } from '../components/HomeNew';
 import { RatingLine, useRatingStars } from '../components/Stars';
 import { SchedulePicker } from '../components/Schedule';
@@ -95,6 +96,7 @@ export function HomeScreen({ navigation }: any) {
 }
 function HomeOld({ navigation }: any) {
   useGroupLink(navigation); // a shared-cart link opened on the web goes straight to that cart
+  const svc = useSvcMeta();
   const rc = useRC();
   const { db, cart } = useStore();
   const me = useMe()!;
@@ -216,10 +218,10 @@ function HomeOld({ navigation }: any) {
           ))}
 
           {!!db.settings.features?.market && <Appear i={4} style={{ marginTop: 12 }}>
-            <WideCard emoji="🧺" title="طلبات ماركت" sub="اختار منتجاتك والمندوب يجيبها لحد بابك" onPress={() => navigation.navigate('Market')} />
+            <WideCard emoji="🧺" imageUri={svc.market?.icon ? svcImageUrl('market', 'icon', svc.market.icon) : undefined} title="طلبات ماركت" sub={svc.market?.sub || 'اختار منتجاتك والمندوب يجيبها لحد بابك'} onPress={() => navigation.navigate('Market')} />
           </Appear>}
           {!!db.settings.features?.rides && <Appear i={5} style={{ marginTop: 12 }}>
-            <WideCard emoji="🚕" title="توصيلة" sub="توكتوك، موتوسيكل، ملاكي... وانت تحدد السعر" onPress={() => navigation.navigate('RideHome')} />
+            <WideCard emoji="🚕" imageUri={svc.rides?.icon ? svcImageUrl('rides', 'icon', svc.rides.icon) : undefined} title="توصيلة" sub={svc.rides?.sub || 'توكتوك، موتوسيكل، ملاكي... وانت تحدد السعر'} onPress={() => navigation.navigate('RideHome')} />
           </Appear>}
 
           {active.length > 0 && (

@@ -8,7 +8,7 @@ import { useStore, useMe, placeMarketOrder, placeGroupOrder } from '../lib/store
 import { isMakerTpl } from '../lib/format';
 import {
   apiGroupOpen, apiGroupGet, apiGroupSet, apiGroupRemove, apiGroupDone, apiGroupCancel, GroupCart,
-  apiMarketProducts, MarketProduct, marketImageUrl,
+  apiMarketProducts, MarketProduct, marketImageUrl, SvcKey, SvcMeta, apiSvcMeta, svcImageUrl,
 } from '../lib/api';
 
 const SITE = 'https://otlobabis.com';
@@ -200,6 +200,7 @@ export function MarketScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="طلبات ماركت" subtitle="اختار منتجاتك والمندوب يجيبها لحد بابك" onBack={() => navigation.goBack()} />
+      <SvcCover svc="market" />
       {state === 'load' ? <Empty title="جاري التحميل..." /> : state === 'err' ? <Empty title="الخدمة غير متاحة الآن" /> : (
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
@@ -236,3 +237,17 @@ export function MarketScreen({ navigation }: any) {
   );
 }
 
+
+/** The owner's look of a new service (icon, cover, description); empty until the server answers. */
+export function useSvcMeta(): Partial<SvcMeta> {
+  const [m, setM] = useState<Partial<SvcMeta>>({});
+  useEffect(() => { let live = true; apiSvcMeta().then((r) => { if (live) setM(r); }).catch(() => {}); return () => { live = false; }; }, []);
+  return m;
+}
+/** The cover picture at the top of a service screen (nothing when the owner has not set one). */
+export function SvcCover({ svc }: { svc: SvcKey }) {
+  const m = useSvcMeta();
+  const v = m[svc]?.cover || 0;
+  if (!v) return null;
+  return <Image source={{ uri: svcImageUrl(svc, 'cover', v) }} style={{ width: '100%', height: 140 }} resizeMode="cover" />;
+}

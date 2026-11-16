@@ -424,6 +424,13 @@ CREATE TABLE IF NOT EXISTS market_products (
 );
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS market_fee NUMERIC(8,2) NOT NULL DEFAULT 15;
 
+-- Look of the new services on the home (market, rides): a description line; the pictures live in site_images (svc_<key>_icon / svc_<key>_cover).
+CREATE TABLE IF NOT EXISTS service_meta (
+  key TEXT PRIMARY KEY,
+  sub TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Default commissions (seeded once; afterwards the owner edits them from the panel).
 DO $$
 BEGIN

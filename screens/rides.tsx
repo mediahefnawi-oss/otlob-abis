@@ -6,6 +6,8 @@ import MapView from '../components/MapView';
 import { getPosition } from '../lib/location';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useStore } from '../lib/store';
+import { alertNewOrder } from '../lib/alerts';
+import { SvcCover } from './extra';
 import {
   RideType, RidePoint, Ride, RideOffer, rideImageUrl, apiRideTypes, apiRideEstimate, apiRideCreate, apiRideCurrent, apiRideAcceptOffer, apiRideCancel,
   CaptainMe, CaptainReq, apiCaptainMe, apiCaptainProfile, apiCaptainPhoto, apiCaptainRequests, apiCaptainOffer, apiCaptainStatus,
@@ -68,6 +70,7 @@ export function RideHomeScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="توصيلة" subtitle="حدد وجهتك واختار السعر اللي يناسبك" onBack={() => navigation.goBack()} />
+      <SvcCover svc="rides" />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         {live && ride ? (
           <>
@@ -136,14 +139,25 @@ export function CaptainScreen({ navigation }: any) {
   const [reqs, setReqs] = useState<CaptainReq[]>([]);
   const [counter, setCounter] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
+  const [offerSecs, setOfferSecs] = useState(25);
+  const [now, setNow] = useState(Date.now());
+  const seen = useRef<Record<number, number>>({});   // when each request first reached this captain
+  const skipped = useRef<Record<number, true>>({});
   const load = useCallback(async () => { try { setMe((await apiCaptainMe()).profile); } catch { setMe(null); } }, []);
   useEffect(() => { load(); apiRideTypes().then((r) => setTypes(r.types)).catch(() => {}); }, [load]);
   const approved = me?.status === 'approved';
   useEffect(() => {
     if (!approved) return;
-    const t = setInterval(() => { apiCaptainRequests().then((r) => setReqs(r.requests)).catch(() => {}); }, 4000);
-    apiCaptainRequests().then((r) => setReqs(r.requests)).catch(() => {});
-    return () => clearInterval(t);
+    const pull = () => apiCaptainRequests().then((r) => {
+      setReqs(r.requests); setOfferSecs(r.offerSecs || 25);
+      const fresh = r.requests.filter((x) => !seen.current[x.id] && x.myOffer == null);
+      fresh.forEach((x) => { seen.current[x.id] = Date.now(); });
+      if (fresh.length) alertNewOrder('🚕 طلب رحلة جديد', `${fresh[0].km} كم — ${fresh[0].offered} ج`); // the loud sound
+    }).catch(() => {});
+    pull();
+    const t = setInterval(pull, 4000);
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => { clearInterval(t); clearInterval(tick); };
   }, [approved]);
   const saveProfile = async () => {
     if (!typeId) return toast('اختر نوع المركبة', 'err');
@@ -159,6 +173,8 @@ export function CaptainScreen({ navigation }: any) {
   const offer = async (r: CaptainReq, price?: number) => { try { const x = await apiCaptainOffer(r.id, price); toast(x.accepted ? 'تم قبول الرحلة ✅' : 'تم إرسال عرضك'); } catch (e) { toast(errText(e), 'err'); } };
   const step = async (id: number, s: 'arrived' | 'started' | 'completed') => { try { const x = await apiCaptainStatus(id, s); if (s === 'completed') toast(`تمت الرحلة — العمولة ${x.commission} ج`); await load(); } catch (e) { toast(errText(e), 'err'); } };
 
+  const left = (r: CaptainReq) => Math.max(0, offerSecs - Math.floor((now - (seen.current[r.id] || now)) / 1000));
+  const hot = reqs.find((r) => r.myOffer == null && !skipped.current[r.id] && left(r) > 0) || null;
   const KINDS: { k: 'car' | 'license' | 'driver' | 'selfie'; label: string }[] = [{ k: 'car', label: 'صورة العربية' }, { k: 'license', label: 'رخصة المركبة' }, { k: 'driver', label: 'رخصة القيادة' }, { k: 'selfie', label: 'صورتك الشخصية' }];
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -188,6 +204,20 @@ export function CaptainScreen({ navigation }: any) {
           <>
             <Card style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رصيدك</T><T w="black" color={me.balance < 0 ? C.red : C.green}>{me.balance} ج</T></Card>
             {!me.canReceive && <Card><T color={C.red} w="bold">رصيدك غير كافٍ لاستقبال الرحلات. اشحن رصيدك من الإدارة.</T></Card>}
+            {me.canReceive && hot && (
+              <View style={{ borderRadius: 22, backgroundColor: C.dark, padding: 16, gap: 10, borderWidth: 3, borderColor: C.gold }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <T w="black" size={16} color={C.gold}>🚕 طلب رحلة جديد</T>
+                  <T w="black" size={20} color={left(hot) <= 8 ? '#FF8A80' : '#fff'}>{left(hot)} ث</T>
+                </View>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}><View style={{ height: 6, width: `${Math.round((left(hot) / offerSecs) * 100)}%`, backgroundColor: C.gold }} /></View>
+                <T w="black" size={26} color="#fff" align="center">{hot.offered} ج</T>
+                <T size={13} color="#DDEEE4" align="center">{hot.km} كم{hot.pickupKm != null ? ` • بعيد عنك ${hot.pickupKm} كم` : ''}</T>
+                {!!hot.from.text && <T size={12.5} color="#DDEEE4">من: {hot.from.text}</T>}{!!hot.to.text && <T size={12.5} color="#DDEEE4">إلى: {hot.to.text}</T>}
+                <Btn title={`اقبل بـ ${hot.offered} ج`} icon="checkmark-circle" onPress={() => offer(hot)} />
+                <Btn title="تخطّي" variant="soft" small onPress={() => { skipped.current[hot.id] = true; setNow(Date.now()); }} />
+              </View>
+            )}
             {me.canReceive && reqs.length === 0 && <Card><T color={C.sub} align="center">مفيش طلبات دلوقتي... هتظهر هنا أول ما تيجي</T></Card>}
             {me.canReceive && reqs.map((r) => (
               <Card key={r.id} style={{ gap: 6 }}>

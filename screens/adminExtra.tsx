@@ -6,6 +6,7 @@ import { pickImage, canPickImage } from '../lib/pickImage';
 import {
   MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
   RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission,
+  SvcKey, apiAdminSvcImage, apiAdminSvcSub, apiSvcMeta, svcImageUrl,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign,
 } from '../lib/api';
 
@@ -27,6 +28,7 @@ export function AdminMarketScreen({ navigation }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="منتجات طلبات ماركت" subtitle="إنت اللي بتضيف المنتجات وبتحدد أسعارها" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+        <SvcLookCard svc="market" title="طلبات ماركت" />
         <Card style={{ gap: 8 }}>
           <T w="black">رسوم التوصيل (ج)</T>
           <Field value={fee} onChangeText={setFee} keyboardType="number-pad" />
@@ -73,7 +75,7 @@ export function AdminRidesScreen({ navigation }: any) {
         {([['captains', 'الكباتن'], ['types', 'الأنواع والأسعار'], ['settings', 'العمولة والتحكم'], ['rides', 'الرحلات']] as [Tab, string][]).map(([k, l]) => <Chip key={k} label={l} active={tab === k} onPress={() => setTab(k)} />)}
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 4, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
-        {tab === 'types' && <TypesTab />}
+        {tab === 'types' && <><SvcLookCard svc="rides" title="توصيلة" /><TypesTab /></>}
         {tab === 'captains' && <CaptainsTab />}
         {tab === 'settings' && <SettingsTab />}
         {tab === 'rides' && <RidesTab />}
@@ -217,5 +219,36 @@ function RidesTab() {
         </Card>
       ))}
     </>
+  );
+}
+
+/** Owner: icon picture, cover picture and the description line of a new service on the home. */
+function SvcLookCard({ svc, title }: { svc: SvcKey; title: string }) {
+  const [m, setM] = useState<{ sub: string; icon: number; cover: number } | null>(null);
+  const [sub, setSub] = useState('');
+  const load = useCallback(async () => { try { const r = (await apiSvcMeta())[svc]; setM(r); setSub(r.sub); } catch { /* keep */ } }, [svc]);
+  useEffect(() => { load(); }, [load]);
+  const run = async (fn: () => Promise<any>, ok: string) => { try { await fn(); toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
+  const pic = (kind: 'icon' | 'cover') => run(async () => { const img = await pickImage(kind === 'cover' ? 1600 : 700, kind === 'icon'); if (img) await apiAdminSvcImage(svc, kind, img); }, 'تم رفع الصورة');
+  return (
+    <Card style={{ gap: 8 }}>
+      <T w="black">شكل «{title}» في الرئيسية</T>
+      <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+        <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#FFF3D2', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          {m?.icon ? <Image source={{ uri: svcImageUrl(svc, 'icon', m.icon) }} style={{ width: 64, height: 64 }} resizeMode="cover" /> : <T size={12} color={C.sub}>بدون</T>}
+        </View>
+        <Btn title="صورة الأيقونة" small variant="soft" style={{ flex: 1 }} onPress={() => pic('icon')} />
+        {!!m?.icon && <Btn title="حذف" small variant="soft" onPress={() => run(() => apiAdminSvcImage(svc, 'icon', null), 'تم الحذف')} />}
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+        <View style={{ width: 64, height: 40, borderRadius: 8, backgroundColor: C.line, overflow: 'hidden' }}>
+          {m?.cover ? <Image source={{ uri: svcImageUrl(svc, 'cover', m.cover) }} style={{ width: 64, height: 40 }} resizeMode="cover" /> : null}
+        </View>
+        <Btn title="صورة الكفر" small variant="soft" style={{ flex: 1 }} onPress={() => pic('cover')} />
+        {!!m?.cover && <Btn title="حذف" small variant="soft" onPress={() => run(() => apiAdminSvcImage(svc, 'cover', null), 'تم الحذف')} />}
+      </View>
+      <Field label="الوصف تحت الاسم" value={sub} onChangeText={setSub} />
+      <Btn title="حفظ الوصف" small variant="soft" onPress={() => run(() => apiAdminSvcSub(svc, sub), 'تم حفظ الوصف')} />
+    </Card>
   );
 }

@@ -69,5 +69,42 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
     const f = await pool.query('SELECT market_fee FROM app_settings WHERE id=1');
     res.json({ products: r.rows.map(out), fee: Number((f.rows[0] || {}).market_fee ?? 15) });
   }));
+
+  /* ----- the look of the new services on the home: icon picture, cover picture, one description line ----- */
+  const SVC = ['market', 'rides'], KIND = ['icon', 'cover'];
+  const okSvc = (k, kind) => SVC.includes(k) && (kind === undefined || KIND.includes(kind));
+  app.get('/api/svc-meta', asyncRoute(async (_req, res) => {
+    const m = await pool.query('SELECT key, sub FROM service_meta');
+    const im = await pool.query("SELECT key, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key LIKE 'svc\\_%'");
+    const out = {}; for (const k of SVC) out[k] = { sub: '', icon: 0, cover: 0 };
+    for (const r of m.rows) if (out[r.key]) out[r.key].sub = r.sub;
+    for (const r of im.rows) { const x = /^svc_(market|rides)_(icon|cover)$/.exec(r.key); if (x) out[x[1]][x[2]] = Number(r.v); }
+    res.set('Cache-Control', 'no-store'); res.json(out);
+  }));
+  app.get('/api/svc-image/:key/:kind', guard(async (req, res) => {
+    if (!okSvc(req.params.key, req.params.kind)) return res.status(404).end();
+    const r = await pool.query('SELECT image, mime FROM site_images WHERE key=$1', [`svc_${req.params.key}_${req.params.kind}`]);
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime); res.set('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=300'); res.set('Cross-Origin-Resource-Policy', 'cross-origin'); res.send(r.rows[0].image);
+  }));
+  app.put('/api/admin/svc-image/:key/:kind', ...admin, guard(async (req, res) => {
+    if (!okSvc(req.params.key, req.params.kind)) throw fail(404, 'خدمة غير معروفة');
+    const s = String((req.body || {}).image || '');
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(s);
+    if (!m || s.length > 2200000) throw fail(400, 'ارفع صورة صالحة (JPG أو PNG أو WebP) بحجم أصغر');
+    await pool.query("INSERT INTO site_images(key, image, mime, updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT (key) DO UPDATE SET image=$2, mime=$3, updated_at=NOW()", [`svc_${req.params.key}_${req.params.kind}`, Buffer.from(m[2], 'base64'), m[1]]);
+    res.json({ ok: true });
+  }));
+  app.delete('/api/admin/svc-image/:key/:kind', ...admin, guard(async (req, res) => {
+    if (!okSvc(req.params.key, req.params.kind)) throw fail(404, 'خدمة غير معروفة');
+    await pool.query('DELETE FROM site_images WHERE key=$1', [`svc_${req.params.key}_${req.params.kind}`]);
+    res.json({ ok: true });
+  }));
+  app.patch('/api/admin/svc-meta/:key', ...admin, guard(async (req, res) => {
+    if (!okSvc(req.params.key)) throw fail(404, 'خدمة غير معروفة');
+    const sub = String((req.body || {}).sub || '').trim().slice(0, 120);
+    await pool.query("INSERT INTO service_meta(key, sub, updated_at) VALUES($1,$2,NOW()) ON CONFLICT (key) DO UPDATE SET sub=$2, updated_at=NOW()", [req.params.key, sub]);
+    res.json({ ok: true });
+  }));
 }
 module.exports = { cleanProduct, register };

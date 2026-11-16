@@ -557,3 +557,12 @@ export const apiAdminRideSettingsSave = (b: any) => apiRequest<{ ok: boolean }>(
 export const apiAdminRides = (status = '') => apiRequest<{ rides: (Ride & { customer: string; driver: string | null })[] }>(`/api/admin/rides${status ? `?status=${status}` : ''}`);
 export const apiAdminRideAssign = (id: number, driverId: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/assign`, { method: 'POST', body: JSON.stringify({ driverId }) });
 export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
+
+/* look of the new services (market, rides): icon picture, cover picture, description */
+export type SvcKey = 'market' | 'rides';
+export type SvcMeta = Record<SvcKey, { sub: string; icon: number; cover: number }>;
+export const apiSvcMeta = () => apiRequest<SvcMeta>('/api/svc-meta');
+export const svcImageUrl = (key: SvcKey, kind: 'icon' | 'cover', v: number) => `${API_BASE}/api/svc-image/${key}/${kind}?v=${v}`;
+export const apiAdminSvcImage = (key: SvcKey, kind: 'icon' | 'cover', image: string | null) =>
+  apiRequest<{ ok: boolean }>(`/api/admin/svc-image/${key}/${kind}`, { method: image ? 'PUT' : 'DELETE', ...(image ? { body: JSON.stringify({ image }) } : {}) });
+export const apiAdminSvcSub = (key: SvcKey, sub: string) => apiRequest<{ ok: boolean }>(`/api/admin/svc-meta/${key}`, { method: 'PATCH', body: JSON.stringify({ sub }) });
