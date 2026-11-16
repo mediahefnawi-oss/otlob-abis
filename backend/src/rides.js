@@ -40,15 +40,20 @@ function cleanType(b, partial = false) {
 }
 
 /** The road distance in km and minutes between two points: { km, min, source: 'road' | 'line' }. */
-async function roadDistance(a, b, fetchFn = globalThis.fetch) {
+async function roadDistance(a, b, fetchFn = globalThis.fetch, withRoute = false) {
   const line = lineKm(Number(a.lat), Number(a.lng), Number(b.lat), Number(b.lng));
   try {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 4000);
-    const r = await fetchFn(`${OSRM}/route/v1/driving/${Number(a.lng)},${Number(a.lat)};${Number(b.lng)},${Number(b.lat)}?overview=false`, { signal: ctl.signal });
+    const r = await fetchFn(`${OSRM}/route/v1/driving/${Number(a.lng)},${Number(a.lat)};${Number(b.lng)},${Number(b.lat)}?overview=${withRoute ? 'simplified&geometries=geojson' : 'false'}`, { signal: ctl.signal });
     clearTimeout(t);
     const j = await r.json();
     const rt = j && j.routes && j.routes[0];
-    if (r.ok && rt && Number.isFinite(rt.distance)) return { km: Math.round(rt.distance / 100) / 10, min: Math.max(1, Math.round((rt.duration || 0) / 60)), source: 'road' };
+    if (r.ok && rt && Number.isFinite(rt.distance)) {
+      const out = { km: Math.round(rt.distance / 100) / 10, min: Math.max(1, Math.round((rt.duration || 0) / 60)), source: 'road' };
+      const cs = withRoute && rt.geometry && Array.isArray(rt.geometry.coordinates) ? rt.geometry.coordinates : null;
+      if (cs && cs.length >= 2 && cs.length <= 3000) out.route = cs.map(c => [Number(c[1]), Number(c[0])]);
+      return out;
+    }
   } catch { /* fall through to the straight line */ }
   const d = Math.round(line * ROAD_FACTOR * 10) / 10;
   return { km: d, min: Math.max(1, Math.round(d * 2.5)), source: 'line' };
@@ -152,9 +157,10 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
     const id = positiveId(b.typeId); if (!id) throw fail(400, 'اختر نوع المركبة');
     const t = await pool.query('SELECT * FROM ride_types WHERE id=$1 AND active', [id]);
     if (!t.rowCount) throw fail(404, 'النوع غير متاح');
-    const d = await roadDistance(b.from, b.to);
+    const bidding = ((await pool.query('SELECT ride_pricing FROM app_settings WHERE id=1')).rows[0] || {}).ride_pricing === 'bidding';
+    const d = await roadDistance(b.from, b.to, globalThis.fetch, true);
     const price = priceFor(t.rows[0], d.km);
-    res.json({ km: d.km, minutes: d.min, source: d.source, price, ...bounds(price, t.rows[0].adj_pct) });
+    res.json({ km: d.km, minutes: d.min, source: d.source, route: d.route || null, bidding, price, ...bounds(price, t.rows[0].adj_pct) });
   }));
 }
 module.exports = { priceFor, bounds, cleanType, roadDistance, seedTypes, register };

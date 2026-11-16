@@ -109,6 +109,9 @@ const R2 = require('../src/rides2.js');
   eq((await call('POST /api/rides/:id/accept-offer', { as: C, params: { id: rid }, body: { offerId: cur.offers[0].id } })).status, 404, 'old offer is closed (rejected)');
 
   // status flow + commission
+  const cc = await call('GET /api/captain/current', { as: D1 });
+  ok(cc.status === 200 && cc.json.ride && Number(cc.json.ride.id) === Number(rid) && cc.json.ride.customer && cc.json.ride.from.lat !== undefined, 'captain sees the accepted ride with both points and the customer');
+  eq((await call('GET /api/captain/current', { as: D2 })).json.ride, null, 'another captain sees nothing');
   eq((await call('POST /api/captain/rides/:id/status', { as: D1, params: { id: rid }, body: { status: 'completed' } })).status, 409, 'cannot skip steps');
   eq((await call('POST /api/captain/rides/:id/status', { as: D2, params: { id: rid }, body: { status: 'arrived' } })).status, 409, 'another captain cannot move it');
   for (const s of ['arrived', 'started']) eq((await call('POST /api/captain/rides/:id/status', { as: D1, params: { id: rid }, body: { status: s } })).status, 200, s);
@@ -149,6 +152,25 @@ const R2 = require('../src/rides2.js');
   for (const s of ['arrived', 'started', 'completed']) await call('POST /api/captain/rides/:id/status', { as: D2, params: { id: r4.id }, body: { status: s } });
   eq((await q('SELECT status FROM captain_profiles WHERE user_id=$1', [d2])).rows[0].status, 'suspended', 'auto-suspended below the threshold');
   eq((await call('GET /api/captain/requests', { as: D2 })).status, 403, 'suspended captain gets nothing');
+
+  // ---- bidding mode: no price from the customer, every captain names his own
+  eq((await call('PATCH /api/admin/rides/settings', { as: A, body: { pricing: 'weird' } })).status, 400, 'bad pricing mode refused');
+  eq((await call('PATCH /api/admin/rides/settings', { as: A, body: { pricing: 'bidding' } })).status, 200, 'owner switches to bidding');
+  eq((await call('GET /api/admin/rides/settings', { as: A })).json.pricing, 'bidding', 'mode is saved');
+  eq((await call('POST /api/rides/estimate', { as: C, body })).json.bidding, true, 'estimate tells the customer it is bidding');
+  const bd1 = await call('POST /api/rides', { as: C, body });
+  eq(bd1.status, 200, 'customer sends a ride with no price'); ok(bd1.json.ride.bidding === true, 'the ride is marked bidding');
+  const bid = bd1.json.ride.id;
+  eq((await call('POST /api/captain/requests/:id/offer', { as: D1, params: { id: bid }, body: {} })).status, 400, 'captain cannot just accept: he must name a price');
+  eq((await call('POST /api/captain/requests/:id/offer', { as: D1, params: { id: bid }, body: { price: 1 } })).status, 400, 'a price below the minimum is refused');
+  eq((await call('POST /api/captain/requests/:id/offer', { as: D1, params: { id: bid }, body: { price: 100000 } })).status, 400, 'a crazy high price is refused');
+  eq((await call('POST /api/captain/requests/:id/offer', { as: D1, params: { id: bid }, body: { price: 90 } })).status, 200, 'captain names 90');
+  const bc = await call('GET /api/rides/current', { as: C });
+  ok(bc.json.offers.length === 1 && bc.json.offers[0].price === 90, 'customer sees the captain price');
+  eq((await call('POST /api/rides/:id/accept-offer', { as: C, params: { id: bid }, body: { offerId: bc.json.offers[0].id } })).status, 200, 'customer accepts the offer');
+  eq(Number((await q('SELECT final_price FROM rides WHERE id=$1', [bid])).rows[0].final_price), 90, 'final price = the accepted bid');
+  await call('POST /api/rides/:id/cancel', { as: C, params: { id: bid } });
+  await call('PATCH /api/admin/rides/settings', { as: A, body: { pricing: 'fixed' } });
 
   // switch OFF closes the customer/captain side, the owner's panel still works
   switchOn = false;

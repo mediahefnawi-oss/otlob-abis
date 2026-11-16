@@ -388,6 +388,8 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_min_balance NUMERIC(10,2)
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_auto_dispatch BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_offer_secs INT NOT NULL DEFAULT 25;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_radius_km NUMERIC(5,1) NOT NULL DEFAULT 5;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_pricing TEXT NOT NULL DEFAULT 'fixed';
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS bidding BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE ride_types ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(5,2);
 
 -- Group order (one shared cart per shop, each friend adds from his own account) and the owner's "market" catalogue.

@@ -38,6 +38,9 @@ async function call(key, { as, body, params } = {}) {
   ok(d1.source === 'line' && d1.km > 9 && d1.km < 13, 'falls back to a straight line x 1.3 when the router is down: ' + JSON.stringify(d1));
   const d2 = await R.roadDistance({ lat: 31, lng: 30 }, { lat: 31, lng: 30.1 }, async () => ({ ok: true, json: async () => ({ routes: [{ distance: 12345, duration: 600 }] }) }));
   eq(d2, { km: 12.3, min: 10, source: 'road' }, 'uses the road distance when the router answers');
+  const d3 = await R.roadDistance({ lat: 31, lng: 30 }, { lat: 31, lng: 30.1 }, async () => ({ ok: true, json: async () => ({ routes: [{ distance: 12345, duration: 600, geometry: { coordinates: [[30, 31], [30.05, 31.01], [30.1, 31]] } }] }) }), true);
+  eq(d3.route, [[31, 30], [31.01, 30.05], [31, 30.1]], 'returns the road line as [lat,lng] points when asked');
+  eq(d2.route, undefined, 'no route line unless asked');
 
   // ---- routes
   const pool = new Pool(); const q = (t, p) => pool.query(t, p);

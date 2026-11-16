@@ -181,11 +181,16 @@ function SettingsTab() {
   if (!s) return <Empty title="جاري التحميل..." />;
   const set = (k: string, v: string) => setS({ ...s, [k]: v });
   const save = async () => {
-    try { await apiAdminRideSettingsSave({ commissionPct: num(String(s.commissionPct)), commissionMin: num(String(s.commissionMin)), minBalance: num(String(s.minBalance)), offerSecs: num(String(s.offerSecs)), radiusKm: num(String(s.radiusKm)), autoDispatch: !!s.autoDispatch }); toast('تم الحفظ'); }
+    try { await apiAdminRideSettingsSave({ commissionPct: num(String(s.commissionPct)), commissionMin: num(String(s.commissionMin)), minBalance: num(String(s.minBalance)), offerSecs: num(String(s.offerSecs)), radiusKm: num(String(s.radiusKm)), autoDispatch: !!s.autoDispatch, pricing: s.pricing === 'bidding' ? 'bidding' : 'fixed' }); toast('تم الحفظ'); }
     catch (e) { toast(errText(e), 'err'); }
   };
   return (
     <Card style={{ gap: 8 }}>
+      <T w="black" size={14}>طريقة التسعير</T>
+      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        <Chip label="سعر ثابت (النظام يقترح والعميل يعدّل)" active={s.pricing !== 'bidding'} onPress={() => setS({ ...s, pricing: 'fixed' })} />
+        <Chip label="مزايدة (الكباتن يحددوا السعر)" active={s.pricing === 'bidding'} onPress={() => setS({ ...s, pricing: 'bidding' })} />
+      </View>
       <Field label="العمولة العامة %" value={String(s.commissionPct)} onChangeText={(v) => set('commissionPct', v)} keyboardType="number-pad" />
       <Field label="أقل عمولة (ج)" value={String(s.commissionMin)} onChangeText={(v) => set('commissionMin', v)} keyboardType="number-pad" />
       <Field label="حد الإيقاف التلقائي للرصيد (سالب، مثال -50)" value={String(s.minBalance)} onChangeText={(v) => set('minBalance', v)} keyboardType="numbers-and-punctuation" />

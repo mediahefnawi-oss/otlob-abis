@@ -4,13 +4,14 @@ import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, toast } from '../components/ui';
 import MapView from '../components/MapView';
 import { getPosition } from '../lib/location';
+import { reverseAddress, searchPlace } from '../lib/revgeo';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useStore } from '../lib/store';
 import { alertNewOrder } from '../lib/alerts';
 import { SvcCover } from './extra';
 import {
   RideType, RidePoint, Ride, RideOffer, rideImageUrl, apiRideTypes, apiRideEstimate, apiRideCreate, apiRideCurrent, apiRideAcceptOffer, apiRideCancel,
-  CaptainMe, CaptainReq, apiCaptainMe, apiCaptainProfile, apiCaptainPhoto, apiCaptainRequests, apiCaptainOffer, apiCaptainStatus,
+  CaptainMe, CaptainReq, apiCaptainMe, apiCaptainProfile, apiCaptainPhoto, apiCaptainRequests, apiCaptainOffer, apiCaptainStatus, apiCaptainCurrent, CaptainRide,
 } from '../lib/api';
 
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
@@ -27,6 +28,8 @@ function TypeTile({ t, active, onPress }: { t: RideType; active: boolean; onPres
   );
 }
 
+const routePts = (a: { lat: number; lng: number }, b: { lat: number; lng: number }, r?: [number, number][] | null): [number, number][] => (r && r.length > 1 ? r : [[a.lat, a.lng], [b.lat, b.lng]]);
+
 /** The customer: choose a vehicle, point on the map, set a price near the suggested one, wait for offers. */
 export function RideHomeScreen({ navigation }: any) {
   const { db } = useStore();
@@ -34,7 +37,12 @@ export function RideHomeScreen({ navigation }: any) {
   const [typeId, setTypeId] = useState<number | null>(null);
   const [from, setFrom] = useState<RidePoint | null>(null);
   const [to, setTo] = useState<RidePoint | null>(null);
-  const [est, setEst] = useState<{ km: number; minutes: number; price: number; lo: number; hi: number } | null>(null);
+  const [est, setEst] = useState<{ km: number; minutes: number; price: number; lo: number; hi: number; route?: [number, number][] | null } | null>(null);
+  const [target, setTarget] = useState<'from' | 'to'>('from');
+  const [note, setNote] = useState('');
+  const [fromDetails, setFromDetails] = useState('');
+  const [locating, setLocating] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [price, setPrice] = useState(0);
   const [busy, setBusy] = useState(false);
   const [cur, setCur] = useState<{ ride: Ride | null; offers: RideOffer[] } | null>(null);
@@ -44,12 +52,31 @@ export function RideHomeScreen({ navigation }: any) {
   const loadCur = useCallback(async () => { try { setCur(await apiRideCurrent()); } catch { /* keep the last state */ } }, []);
   useEffect(() => { apiRideTypes().then((r) => { setTypes(r.types); if (r.types[0]) setTypeId(r.types[0].id); }).catch(() => setTypes([])); loadCur(); }, [loadCur]);
   useEffect(() => { const t = setInterval(loadCur, 4000); return () => clearInterval(t); }, [loadCur]);
-  useEffect(() => { getPosition().then((p) => setFrom({ lat: p.lat, lng: p.lng })).catch(() => { /* the customer picks it on the map */ }); }, []);
+  /** Sets a pin and writes its address in the field by itself (the field stays editable; no address = it stays as typed). */
+  const setPin = async (which: 'from' | 'to', p: { lat: number; lng: number }) => {
+    if (which === 'from') { setFrom(p); setFromText(''); setTarget('to'); } else { setTo(p); setToText(''); }
+    const a = await reverseAddress(p.lat, p.lng);
+    if (a) (which === 'from' ? setFromText : setToText)((cur) => cur || a);
+  };
+  const locate = async () => {
+    setLocating(true);
+    try { const p = await getPosition(); await setPin('from', { lat: p.lat, lng: p.lng }); }
+    catch (e) { toast(errText(e), 'err'); }
+    finally { setLocating(false); }
+  };
+  const findDest = async () => {
+    if (!toText.trim()) return;
+    setSearching(true);
+    try {
+      const r = await searchPlace(toText, from);
+      if (r) { setTo({ lat: r.lat, lng: r.lng }); setTarget('to'); } else toast('ما لقيناش المكان بالاسم، حط الدبوس على الخريطة', 'err');
+    } finally { setSearching(false); }
+  };
   useEffect(() => {
     setEst(null);
     if (!from || !to || !typeId) return;
     let live = true;
-    apiRideEstimate({ ...from, text: fromText }, { ...to, text: toText }, typeId).then((r) => { if (live) { setEst(r); setPrice(r.price); } }).catch((e) => { if (live) toast(errText(e), 'err'); });
+    apiRideEstimate(from, to, typeId).then((r) => { if (live) { setEst(r); setPrice(r.price); } }).catch((e) => { if (live) toast(errText(e), 'err'); });
     return () => { live = false; };
   }, [from?.lat, from?.lng, to?.lat, to?.lng, typeId]);
 
@@ -60,7 +87,7 @@ export function RideHomeScreen({ navigation }: any) {
   const request = async () => {
     if (!from || !to || !typeId || !est) return;
     setBusy(true);
-    try { await apiRideCreate({ ...from, text: fromText }, { ...to, text: toText }, typeId, price); await loadCur(); toast('تم إرسال طلبك للكباتن 🚕'); }
+    try { await apiRideCreate({ ...from, text: [fromText, fromDetails.trim()].filter(Boolean).join(' — ').slice(0, 200) }, { ...to, text: [toText, note.trim()].filter(Boolean).join(' — ').slice(0, 200) }, typeId, price); await loadCur(); toast('تم إرسال طلبك للكباتن 🚕'); }
     catch (e) { toast(errText(e), 'err'); }
     finally { setBusy(false); }
   };
@@ -77,7 +104,7 @@ export function RideHomeScreen({ navigation }: any) {
             <Card style={{ gap: 6 }}>
               <T w="black" size={17}>{STATUS_AR[ride.status] || ride.status}</T>
               <T size={13} color={C.sub}>{ride.km} كم تقريباً • {ride.minutes} دقيقة</T>
-              <T w="black" size={18} color={C.green}>{ride.finalPrice ?? ride.offered} ج</T>
+              <T w="black" size={18} color={C.green}>{ride.finalPrice != null ? `${ride.finalPrice} ج` : ride.bidding ? 'السعر حسب عروض الكباتن' : `${ride.offered} ج`}</T>
             </Card>
             {ride.status === 'searching' && (cur?.offers || []).length === 0 && <Card><T color={C.sub} align="center">مستنيين عروض الكباتن... هتظهر هنا</T></Card>}
             {ride.status === 'searching' && (cur?.offers || []).map((o) => (
@@ -99,16 +126,34 @@ export function RideHomeScreen({ navigation }: any) {
               </ScrollView>
             )}
             <T w="black" size={15}>من فين لفين؟</T>
-            <T size={12} color={C.sub}>{from ? 'نقطة التحميل = موقعك الحالي (تقدر تعدلها بالضغط على الخريطة)' : 'اضغط على الخريطة لتحديد نقطة التحميل'}</T>
+            <Pressable onPress={() => setTarget('from')} style={{ borderWidth: 1.5, borderColor: target === 'from' ? C.green : C.line, borderRadius: 14, backgroundColor: '#fff', padding: 10, gap: 6 }}>
+              <T size={11.5} color={C.sub}>مكان التحميل</T>
+              <Field label="" value={fromText} onChangeText={setFromText} placeholder={from ? 'اكتب العنوان لو مش ظاهر' : 'دوس «حدد موقعي» أو اختار من الخريطة'} />
+              <Field label="" value={fromDetails} onChangeText={setFromDetails} placeholder="تفاصيل مكانك (عمارة، دور، علامة مميزة، رقم شقة)" />
+              <Btn title={from ? 'حدّد موقعي من جديد' : 'حدد موقعي'} icon="locate" small variant="soft" onPress={locate} loading={locating} />
+            </Pressable>
+            <Pressable onPress={() => setTarget('to')} style={{ borderWidth: 1.5, borderColor: target === 'to' ? C.green : C.line, borderRadius: 14, backgroundColor: '#fff', padding: 10, gap: 6 }}>
+              <T size={11.5} color={C.sub}>مكان الوصول — اكتب الاسم ودوس «ابحث»، أو حط الدبوس على الخريطة</T>
+              <Field label="" value={toText} onChangeText={setToText} placeholder="مثال: ميدان المحطة" />
+              <Btn title="ابحث عن المكان" icon="search" small variant="soft" onPress={findDest} loading={searching} />
+            </Pressable>
             <MapView
               markers={[...(from ? [{ lat: from.lat, lng: from.lng, kind: 'me' as const }] : []), ...(to ? [{ lat: to.lat, lng: to.lng, kind: 'dest' as const }] : [])]}
-              height={240} pickable focus={to || from}
-              onPick={(p) => { if (!from) setFrom(p); else setTo(p); }}
+              lines={from && to ? [{ kind: 'base', pts: routePts(from, to, est?.route) }, { kind: 'done', pts: routePts(from, to, est?.route) }] : undefined}
+              fitKey={from && to ? `${from.lat},${from.lng}|${to.lat},${to.lng}` : undefined}
+              height={260} pickable focus={from && to ? null : (to || from)}
+              onPick={(p) => { setPin(target, p); }}
             />
-            <T size={12} color={C.sub}>{!from ? 'ضغطتك الأولى = نقطة التحميل' : !to ? 'اضغط على الخريطة لتحديد وجهتك' : 'تقدر تغير الوجهة بضغطة تانية'}</T>
-            <Field label="وصف مكان التحميل (اختياري)" value={fromText} onChangeText={setFromText} />
-            <Field label="وصف الوجهة (اختياري)" value={toText} onChangeText={setToText} />
-            {est && (
+            <T size={12} color={C.sub}>{target === 'from' ? 'دوس على الخريطة عشان تحدد مكان التحميل' : 'دوس على الخريطة عشان تحدد مكان الوصول'}</T>
+            <Field label="ملاحظة للكابتن (اختياري) — مثال: عمارة 5 جنب الصيدلية" value={note} onChangeText={setNote} />
+            {est && est.bidding && (
+              <Card style={{ gap: 8 }}>
+                <T size={13} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
+                <T w="black" size={14} align="center">الكباتن هيحددوا السعر، وإنت تختار أنسب عرض</T>
+                <Btn title="ابعت الطلب للكباتن" icon="car" onPress={request} loading={busy} />
+              </Card>
+            )}
+            {est && !est.bidding && (
               <Card style={{ gap: 8 }}>
                 <T size={13} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
                 <T w="black" size={14}>السعر المقترح {est.price} ج — اختار سعرك</T>
@@ -128,6 +173,18 @@ export function RideHomeScreen({ navigation }: any) {
   );
 }
 
+/** Bidding mode: the captain types his own price for the trip (reference = the system's suggestion). */
+function BidBox({ r, value, onChange, onSend, dark }: { r: CaptainReq; value?: number; onChange: (v: number) => void; onSend: (v: number) => void; dark?: boolean }) {
+  const v = value ?? 0;
+  return (
+    <View style={{ gap: 6 }}>
+      <Field label="" value={value ? String(value) : ''} onChangeText={(t) => onChange(Number(t.replace(/\D/g, '')) || 0)} keyboardType="number-pad" placeholder={`اكتب سعرك (المرجع حوالي ${r.suggested} ج)`} />
+      <Btn title={v ? `ابعت سعرك ${v} ج` : 'اكتب سعرك'} icon="send" small={!dark} onPress={() => (v ? onSend(v) : toast('اكتب سعرك للمشوار', 'err'))} />
+      {r.myOffer != null && <T size={12} color={dark ? '#DDEEE4' : C.goldDeep}>عرضك الحالي: {r.myOffer} ج</T>}
+    </View>
+  );
+}
+
 /** The captain: registration (vehicle + four photos) and the incoming requests. */
 export function CaptainScreen({ navigation }: any) {
   const [me, setMe] = useState<CaptainMe | null | undefined>(undefined);
@@ -140,6 +197,8 @@ export function CaptainScreen({ navigation }: any) {
   const [counter, setCounter] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
   const [offerSecs, setOfferSecs] = useState(25);
+  const [curRide, setCurRide] = useState<CaptainRide | null>(null);
+  const pullCur = useCallback(() => apiCaptainCurrent().then((r) => setCurRide(r.ride)).catch(() => {}), []);
   const [now, setNow] = useState(Date.now());
   const seen = useRef<Record<number, number>>({});   // when each request first reached this captain
   const skipped = useRef<Record<number, true>>({});
@@ -154,11 +213,11 @@ export function CaptainScreen({ navigation }: any) {
       fresh.forEach((x) => { seen.current[x.id] = Date.now(); });
       if (fresh.length) alertNewOrder('🚕 طلب رحلة جديد', `${fresh[0].km} كم — ${fresh[0].offered} ج`); // the loud sound
     }).catch(() => {});
-    pull();
-    const t = setInterval(pull, 4000);
+    pull(); pullCur();
+    const t = setInterval(() => { pull(); pullCur(); }, 4000);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => { clearInterval(t); clearInterval(tick); };
-  }, [approved]);
+  }, [approved, pullCur]);
   const saveProfile = async () => {
     if (!typeId) return toast('اختر نوع المركبة', 'err');
     setBusy(true);
@@ -170,8 +229,8 @@ export function CaptainScreen({ navigation }: any) {
     try { const img = await pickImage(); if (!img) return; await apiCaptainPhoto(kind, img); await load(); toast('تم رفع الصورة'); }
     catch (e) { toast(errText(e), 'err'); }
   };
-  const offer = async (r: CaptainReq, price?: number) => { try { const x = await apiCaptainOffer(r.id, price); toast(x.accepted ? 'تم قبول الرحلة ✅' : 'تم إرسال عرضك'); } catch (e) { toast(errText(e), 'err'); } };
-  const step = async (id: number, s: 'arrived' | 'started' | 'completed') => { try { const x = await apiCaptainStatus(id, s); if (s === 'completed') toast(`تمت الرحلة — العمولة ${x.commission} ج`); await load(); } catch (e) { toast(errText(e), 'err'); } };
+  const offer = async (r: CaptainReq, price?: number) => { try { const x = await apiCaptainOffer(r.id, price); toast(x.accepted ? 'تم قبول الرحلة ✅' : 'تم إرسال عرضك'); pullCur(); } catch (e) { toast(errText(e), 'err'); } };
+  const step = async (id: number, s: 'arrived' | 'started' | 'completed') => { try { const x = await apiCaptainStatus(id, s); if (s === 'completed') toast(`تمت الرحلة — العمولة ${x.commission} ج`); await load(); await pullCur(); } catch (e) { toast(errText(e), 'err'); } };
 
   const left = (r: CaptainReq) => Math.max(0, offerSecs - Math.floor((now - (seen.current[r.id] || now)) / 1000));
   const hot = reqs.find((r) => r.myOffer == null && !skipped.current[r.id] && left(r) > 0) || null;
@@ -211,35 +270,50 @@ export function CaptainScreen({ navigation }: any) {
                   <T w="black" size={20} color={left(hot) <= 8 ? '#FF8A80' : '#fff'}>{left(hot)} ث</T>
                 </View>
                 <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}><View style={{ height: 6, width: `${Math.round((left(hot) / offerSecs) * 100)}%`, backgroundColor: C.gold }} /></View>
-                <T w="black" size={26} color="#fff" align="center">{hot.offered} ج</T>
+                <T w="black" size={26} color="#fff" align="center">{hot.bidding ? 'حدد سعرك للمشوار' : `${hot.offered} ج`}</T>
                 <T size={13} color="#DDEEE4" align="center">{hot.km} كم{hot.pickupKm != null ? ` • بعيد عنك ${hot.pickupKm} كم` : ''}</T>
+                <MapView markers={[{ lat: hot.from.lat, lng: hot.from.lng, kind: 'me', label: 'العميل' }, { lat: hot.to.lat, lng: hot.to.lng, kind: 'dest', label: 'الوصول' }]} fitKey={hot.id} height={150} />
                 {!!hot.from.text && <T size={12.5} color="#DDEEE4">من: {hot.from.text}</T>}{!!hot.to.text && <T size={12.5} color="#DDEEE4">إلى: {hot.to.text}</T>}
-                <Btn title={`اقبل بـ ${hot.offered} ج`} icon="checkmark-circle" onPress={() => offer(hot)} />
+                {hot.bidding
+                  ? <BidBox r={hot} value={counter[hot.id]} onChange={(v) => setCounter((c) => ({ ...c, [hot.id]: v }))} onSend={(v) => offer(hot, v)} dark />
+                  : <Btn title={`اقبل بـ ${hot.offered} ج`} icon="checkmark-circle" onPress={() => offer(hot)} />}
                 <Btn title="تخطّي" variant="soft" small onPress={() => { skipped.current[hot.id] = true; setNow(Date.now()); }} />
               </View>
             )}
             {me.canReceive && reqs.length === 0 && <Card><T color={C.sub} align="center">مفيش طلبات دلوقتي... هتظهر هنا أول ما تيجي</T></Card>}
             {me.canReceive && reqs.map((r) => (
               <Card key={r.id} style={{ gap: 6 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black" size={16}>{r.offered} ج</T><T size={12.5} color={C.sub}>{r.km} كم{r.pickupKm != null ? ` • بعيد عنك ${r.pickupKm} كم` : ''}</T></View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black" size={16}>{r.bidding ? 'حدد سعرك' : `${r.offered} ج`}</T><T size={12.5} color={C.sub}>{r.km} كم{r.pickupKm != null ? ` • بعيد عنك ${r.pickupKm} كم` : ''}</T></View>
                 {!!r.from.text && <T size={12.5}>من: {r.from.text}</T>}{!!r.to.text && <T size={12.5}>إلى: {r.to.text}</T>}
-                <Btn title={`اقبل بـ ${r.offered} ج`} icon="checkmark-circle" small onPress={() => offer(r)} />
-                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                {r.bidding && <BidBox r={r} value={counter[r.id]} onChange={(v) => setCounter((c) => ({ ...c, [r.id]: v }))} onSend={(v) => offer(r, v)} />}
+                {!r.bidding && <Btn title={`اقبل بـ ${r.offered} ج`} icon="checkmark-circle" small onPress={() => offer(r)} />}
+                {!r.bidding && <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                   <Pressable onPress={() => setCounter((c) => ({ ...c, [r.id]: (c[r.id] ?? r.offered) - 5 }))}><Icon name="remove-circle" size={30} color={C.green} /></Pressable>
                   <T w="black" size={16}>{counter[r.id] ?? r.offered} ج</T>
                   <Pressable onPress={() => setCounter((c) => ({ ...c, [r.id]: (c[r.id] ?? r.offered) + 5 }))}><Icon name="add-circle" size={30} color={C.green} /></Pressable>
                   <Btn title="اعرض السعر ده" variant="soft" small style={{ flex: 1 }} onPress={() => offer(r, counter[r.id] ?? r.offered)} />
-                </View>
-                {r.myOffer != null && <T size={12} color={C.goldDeep}>عرضك الحالي: {r.myOffer} ج</T>}
+                </View>}
+                {!r.bidding && r.myOffer != null && <T size={12} color={C.goldDeep}>عرضك الحالي: {r.myOffer} ج</T>}
               </Card>
             ))}
-            <Card style={{ gap: 8 }}>
-              <T w="black">رحلتك الحالية (رقم الرحلة)</T>
-              <Field label="رقم الرحلة" value={counter[-1] ? String(counter[-1]) : ''} onChangeText={(v) => setCounter((c) => ({ ...c, [-1]: Number(v.replace(/\D/g, '')) }))} keyboardType="number-pad" />
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {(['arrived', 'started', 'completed'] as const).map((s) => <Btn key={s} small variant="soft" style={{ flex: 1 }} title={{ arrived: 'وصلت', started: 'بدأنا', completed: 'خلصنا' }[s]} onPress={() => counter[-1] ? step(counter[-1], s) : toast('اكتب رقم الرحلة', 'err')} />)}
-              </View>
-            </Card>
+            {curRide && (
+              <Card style={{ gap: 8, borderWidth: 2, borderColor: C.green }}>
+                <T w="black" size={16}>🚕 رحلتك الحالية — {({ assigned: 'روح للعميل', arrived: 'وصلت للعميل', started: 'الرحلة شغالة' } as Record<string, string>)[curRide.status] || curRide.status}</T>
+                <MapView
+                  markers={[{ lat: curRide.from.lat, lng: curRide.from.lng, kind: 'me', label: 'العميل' }, { lat: curRide.to.lat, lng: curRide.to.lng, kind: 'dest', label: 'الوصول' }]}
+                  fitKey={curRide.id} height={220} />
+                <T w="bold" size={13.5}>مكان العميل: {curRide.from.text || 'حسب الدبوس على الخريطة'}</T>
+                {!!curRide.to.text && <T size={13} color={C.sub}>إلى: {curRide.to.text}</T>}
+                <T w="black" size={18} color={C.green}>{curRide.finalPrice ?? curRide.offered} ج • {curRide.km} كم</T>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn title="اتصل بالعميل" icon="call" small variant="soft" style={{ flex: 1 }} onPress={() => Linking.openURL(`tel:${curRide.customer.phone}`)} />
+                  <Btn title="افتح في الخرائط" icon="navigate" small variant="soft" style={{ flex: 1 }} onPress={() => Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${curRide.status === 'started' ? curRide.to.lat + ',' + curRide.to.lng : curRide.from.lat + ',' + curRide.from.lng}`)} />
+                </View>
+                {curRide.status === 'assigned' && <Btn title="وصلت للعميل" icon="location" onPress={() => step(curRide.id, 'arrived')} />}
+                {curRide.status === 'arrived' && <Btn title="بدأنا الرحلة" icon="play" onPress={() => step(curRide.id, 'started')} />}
+                {curRide.status === 'started' && <Btn title="خلصنا الرحلة" icon="checkmark-circle" onPress={() => step(curRide.id, 'completed')} />}
+              </Card>
+            )}
           </>
         )}
       </ScrollView>

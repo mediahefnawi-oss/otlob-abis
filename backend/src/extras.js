@@ -6,7 +6,7 @@
 const FEATURES = {
   groupOrder: { label: 'الطلب الجماعي (سلة مشتركة)', on: true },
   market: { label: 'طلبات ماركت', on: false },
-  rides: { label: 'خدمة التوصيلة (تجريبي)', on: false },
+  rides: { label: 'خدمة التوصيلة', on: false },
   menu: { label: 'المنيو وطرق الطلب', on: false },
   chat: { label: 'شات العميل مع المحل', on: false },
   voice: { label: 'الطلب الصوتي', on: false },
