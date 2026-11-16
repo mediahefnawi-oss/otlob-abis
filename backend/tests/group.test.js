@@ -85,7 +85,7 @@ const roles = (...a) => (req, res, next) => { if (!req.auth || !a.includes(req.a
   await feat('market', true);
   await call('PATCH /api/admin/market-products/:id', { as: A, params: { id: mp2.id }, body: { available: false } });
   const cat = (await call('GET /api/market-products', { as: Mh })).json;
-  eq(cat.products.map(p => p.name), ['حليب'], 'stopped product hidden'); eq(cat.fee, 15, 'default fee 15');
+  eq(cat.products.map(p => p.name), ['حليب'], 'stopped product hidden');
   eq((await call('PATCH /api/admin/market-settings', { as: A, body: { fee: 20 } })).status, 200, 'fee changed');
 
   // ---- market: the order goes straight to couriers
@@ -94,7 +94,18 @@ const roles = (...a) => (req, res, next) => { if (!req.auth || !a.includes(req.a
   ok(oc.status === 201, 'market order created: ' + JSON.stringify(oc.json).slice(0, 200));
   const od = (await q("SELECT status, total, provider_id, data FROM orders WHERE customer_user_id=$1 ORDER BY id DESC LIMIT 1", [mId])).rows[0];
   ok(od && od.provider_id === null && od.status === 'accepted', 'no shop in between: straight to the couriers');
-  eq(Number(od.total), 80, '2 x 30 + fee 20'); eq(od.data.items[0].name, 'حليب', 'priced by the server');
+  eq(Number(od.total), 0, 'no fixed fee: the total waits for the courier'); eq(od.data.items[0].name, 'حليب', 'priced by the server');
+  ok(od.data.providerType === 'custom' && od.data.market === true && od.data.errandQuote === 'open', 'handled like an errand: the courier quotes, the customer approves');
+  eq(od.data.marketBase, 60, 'the priced products (2 x 30) are the minimum'); eq(od.data.deliveryFee, 0, 'no delivery fee set by us');
+  // a product with no price: the courier prices it
+  const mp3 = (await call('POST /api/admin/market-products', { as: A, body: { name: 'طماطم', price: null } })).json.product;
+  ok(mp3 && mp3.price === null, 'product without a price accepted');
+  const mp4 = (await call('POST /api/admin/market-products', { as: A, body: { name: 'خيار', price: '' } })).json.product;
+  ok(mp4 && mp4.price === null, 'empty price = no price');
+  const oc2 = await call('POST /api/orders/market', { as: Mh, body: { ...body, lines: [{ productId: String(mp.id), qty: 1 }, { productId: String(mp3.id), qty: 3 }] }, table: oroutes });
+  eq(oc2.status, 201, 'mixed priced + unpriced order accepted: ' + JSON.stringify(oc2.json).slice(0, 150));
+  const od2 = (await q("SELECT data FROM orders WHERE customer_user_id=$1 ORDER BY id DESC LIMIT 1", [mId])).rows[0].data;
+  eq(od2.marketBase, 30, 'only the priced product counts as the base'); eq(od2.items[1].price, null, 'unpriced item has no price'); ok(/سعّره يا مندوب/.test(od2.customText), 'the courier sees which items to price');
   eq((await call('POST /api/orders/market', { as: Mh, body: { ...body, lines: [{ productId: String(mp2.id), qty: 1 }] }, table: oroutes })).status, 409, 'stopped product refused');
   eq((await call('POST /api/orders/market', { as: Mh, body: { ...body, lines: [] }, table: oroutes })).status, 400, 'empty cart refused');
   await feat('market', false);

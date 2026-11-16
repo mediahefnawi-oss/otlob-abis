@@ -143,6 +143,13 @@ const pushes = [];
   await run([[CR, 'pickup', 'picked_up'], [CR, 'go', 'on_the_way'], [CR, 'arrive', 'arrived'], [CR, 'deliver', 'delivered']], eo.id, 'errand');
   const ee = (await q("SELECT kind, base_amount, amount FROM commission_entries WHERE order_id=$1", [eo.id])).rows;
   eq(ee.length, 1, 'only the courier cut on an errand'); eq(Number(ee[0].base_amount), 15, 'on the fee he wrote'); eq(Number(ee[0].amount), 3, '20% of 15');
+  // a market order is an errand whose priced products are the minimum goods price
+  r = await call('POST /api/orders/custom', C1, { ...base, text: 'طلب ماركت تجريبي' }); const mo = r.json.order || r.json.orders[0];
+  await q("UPDATE orders SET data = data || '{\"market\":true,\"marketBase\":60}'::jsonb WHERE id=$1", [mo.id]);
+  await act(CR, mo.id, 'courier_accept');
+  eq((await call('POST /api/orders/:id/errand-quote', CR, { subtotal: 50, fee: 10 }, { id: mo.id })).status, 400, 'market: goods below the priced products are refused');
+  r = await call('POST /api/orders/:id/errand-quote', CR, { subtotal: 75, fee: 10 }, { id: mo.id }); eq(r.status, 200, 'market: priced at or above the base'); eq(r.json.order.total, 85, 'market total = goods + courier fee');
+  eq(r.json.order.marketBase, 60, 'the base is sent to the apps'); await act(C1, mo.id, 'decline_quote');
   r = await call('POST /api/orders/custom', C1, { ...base, text: 'x' }); eq(r.status, 400, 'an errand with no text');
   r = await call('POST /api/orders/custom', C1, { ...base, text: 'عايز حاجة' }); const eo2 = r.json.order || r.json.orders[0];
   await act(CR2, eo2.id, 'courier_accept'); await call('POST /api/orders/:id/errand-quote', CR2, { subtotal: 200, fee: 30 }, { id: eo2.id });

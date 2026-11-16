@@ -8,7 +8,6 @@ import { reverseAddress, searchPlace } from '../lib/revgeo';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { useStore } from '../lib/store';
 import { alertNewOrder } from '../lib/alerts';
-import { SvcCover } from './extra';
 import {
   RideType, RidePoint, Ride, RideOffer, rideImageUrl, apiRideTypes, apiRideEstimate, apiRideCreate, apiRideCurrent, apiRideAcceptOffer, apiRideCancel,
   CaptainMe, CaptainReq, apiCaptainMe, apiCaptainProfile, apiCaptainPhoto, apiCaptainRequests, apiCaptainOffer, apiCaptainStatus, apiCaptainCurrent, CaptainRide,
@@ -96,8 +95,7 @@ export function RideHomeScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title="توصيلة" subtitle="حدد وجهتك واختار السعر اللي يناسبك" onBack={() => navigation.goBack()} />
-      <SvcCover svc="rides" />
+      <Header title="توصيلة" subtitle={ride?.bidding || est?.bidding ? 'حدد وجهتك والكباتن يحددوا السعر' : 'حدد وجهتك واختار السعر اللي يناسبك'} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         {live && ride ? (
           <>

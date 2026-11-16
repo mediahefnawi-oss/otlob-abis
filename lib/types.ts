@@ -144,6 +144,7 @@ export interface Order {
   staffDismissed?: boolean; // the owner marked this refused/stuck order as handled
   privacyMasked?: boolean; // the customer's data was hidden from this shop/courier after delivery
   autoPending?: boolean; // the owner's auto-assign gave it to this courier and he has not opened it yet (the app opens it for him)
+  market?: boolean; marketBase?: number; // a «طلبات ماركت» order: the products that already have a price are the minimum the courier can write
   errandQuote?: 'open' | 'quoted' | 'approved'; // «اطلب إيه نجيبهولك»: waiting for the courier's price / waiting for the customer / agreed
   id: string;
   number: number;

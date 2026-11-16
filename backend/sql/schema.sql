@@ -424,6 +424,8 @@ CREATE TABLE IF NOT EXISTS market_products (
   mime TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- a product may have no price: the courier who takes the order prices it
+ALTER TABLE market_products ALTER COLUMN price DROP NOT NULL;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS market_fee NUMERIC(8,2) NOT NULL DEFAULT 15;
 
 -- Look of the new services on the home (market, rides): a description line; the pictures live in site_images (svc_<key>_icon / svc_<key>_cover).

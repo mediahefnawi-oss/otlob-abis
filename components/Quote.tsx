@@ -138,13 +138,14 @@ export function QuoteSheet({ o, visible, onClose }: { o: Order; visible: boolean
 /** «اطلب إيه نجيبهولك»: the courier who took the errand writes the price of the goods and his own delivery fee. */
 export function ErrandQuoteSheet({ o, visible, onClose }: { o: Order; visible: boolean; onClose: () => void }) {
   const had = o.errandQuote === 'quoted';
-  const [goods, setGoods] = useState(had ? String(o.subtotal) : '');
+  const base = o.market ? Number(o.marketBase || 0) : 0;
+  const [goods, setGoods] = useState(had ? String(o.subtotal) : base > 0 ? String(base) : '');
   const [fee, setFee] = useState(had ? String(o.deliveryFee) : '');
   const [busy, setBusy] = useState(false);
   const g = Number(toEn(goods)), f = Number(toEn(fee));
-  const okGoods = Number.isFinite(g) && g > 0, okFee = fee.trim() !== '' && Number.isFinite(f) && f >= 0;
+  const okGoods = Number.isFinite(g) && g > 0 && g >= base, okFee = fee.trim() !== '' && Number.isFinite(f) && f >= 0;
   const submit = async () => {
-    if (!okGoods) return toast('اكتب سعر المشتريات', 'err');
+    if (!okGoods) return toast(base > 0 ? `سعر المنتجات لازم يكون ${base} ج على الأقل` : 'اكتب سعر المشتريات', 'err');
     if (!okFee) return toast('اكتب رسوم التوصيل', 'err');
     setBusy(true);
     const r = await courierQuote(o.id, g, f);
@@ -159,6 +160,7 @@ export function ErrandQuoteSheet({ o, visible, onClose }: { o: Order; visible: b
         <T w="bold" size={12} color={C.goldDeep}>طلب العميل</T>
         <T size={13.5}>{o.customText}</T>
       </View>
+      {base > 0 && <T size={12.5} color={C.goldDeep} w="bold">المنتجات اللي ليها سعر = {money(base)}. زوّد عليها سعر المنتجات اللي من غير سعر، واكتب الإجمالي.</T>}
       <Field label="سعر المشتريات (ج.م)" icon="cash" value={goods} onChangeText={setGoods} keyboardType="numeric" placeholder="مثال: 85" />
       <Field label="رسوم التوصيل (ج.م)" icon="bicycle" value={fee} onChangeText={setFee} keyboardType="numeric" placeholder="مثال: 20" />
       <Card style={{ gap: 6 }}>

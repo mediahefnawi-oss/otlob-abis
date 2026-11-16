@@ -17,27 +17,25 @@ const num = (v: string) => Number(String(v).replace(/[^\d.\-]/g, ''));
 /* ---------------- market products ---------------- */
 export function AdminMarketScreen({ navigation }: any) {
   const [list, setList] = useState<MarketProduct[] | null>(null);
-  const [fee, setFee] = useState('');
   const [name, setName] = useState(''); const [price, setPrice] = useState(''); const [cat, setCat] = useState(''); const [emoji, setEmoji] = useState('');
-  const load = useCallback(async () => { try { setList((await apiAdminMarketList()).products); setFee(String((await apiAdminMarketFee()).fee)); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
+  const load = useCallback(async () => { try { setList((await apiAdminMarketList()).products); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
   useEffect(() => { load(); }, [load]);
   const run = async (fn: () => Promise<any>, ok?: string) => { try { await fn(); if (ok) toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
-  const add = () => run(async () => { await apiAdminMarketAdd({ name, price: num(price), category: cat, emoji: emoji || '🛒' }); setName(''); setPrice(''); }, 'تمت الإضافة');
+  const add = () => run(async () => { await apiAdminMarketAdd({ name, price: price.trim() === '' ? null : num(price), category: cat, emoji: emoji || '🛒' }); setName(''); setPrice(''); }, 'تمت الإضافة');
   const pic = (id: number) => run(async () => { const img = await pickImage(); if (img) await apiAdminMarketImage(id, img); }, 'تم رفع الصورة');
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="منتجات طلبات ماركت" subtitle="إنت اللي بتضيف المنتجات وبتحدد أسعارها" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         <SvcLookCard svc="market" title="طلبات ماركت" />
-        <Card style={{ gap: 8 }}>
-          <T w="black">رسوم التوصيل (ج)</T>
-          <Field value={fee} onChangeText={setFee} keyboardType="number-pad" />
-          <Btn title="حفظ الرسوم" small variant="soft" onPress={() => run(() => apiAdminMarketSetFee(num(fee)), 'تم حفظ الرسوم')} />
+        <Card style={{ gap: 4 }}>
+          <T w="black">التوصيل</T>
+          <T size={12.5} color={C.sub}>مفيش سعر توصيل ثابت: المندوب بيحدد سعر التوصيل وسعر أي منتج من غير سعر، والعميل بيوافق على الفاتورة.</T>
         </Card>
         <Card style={{ gap: 8 }}>
           <T w="black">إضافة منتج</T>
           <Field label="الاسم" value={name} onChangeText={setName} />
-          <Field label="السعر (ج)" value={price} onChangeText={setPrice} keyboardType="number-pad" />
+          <Field label="السعر (ج) — سيبه فاضي لو المندوب هو اللي يسعّره" value={price} onChangeText={setPrice} keyboardType="number-pad" />
           <Field label="القسم (مثال: ألبان)" value={cat} onChangeText={setCat} />
           <Field label="إيموجي (اختياري)" value={emoji} onChangeText={setEmoji} />
           <Btn title="أضف" icon="add-circle" onPress={add} />
@@ -48,13 +46,14 @@ export function AdminMarketScreen({ navigation }: any) {
               <View style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: '#EEF3EE', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                 {p.image ? <Image source={{ uri: marketImageUrl(p) }} style={{ width: 52, height: 52 }} /> : <Text style={{ fontSize: 26 }}>{p.emoji}</Text>}
               </View>
-              <View style={{ flex: 1 }}><T w="black">{p.name}</T><T size={12} color={C.sub}>{p.category || 'بدون قسم'} • {p.price} ج</T></View>
+              <View style={{ flex: 1 }}><T w="black">{p.name}</T><T size={12} color={C.sub}>{p.category || 'بدون قسم'} • {p.price == null ? 'بدون سعر (المندوب يسعّره)' : `${p.price} ج`}</T></View>
               <Chip label={p.available ? 'متاح' : 'موقوف'} active={p.available} onPress={() => run(() => apiAdminMarketEdit(p.id, { available: !p.available }))} />
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Btn title="صورة" small variant="soft" style={{ flex: 1 }} onPress={() => pic(p.id)} />
-              <Btn title="سعر +5" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: p.price + 5 }))} />
-              <Btn title="سعر -5" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: Math.max(0, p.price - 5) }))} />
+              <Btn title="سعر +5" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: (p.price ?? 0) + 5 }))} />
+              <Btn title="سعر -5" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: Math.max(0, (p.price ?? 0) - 5) }))} />
+              <Btn title={p.price == null ? 'له سعر' : 'بدون سعر'} small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: p.price == null ? 10 : null }))} />
               <Btn title="حذف" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketDelete(p.id), 'تم الحذف')} />
             </View>
           </Card>

@@ -4,7 +4,10 @@ const NAME_MAX = 60;
 function cleanProduct(b, partial = false) {
   b = b || {}; const out = {};
   if (!partial || b.name !== undefined) { const n = String(b.name || '').trim(); if (!n || n.length > NAME_MAX) return null; out.name = n; }
-  if (!partial || b.price !== undefined) { const v = Number(b.price); if (!Number.isFinite(v) || v < 0 || v > 100000) return null; out.price = Math.round(v * 100) / 100; }
+  if (!partial || b.price !== undefined) {
+    if (b.price === null || b.price === undefined || b.price === '') out.price = null;   // no price: the courier prices it
+    else { const v = Number(b.price); if (!Number.isFinite(v) || v < 0 || v > 100000) return null; out.price = Math.round(v * 100) / 100; }
+  }
   if (b.category !== undefined) out.category = String(b.category).trim().slice(0, 30);
   if (b.emoji !== undefined) out.emoji = String(b.emoji).trim().slice(0, 8) || '🛒';
   if (b.available !== undefined) out.available = !!b.available;
@@ -16,7 +19,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
   const guard = fn => asyncRoute(async (req, res) => { try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; } });
   const admin = [auth, roles('admin')];
   const COLS = 'id, name, category, price, emoji, available, sort_order, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
-  const out = r => ({ id: r.id, name: r.name, category: r.category, price: Number(r.price), emoji: r.emoji, available: r.available, sort: r.sort_order, image: r.has_image ? `/api/market-image/${r.id}?v=${r.v}` : null });
+  const out = r => ({ id: r.id, name: r.name, category: r.category, price: r.price == null ? null : Number(r.price), emoji: r.emoji, available: r.available, sort: r.sort_order, image: r.has_image ? `/api/market-image/${r.id}?v=${r.v}` : null });
 
   app.get('/api/admin/market-products', ...admin, guard(async (_req, res) => {
     res.json({ products: (await pool.query(`SELECT ${COLS} FROM market_products ORDER BY sort_order, id`)).rows.map(out) });

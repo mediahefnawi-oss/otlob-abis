@@ -36,7 +36,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), discount: d.discount > 0 ? num(d.discount) : undefined, couponCode: d.discount > 0 ? d.couponCode : undefined, giftCode: d.giftCode || undefined, deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
       courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
-      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], premium: d.premium ? true : undefined, courierFee: d.premiumFree && d.normalFee != null ? num(d.normalFee) : undefined, autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, staffDismissed: d.staffDismissed ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined,
+      createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], premium: d.premium ? true : undefined, courierFee: d.premiumFree && d.normalFee != null ? num(d.normalFee) : undefined, autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, staffDismissed: d.staffDismissed ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined, market: d.market || undefined, marketBase: d.marketBase != null ? num(d.marketBase) : undefined,
     };
   };
   const invoiceJson = r => ({
@@ -650,28 +650,30 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const out = await withTx(async db => {
       const pr = await db.query('SELECT id, name, price, emoji, available FROM market_products WHERE id = ANY($1::bigint[])', [lines.map(l => l.id)]);
       const byId = new Map(pr.rows.map(r => [Number(r.id), r]));
-      const items = []; let subtotal = 0;
+      const items = []; let base = 0;
       for (const l of lines) {
         const p = byId.get(l.id);
         if (!p || !p.available) throw fail(409, 'أحد المنتجات لم يعد متاحاً');
-        items.push({ productId: String(p.id), name: p.name, price: Number(p.price), qty: l.qty, emoji: p.emoji || '🛒' });
-        subtotal += Number(p.price) * l.qty;
+        const priced = p.price != null;
+        items.push({ productId: String(p.id), name: p.name, price: priced ? Number(p.price) : null, qty: l.qty, emoji: p.emoji || '🛒' });
+        if (priced) base += Number(p.price) * l.qty;
       }
-      subtotal = Math.round(subtotal * 100) / 100;
-      const fee = Number(((await db.query('SELECT market_fee FROM app_settings WHERE id=1')).rows[0] || {}).market_fee ?? 15);
-      const total = Math.round((subtotal + fee) * 100) / 100;
+      base = Math.round(base * 100) / 100;
+      // like "اطلب إيه نجيبهولك": no fixed delivery fee; the courier prices the unpriced items + his delivery, the customer approves the invoice
+      const customText = ('طلبات ماركت:\n' + items.map(i => `- ${i.name} × ${i.qty}${i.price == null ? ' (سعّره يا مندوب)' : ` (${i.price} ج)`}`).join('\n')).slice(0, 1000);
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
       const d = {
-        customerName: me.rows[0].name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: 'طلبات ماركت', providerType: 'market', providerOwnerId: '', items, subtotal, deliveryFee: fee,
+        customerName: me.rows[0].name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: 'طلبات ماركت', providerType: 'custom', providerOwnerId: '', items, customText,
+        market: true, marketBase: base, subtotal: 0, deliveryFee: 0, errandQuote: 'open',
         regionName: region ? region.name : undefined, ...(await flagData(db, Number(req.auth.sub), dest)),
         history: [{ status: 'pending', at: Date.now() }, { status: 'accepted', at: Date.now() }],
       };
-      let o = (await db.query("INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,NULL,'accepted',$2,$3,$4) RETURNING *",
-        [Number(req.auth.sub), total, region ? region.id : null, JSON.stringify(d)])).rows[0];
-      const inv = (await db.query("INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,'delivery',$3,$4) RETURNING *", [
-        Number(req.auth.sub), o.id, total,
-        JSON.stringify({ number: `INV-${o.order_number}`, customerName: d.customerName, phone, address, parts: [{ orderId: String(o.id), providerId: 'market', providerName: 'طلبات ماركت', providerType: 'market', items, subtotal, deliveryFee: fee }] }),
+      let o = (await db.query("INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,NULL,'accepted',0,$2,$3) RETURNING *",
+        [Number(req.auth.sub), region ? region.id : null, JSON.stringify(d)])).rows[0];
+      const inv = (await db.query("INSERT INTO invoices(customer_user_id, order_id, kind, total, data) VALUES($1,$2,'delivery',0,$3) RETURNING *", [
+        Number(req.auth.sub), o.id,
+        JSON.stringify({ number: `INV-${o.order_number}`, customerName: d.customerName, phone, address, parts: [{ orderId: String(o.id), providerId: 'custom', providerName: 'طلبات ماركت', providerType: 'custom', items, customText, subtotal: 0, deliveryFee: 0 }] }),
       ])).rows[0];
       o = (await db.query('UPDATE orders SET updated_at=NOW(), data=$1 WHERE id=$2 RETURNING *', [JSON.stringify({ ...o.data, groupId: String(inv.id), invoiceId: String(inv.id) }), o.id])).rows[0];
       o = await tryAutoAssign(db, o);
@@ -950,6 +952,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const money = v => Math.round(Number(v) * 100) / 100;
     const subtotal = money((req.body || {}).subtotal), fee = money((req.body || {}).fee);
     if (!(subtotal > 0) || subtotal > 100000) throw fail(400, 'اكتب سعر المشتريات');
+    // (a market order: the total of the goods can not be lower than the products that already have a price; checked again on the row below)
     if (!(fee >= 0) || fee > 1000) throw fail(400, 'اكتب رسوم التوصيل (من 0 إلى 1000 ج.م)');
     const out = await withTx(async db => {
       const f = await db.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [id]);
@@ -958,6 +961,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       if (!isErrand(row)) throw fail(400, 'هذا ليس طلب «اطلب إيه نجيبهولك»');
       if (req.auth.role !== 'admin' && Number(row.courier_user_id) !== Number(req.auth.sub)) throw fail(403, 'للمندوب الذي قبل الطلب فقط');
       if (!['accepted', 'quoted'].includes(row.status) || row.data.errandQuote === 'approved') throw fail(409, 'حالة الطلب لا تسمح بالتسعير الآن');
+      if (row.data.market && subtotal < Number(row.data.marketBase || 0)) throw fail(400, `سعر المنتجات لازم يكون ${row.data.marketBase} ج على الأقل (المنتجات المسعّرة)`);
       const total = money(subtotal + fee);
       let invoiceId = row.data.invoiceId ? Number(row.data.invoiceId) : null;
       if (invoiceId) {
