@@ -253,7 +253,13 @@ export function MarketScreen({ navigation, route }: any) {
             <Card style={{ gap: 10 }}>
               <T w="black" size={15}>طلبك</T>
               {lines.map((l) => { const p = items.find((x) => String(x.id) === l.productId); return p ? (
-                <View key={l.productId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T>{p.name} × {l.qty}</T><T w="bold" color={eff(p) == null ? C.goldDeep : C.text}>{eff(p) == null ? 'المندوب يسعّره' : `${(eff(p) as number) * l.qty} ج`}</T></View>
+                <View key={l.productId} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <T w="bold" size={13.5} numberOfLines={2}>{p.name}</T>
+                    <T size={12} w="bold" color={eff(p) == null ? C.goldDeep : C.sub}>{eff(p) == null ? 'المندوب يسعّره' : `${(eff(p) || 0) * l.qty} ج`}</T>
+                  </View>
+                  <Stepper qty={l.qty} onAdd={() => set(p.id, 1)} onSub={() => { if (l.qty === 1 && lines.length === 1) setCheckout(false); set(p.id, -1); }} />
+                </View>
               ) : null; })}
               <View style={{ height: 1, backgroundColor: C.line }} />
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T>منتجات بسعر ثابت</T><T w="bold">{subtotal} ج</T></View>
