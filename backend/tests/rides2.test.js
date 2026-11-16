@@ -192,6 +192,7 @@ const R2 = require('../src/rides2.js');
   eq((await call('POST /api/admin/captains', { as: A, body: { ...nc, password: 'short' } })).status, 400, 'short password refused');
   const nr = await call('POST /api/admin/captains', { as: A, body: nc }); eq(nr.status, 200, 'owner adds a captain');
   eq((await q('SELECT status FROM captain_profiles WHERE user_id=$1', [nr.json.id])).rows[0].status, 'approved', 'the new captain is approved at once');
+  eq((await q('SELECT available FROM users WHERE id=$1', [nr.json.id])).rows[0].available, false, 'a new captain is not on the courier delivery list (rides only until he turns it on himself)');
   eq((await call('POST /api/admin/captains', { as: A, body: nc })).status, 409, 'same phone refused');
   await q('DELETE FROM users WHERE id=$1', [nr.json.id]);
 

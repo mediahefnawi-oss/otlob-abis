@@ -97,7 +97,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
-      const u = await c.query("INSERT INTO users(name,phone,password_hash,role,address,status,vehicle) VALUES($1,$2,$3,'courier','كابتن توصيلة','active','توصيلة') RETURNING id", [name, phone, hash]);
+      const u = await c.query("INSERT INTO users(name,phone,password_hash,role,address,status,vehicle,available) VALUES($1,$2,$3,'courier','كابتن توصيلة','active','توصيلة',FALSE) RETURNING id", [name, phone, hash]);
       await c.query("INSERT INTO captain_profiles(user_id, type_id, model, color, plate, status) VALUES($1,$2,$3,$4,$5,'approved')", [u.rows[0].id, typeId, str(b.model, 60), str(b.color, 30), str(b.plate, 20)]);
       await c.query('COMMIT');
       res.json({ ok: true, id: Number(u.rows[0].id) });
