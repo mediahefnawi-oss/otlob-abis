@@ -205,6 +205,7 @@ async function ensureSchema() {
       client.release();
     }
   }
+  if (schemaState === 'ok') { try { await require('./rides').seedTypes(pool); } catch (e) { console.error('ride types seed skipped:', e.message); } }
   const username = process.env.OWNER_USERNAME;
   const phone = process.env.OWNER_PHONE || '01000000000';
   const existing = await pool.query("SELECT id FROM users WHERE role='admin' AND phone=$1", [phone]);

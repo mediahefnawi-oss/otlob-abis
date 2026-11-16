@@ -155,6 +155,14 @@ const R2 = require('../src/rides2.js');
   eq((await call('POST /api/rides', { as: C, body: { ...body, price: est.price } })).status, 404, 'closed when OFF');
   eq((await call('GET /api/admin/captains', { as: A })).status, 200, 'owner panel still works when OFF');
 
+
+  // ---- the first-time seed of the six types
+  await q('TRUNCATE ride_types RESTART IDENTITY CASCADE'); await q("DELETE FROM service_meta WHERE key='rides_seeded'");
+  eq(await R.seedTypes(pool), 6, 'six types seeded');
+  const sd = (await q('SELECT name, (image IS NOT NULL) AS img FROM ride_types ORDER BY sort_order')).rows;
+  eq(sd.map(x => x.name), ['توكتوك', 'دراجة نارية', 'ملاكي', 'تونية', 'سقف عالي', 'عربية نقل'], 'names in order'); ok(sd.every(x => x.img), 'every type has its photo');
+  eq(await R.seedTypes(pool), 0, 'second run adds nothing');
+  await q('DELETE FROM ride_types'); eq(await R.seedTypes(pool), 0, 'what the owner deleted is not added back'); eq((await q('SELECT COUNT(*)::int c FROM ride_types')).rows[0].c, 0, 'still empty');
   console.log(`rides2: ${pass} passed, ${failN} failed`);
   await pool.end(); process.exit(failN ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -54,6 +54,32 @@ async function roadDistance(a, b, fetchFn = globalThis.fetch) {
   return { km: d, min: Math.max(1, Math.round(d * 2.5)), source: 'line' };
 }
 
+/** The first time only: the six vehicle types with their photos and starting prices (the owner edits everything from the panel). */
+const SEED_TYPES = [
+  { name: 'توكتوك', file: 'tuk.jpg', base: 5, perKm: 6, min: 15 },
+  { name: 'دراجة نارية', file: 'bike.jpg', base: 5, perKm: 5, min: 15 },
+  { name: 'ملاكي', file: 'car.jpg', base: 10, perKm: 9, min: 30 },
+  { name: 'تونية', file: 'ton.jpg', base: 15, perKm: 10, min: 40 },
+  { name: 'سقف عالي', file: 'van.jpg', base: 20, perKm: 12, min: 60 },
+  { name: 'عربية نقل', file: 'truck.jpg', base: 30, perKm: 15, min: 80 },
+];
+async function seedTypes(pool, dir = require('path').join(__dirname, '..', 'seed', 'rides')) {
+  const fs = require('fs');
+  const done = await pool.query("SELECT 1 FROM service_meta WHERE key='rides_seeded'");
+  if (done.rowCount) return 0;                      // already done once: never re-add what the owner deleted
+  const n = await pool.query('SELECT COUNT(*)::int AS c FROM ride_types');
+  if (n.rows[0].c === 0) {
+    let i = 0;
+    for (const t of SEED_TYPES) {
+      i++;
+      let img = null; try { img = fs.readFileSync(require('path').join(dir, t.file)); } catch { /* the type is still created, without a picture */ }
+      await pool.query('INSERT INTO ride_types(name, base_fee, per_km, min_fee, adj_pct, sort_order, active, image, mime) VALUES($1,$2,$3,$4,30,$5,TRUE,$6,$7)', [t.name, t.base, t.perKm, t.min, i, img, img ? 'image/jpeg' : null]);
+    }
+  }
+  await pool.query("INSERT INTO service_meta(key, sub) VALUES('rides_seeded','1') ON CONFLICT (key) DO NOTHING");
+  return n.rows[0].c === 0 ? SEED_TYPES.length : 0;
+}
+
 function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, clearCaches }) {
   const fail = (status, error) => Object.assign(new Error(error), { http: status });
   const guard = fn => asyncRoute(async (req, res) => { try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; } });
@@ -131,4 +157,4 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
     res.json({ km: d.km, minutes: d.min, source: d.source, price, ...bounds(price, t.rows[0].adj_pct) });
   }));
 }
-module.exports = { priceFor, bounds, cleanType, roadDistance, register };
+module.exports = { priceFor, bounds, cleanType, roadDistance, seedTypes, register };
