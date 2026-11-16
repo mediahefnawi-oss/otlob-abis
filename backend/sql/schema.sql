@@ -390,6 +390,40 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_offer_secs INT NOT NULL D
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS ride_radius_km NUMERIC(5,1) NOT NULL DEFAULT 5;
 ALTER TABLE ride_types ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(5,2);
 
+-- Group order (one shared cart per shop, each friend adds from his own account) and the owner's "market" catalogue.
+CREATE TABLE IF NOT EXISTS group_carts (
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  owner_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider_id BIGINT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','ordered','cancelled')),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_group_carts_owner ON group_carts(owner_id, status);
+CREATE TABLE IF NOT EXISTS group_items (
+  id BIGSERIAL PRIMARY KEY,
+  cart_id BIGINT NOT NULL REFERENCES group_carts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  qty INT NOT NULL CHECK (qty BETWEEN 1 AND 50),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (cart_id, user_id, product_id)
+);
+CREATE TABLE IF NOT EXISTS market_products (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT '',
+  price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  emoji TEXT NOT NULL DEFAULT '🛒',
+  available BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INT NOT NULL DEFAULT 0,
+  image BYTEA,
+  mime TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS market_fee NUMERIC(8,2) NOT NULL DEFAULT 15;
+
 -- Default commissions (seeded once; afterwards the owner edits them from the panel).
 DO $$
 BEGIN

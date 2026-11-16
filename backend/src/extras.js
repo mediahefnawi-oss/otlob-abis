@@ -4,6 +4,8 @@
  * Every new feature starts switched OFF; the owner opens it from the panel (and can close it again at any time).
  */
 const FEATURES = {
+  groupOrder: { label: 'الطلب الجماعي (سلة مشتركة)', on: false },
+  market: { label: 'طلبات ماركت', on: false },
   rides: { label: 'خدمة التوصيلة (تجريبي)', on: false },
   menu: { label: 'المنيو وطرق الطلب', on: false },
   chat: { label: 'شات العميل مع المحل', on: false },
