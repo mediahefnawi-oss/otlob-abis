@@ -4,7 +4,7 @@ import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog } from '../components/ui';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import {
-  MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketImportDefaults, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
+  MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketImportDefaults, apiAdminMarketSetOfferText, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
   RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission,
   SvcKey, apiAdminSvcImage, apiAdminSvcSub, apiSvcMeta, svcImageUrl,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
@@ -16,6 +16,47 @@ const PHOTO_AR = { car: 'العربية', license: 'رخصة المركبة', dr
 const num = (v: string) => Number(String(v).replace(/[^\d.\-]/g, ''));
 
 /* ---------------- market products ---------------- */
+/** Owner: a discount on one product (percent, optional hours until it ends, optional button text of its own). */
+function DiscountEditor({ p, onSave }: { p: MarketProduct; onSave: (b: { discountPct: number | null; offerUntil: string | null; offerText: string }) => void }) {
+  const [pct, setPct] = useState(p.discountPct ? String(p.discountPct) : '');
+  const [hours, setHours] = useState('');
+  const [txt, setTxt] = useState(p.offerText || '');
+  if (p.price == null) return <T size={11.5} color={C.sub}>الخصم للمنتجات اللي ليها سعر. حط سعر للمنتج الأول.</T>;
+  const n = num(pct), after = n > 0 ? Math.round(p.price * (100 - n)) / 100 : null;
+  const until = p.offerUntil ? new Date(p.offerUntil) : null;
+  return (
+    <View style={{ gap: 6, backgroundColor: '#FFF6F5', borderRadius: 12, padding: 8 }}>
+      <T w="black" size={12.5} color="#C4251F">🔥 خصم على المنتج {p.onOffer ? '(شغال)' : ''}</T>
+      <Field label="نسبة الخصم % (من 1 إلى 90 — فاضي = بدون خصم)" value={pct} onChangeText={setPct} keyboardType="number-pad" />
+      {after != null && <T size={12.5} w="bold" color="#C4251F">السعر بعد الخصم: {after} ج (بدل {p.price} ج)</T>}
+      <Field label="ينتهي بعد كام ساعة؟ (فاضي = مفتوح لحد ما توقفه)" value={hours} onChangeText={setHours} keyboardType="number-pad" />
+      {!!until && !hours && <T size={11.5} color={C.sub}>ينتهي: {until.toLocaleString('ar-EG')}</T>}
+      <Field label="جملة الزر لهذا المنتج (اختياري)" value={txt} onChangeText={setTxt} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn title="حفظ العرض" small style={{ flex: 1 }} onPress={() => {
+          if (pct.trim() !== '' && (n < 1 || n > 90)) return toast('نسبة الخصم من 1 إلى 90', 'err');
+          const h = num(hours);
+          onSave({ discountPct: pct.trim() === '' ? null : n, offerUntil: hours.trim() === '' ? (p.offerUntil || null) : h > 0 ? new Date(Date.now() + h * 3600000).toISOString() : null, offerText: txt.trim() });
+        }} />
+        {!!p.discountPct && <Btn title="إيقاف العرض" small variant="soft" style={{ flex: 1 }} onPress={() => onSave({ discountPct: null, offerUntil: null, offerText: '' })} />}
+      </View>
+    </View>
+  );
+}
+
+/** Owner: the button sentence shown on every discounted product (a product can have its own). */
+function OfferTextCard() {
+  const [t, setT] = useState('');
+  useEffect(() => { apiAdminMarketFee().then((r) => setT(r.offerText || 'وفّر واطلب')).catch(() => {}); }, []);
+  return (
+    <Card style={{ gap: 8 }}>
+      <T w="black">جملة زر العروض (لكل التطبيق)</T>
+      <Field label="مثال: وفّر واطلب • الحق العرض • خصم النهارده" value={t} onChangeText={setT} />
+      <Btn title="حفظ الجملة" small variant="soft" onPress={async () => { try { await apiAdminMarketSetOfferText(t); toast('تم الحفظ'); } catch (e) { toast(errText(e), 'err'); } }} />
+    </Card>
+  );
+}
+
 export function AdminMarketScreen({ navigation }: any) {
   const [list, setList] = useState<MarketProduct[] | null>(null);
   const [name, setName] = useState(''); const [price, setPrice] = useState(''); const [cat, setCat] = useState(''); const [emoji, setEmoji] = useState('');
@@ -29,6 +70,7 @@ export function AdminMarketScreen({ navigation }: any) {
       <Header title="منتجات طلبات ماركت" subtitle="إنت اللي بتضيف المنتجات وبتحدد أسعارها" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         <SvcLookCard svc="market" title="طلبات ماركت" />
+        <OfferTextCard />
         <Card style={{ gap: 4 }}>
           <T w="black">التوصيل</T>
           <T size={12.5} color={C.sub}>مفيش سعر توصيل ثابت: المندوب بيحدد سعر التوصيل وسعر أي منتج من غير سعر، والعميل بيوافق على الفاتورة.</T>
@@ -58,6 +100,7 @@ export function AdminMarketScreen({ navigation }: any) {
               <Btn title={p.price == null ? 'له سعر' : 'بدون سعر'} small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: p.price == null ? 10 : null }))} />
               <Btn title="حذف" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketDelete(p.id), 'تم الحذف')} />
             </View>
+            <DiscountEditor key={`${p.id}-${p.discountPct}-${p.offerUntil}`} p={p} onSave={(b) => run(() => apiAdminMarketEdit(p.id, b), 'تم حفظ العرض')} />
           </Card>
         ))}
       </ScrollView>

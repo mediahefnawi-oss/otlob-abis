@@ -172,7 +172,39 @@ export function GroupCartScreen({ navigation, route }: any) {
 }
 
 /* ---------------- market ---------------- */
-export function MarketScreen({ navigation }: any) {
+/** Home: the market products that have a live discount (nothing shown when there are none or the service is off). */
+export function MarketOffersRow({ navigation }: { navigation: any }) {
+  const [items, setItems] = useState<MarketProduct[]>([]);
+  const [text, setText] = useState('وفّر واطلب');
+  useEffect(() => { let live = true; apiMarketProducts().then((r) => { if (!live) return; setItems(r.products.filter((x) => x.onOffer && x.available).slice(0, 10)); if (r.offerText) setText(r.offerText); }).catch(() => {}); return () => { live = false; }; }, []);
+  if (!items.length) return null;
+  return (
+    <View style={{ marginBottom: 14 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <T w="black" size={15}>🔥 عروض وخصومات ماركت</T>
+        <Pressable onPress={() => navigation.navigate('Market', { offers: true })}><T size={12} w="bold" color={C.green}>عرض الكل ›</T></Pressable>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9 }}>
+        {items.map((p) => (
+          <Pressable key={p.id} onPress={() => navigation.navigate('Market', { addId: p.id })} style={[{ width: 116, backgroundColor: '#fff', borderRadius: 16, padding: 6, gap: 3 }, shadow]}>
+            <View style={{ width: '100%', height: 66, borderRadius: 12, backgroundColor: '#F1F5F1', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              {p.image ? <Image source={{ uri: marketImageUrl(p) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Text style={{ fontSize: 32 }}>{p.emoji}</Text>}
+              <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: '#E5322D', borderRadius: 7, paddingHorizontal: 5 }}><T size={10} w="black" color="#fff">-{p.discountPct}%</T></View>
+            </View>
+            <T w="bold" size={11.5} numberOfLines={1}>{p.name}</T>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <T w="black" size={13} color="#C4251F">{p.salePrice} ج</T>
+              <T size={10.5} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{p.price} ج</T>
+            </View>
+            <View style={{ backgroundColor: C.green, borderRadius: 9, paddingVertical: 4 }}><T size={11} w="black" color="#fff" align="center" numberOfLines={1}>{p.offerText || text}</T></View>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+export function MarketScreen({ navigation, route }: any) {
   const me = useMe()!;
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<MarketProduct[]>([]);
@@ -183,11 +215,22 @@ export function MarketScreen({ navigation }: any) {
   const [address, setAddress] = useState(me.address);
   const [busy, setBusy] = useState(false);
   const [checkout, setCheckout] = useState(false);
-  useEffect(() => { apiMarketProducts().then((r) => { setItems(r.products); setState('ok'); }).catch(() => setState('err')); }, []);
-  const cats: string[] = ['الكل', ...(Array.from(new Set(items.map((x) => x.category).filter(Boolean))) as string[])];
-  const shown = items.filter((x) => cat === 'الكل' || x.category === cat);
+  const [offerText, setOfferText] = useState('وفّر واطلب');
+  const OFFERS = '🔥 عروض';
+  useEffect(() => {
+    apiMarketProducts().then((r) => {
+      setItems(r.products); setState('ok'); if (r.offerText) setOfferText(r.offerText);
+      const add = Number(route?.params?.addId);   // "وفّر واطلب" on the home: open with that product already in the cart
+      if (add && r.products.some((x) => x.id === add && x.available)) setQty((q) => ({ ...q, [add]: 1 }));
+      if (route?.params?.offers) setCat(OFFERS);
+    }).catch(() => setState('err'));
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  const hasOffers = items.some((x) => x.onOffer);
+  const cats: string[] = ['الكل', ...(hasOffers ? [OFFERS] : []), ...(Array.from(new Set(items.map((x) => x.category).filter(Boolean))) as string[])];
+  const shown = items.filter((x) => cat === 'الكل' || (cat === OFFERS ? !!x.onOffer : x.category === cat));
+  const eff = (x?: MarketProduct) => (x ? (x.salePrice ?? x.price) : null);
   const lines: { productId: string; qty: number }[] = Object.keys(qty).map((id) => ({ productId: id, qty: Number(qty[Number(id)]) })).filter((l) => l.qty > 0);
-  const priced = (l: { productId: string; qty: number }) => items.find((x) => String(x.id) === l.productId)?.price;
+  const priced = (l: { productId: string; qty: number }) => eff(items.find((x) => String(x.id) === l.productId));
   const subtotal = lines.reduce((s, l) => s + (priced(l) || 0) * l.qty, 0);
   const unpriced = lines.filter((l) => priced(l) == null).length;
   const count = lines.reduce((s, l) => s + l.qty, 0);
@@ -211,7 +254,7 @@ export function MarketScreen({ navigation }: any) {
             <Card style={{ gap: 10 }}>
               <T w="black" size={15}>طلبك</T>
               {lines.map((l) => { const p = items.find((x) => String(x.id) === l.productId); return p ? (
-                <View key={l.productId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T>{p.name} × {l.qty}</T><T w="bold" color={p.price == null ? C.goldDeep : C.text}>{p.price == null ? 'المندوب يسعّره' : `${p.price * l.qty} ج`}</T></View>
+                <View key={l.productId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T>{p.name} × {l.qty}</T><T w="bold" color={eff(p) == null ? C.goldDeep : C.text}>{eff(p) == null ? 'المندوب يسعّره' : `${(eff(p) as number) * l.qty} ج`}</T></View>
               ) : null; })}
               <View style={{ height: 1, backgroundColor: C.line }} />
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T>منتجات بسعر ثابت</T><T w="bold">{subtotal} ج</T></View>
@@ -241,13 +284,18 @@ export function MarketScreen({ navigation }: any) {
                 <View key={p.id} style={[{ width: tile, backgroundColor: '#fff', borderRadius: 16, padding: 6, gap: 3, borderWidth: q > 0 ? 1.5 : 0, borderColor: C.green }, shadow]}>
                   <View style={{ width: '100%', aspectRatio: 1.15, borderRadius: 12, backgroundColor: '#F1F5F1', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                     {p.image ? <Image source={{ uri: marketImageUrl(p) }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Text style={{ fontSize: 34 }}>{p.emoji}</Text>}
+                    {p.onOffer && <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: '#E5322D', borderRadius: 7, paddingHorizontal: 5 }}><T size={9.5} w="black" color="#fff">-{p.discountPct}%</T></View>}
                     {p.price == null && <View style={{ position: 'absolute', top: 4, right: 4, backgroundColor: C.goldSoft, borderRadius: 7, paddingHorizontal: 5 }}><T size={9} w="bold" color={C.goldDeep}>بدون سعر</T></View>}
                   </View>
                   <T w="bold" size={12} numberOfLines={2} style={{ minHeight: 30 }}>{p.name}</T>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <T size={12} w="black" color={p.price == null ? C.goldDeep : C.green} numberOfLines={1} style={{ flex: 1 }}>{p.price == null ? 'سعر المندوب' : `${p.price} ج`}</T>
+                    <View style={{ flex: 1 }}>
+                      <T size={12} w="black" color={p.price == null ? C.goldDeep : p.onOffer ? '#C4251F' : C.green} numberOfLines={1}>{p.price == null ? 'سعر المندوب' : `${eff(p)} ج`}</T>
+                      {p.onOffer && <T size={10} color={C.sub} style={{ textDecorationLine: 'line-through' }}>{p.price} ج</T>}
+                    </View>
                     {q === 0 && <Pressable onPress={() => set(p.id, 1)} hitSlop={6} style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.green, alignItems: 'center', justifyContent: 'center' }}><Icon name="add" size={18} color="#fff" /></Pressable>}
                   </View>
+                  {p.onOffer && q === 0 && <Pressable onPress={() => set(p.id, 1)}><View style={{ backgroundColor: C.green, borderRadius: 9, paddingVertical: 3 }}><T size={10.5} w="black" color="#fff" align="center" numberOfLines={1}>{p.offerText || offerText}</T></View></Pressable>}
                   {q > 0 && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#E6F3EA', borderRadius: 10, paddingHorizontal: 4, height: 28 }}>
                       <Pressable onPress={() => set(p.id, 1)} hitSlop={6}><Icon name="add-circle" size={22} color={C.green} /></Pressable>

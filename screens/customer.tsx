@@ -30,7 +30,7 @@ import { ShopChatButton } from '../components/Chat';
 import { MyRxCard } from '../components/Rx';
 import { RegionClosedBanner } from '../components/Regions';
 import { AddressPicker } from '../components/AddressBook';
-import { GroupOrderButton, useGroupLink, useSvcMeta } from './extra';
+import { GroupOrderButton, useGroupLink, useSvcMeta, MarketOffersRow } from './extra';
 import { svcImageUrl } from '../lib/api';
 import { HomeNew, AddressSheet } from '../components/HomeNew';
 import { RatingLine, useRatingStars } from '../components/Stars';
@@ -169,6 +169,7 @@ function HomeOld({ navigation }: any) {
             ? <View style={{ marginHorizontal: -16, marginTop: -6, marginBottom: 12 }}><AdsCarousel /></View>
             : <View style={{ marginTop: -2, marginBottom: 12, borderRadius: 26, overflow: 'hidden', ...shadow }}><Image source={require('../assets/images/home/banner.webp')} style={{ width: '100%', aspectRatio: 782 / 376 }} resizeMode="cover" /></View>}
           <RegionClosedBanner regionId={me.regionId} />
+          {!!db.settings.features?.market && <MarketOffersRow navigation={navigation} />}
           <TodayOffers onOpen={(id) => navigation.navigate('Provider', { id })} />
           <FavoritesRow />
           {!!db.settings.announcement && (
