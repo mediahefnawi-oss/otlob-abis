@@ -109,6 +109,9 @@ const R2 = require('../src/rides2.js');
   eq((await call('POST /api/rides/:id/accept-offer', { as: C, params: { id: rid }, body: { offerId: cur.offers[0].id } })).status, 404, 'old offer is closed (rejected)');
 
   // status flow + commission
+  const cc = await call('GET /api/captain/current', { as: D1 });
+  ok(cc.status === 200 && cc.json.ride && Number(cc.json.ride.id) === Number(rid) && cc.json.ride.customer && cc.json.ride.from.lat !== undefined, 'captain sees the accepted ride with both points and the customer');
+  eq((await call('GET /api/captain/current', { as: D2 })).json.ride, null, 'another captain sees nothing');
   eq((await call('POST /api/captain/rides/:id/status', { as: D1, params: { id: rid }, body: { status: 'completed' } })).status, 409, 'cannot skip steps');
   eq((await call('POST /api/captain/rides/:id/status', { as: D2, params: { id: rid }, body: { status: 'arrived' } })).status, 409, 'another captain cannot move it');
   for (const s of ['arrived', 'started']) eq((await call('POST /api/captain/rides/:id/status', { as: D1, params: { id: rid }, body: { status: s } })).status, 200, s);

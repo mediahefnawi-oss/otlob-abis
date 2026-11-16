@@ -11,7 +11,7 @@ import { alertNewOrder } from '../lib/alerts';
 import { SvcCover } from './extra';
 import {
   RideType, RidePoint, Ride, RideOffer, rideImageUrl, apiRideTypes, apiRideEstimate, apiRideCreate, apiRideCurrent, apiRideAcceptOffer, apiRideCancel,
-  CaptainMe, CaptainReq, apiCaptainMe, apiCaptainProfile, apiCaptainPhoto, apiCaptainRequests, apiCaptainOffer, apiCaptainStatus,
+  CaptainMe, CaptainReq, apiCaptainMe, apiCaptainProfile, apiCaptainPhoto, apiCaptainRequests, apiCaptainOffer, apiCaptainStatus, apiCaptainCurrent, CaptainRide,
 } from '../lib/api';
 
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
@@ -40,6 +40,7 @@ export function RideHomeScreen({ navigation }: any) {
   const [est, setEst] = useState<{ km: number; minutes: number; price: number; lo: number; hi: number; route?: [number, number][] | null } | null>(null);
   const [target, setTarget] = useState<'from' | 'to'>('from');
   const [note, setNote] = useState('');
+  const [fromDetails, setFromDetails] = useState('');
   const [locating, setLocating] = useState(false);
   const [searching, setSearching] = useState(false);
   const [price, setPrice] = useState(0);
@@ -86,7 +87,7 @@ export function RideHomeScreen({ navigation }: any) {
   const request = async () => {
     if (!from || !to || !typeId || !est) return;
     setBusy(true);
-    try { await apiRideCreate({ ...from, text: fromText }, { ...to, text: [toText, note.trim()].filter(Boolean).join(' — ').slice(0, 200) }, typeId, price); await loadCur(); toast('تم إرسال طلبك للكباتن 🚕'); }
+    try { await apiRideCreate({ ...from, text: [fromText, fromDetails.trim()].filter(Boolean).join(' — ').slice(0, 200) }, { ...to, text: [toText, note.trim()].filter(Boolean).join(' — ').slice(0, 200) }, typeId, price); await loadCur(); toast('تم إرسال طلبك للكباتن 🚕'); }
     catch (e) { toast(errText(e), 'err'); }
     finally { setBusy(false); }
   };
@@ -128,6 +129,7 @@ export function RideHomeScreen({ navigation }: any) {
             <Pressable onPress={() => setTarget('from')} style={{ borderWidth: 1.5, borderColor: target === 'from' ? C.green : C.line, borderRadius: 14, backgroundColor: '#fff', padding: 10, gap: 6 }}>
               <T size={11.5} color={C.sub}>مكان التحميل</T>
               <Field label="" value={fromText} onChangeText={setFromText} placeholder={from ? 'اكتب العنوان لو مش ظاهر' : 'دوس «حدد موقعي» أو اختار من الخريطة'} />
+              <Field label="" value={fromDetails} onChangeText={setFromDetails} placeholder="تفاصيل مكانك (عمارة، دور، علامة مميزة، رقم شقة)" />
               <Btn title={from ? 'حدّد موقعي من جديد' : 'حدد موقعي'} icon="locate" small variant="soft" onPress={locate} loading={locating} />
             </Pressable>
             <Pressable onPress={() => setTarget('to')} style={{ borderWidth: 1.5, borderColor: target === 'to' ? C.green : C.line, borderRadius: 14, backgroundColor: '#fff', padding: 10, gap: 6 }}>
@@ -176,6 +178,8 @@ export function CaptainScreen({ navigation }: any) {
   const [counter, setCounter] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState(false);
   const [offerSecs, setOfferSecs] = useState(25);
+  const [curRide, setCurRide] = useState<CaptainRide | null>(null);
+  const pullCur = useCallback(() => apiCaptainCurrent().then((r) => setCurRide(r.ride)).catch(() => {}), []);
   const [now, setNow] = useState(Date.now());
   const seen = useRef<Record<number, number>>({});   // when each request first reached this captain
   const skipped = useRef<Record<number, true>>({});
@@ -190,11 +194,11 @@ export function CaptainScreen({ navigation }: any) {
       fresh.forEach((x) => { seen.current[x.id] = Date.now(); });
       if (fresh.length) alertNewOrder('🚕 طلب رحلة جديد', `${fresh[0].km} كم — ${fresh[0].offered} ج`); // the loud sound
     }).catch(() => {});
-    pull();
-    const t = setInterval(pull, 4000);
+    pull(); pullCur();
+    const t = setInterval(() => { pull(); pullCur(); }, 4000);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => { clearInterval(t); clearInterval(tick); };
-  }, [approved]);
+  }, [approved, pullCur]);
   const saveProfile = async () => {
     if (!typeId) return toast('اختر نوع المركبة', 'err');
     setBusy(true);
@@ -206,8 +210,8 @@ export function CaptainScreen({ navigation }: any) {
     try { const img = await pickImage(); if (!img) return; await apiCaptainPhoto(kind, img); await load(); toast('تم رفع الصورة'); }
     catch (e) { toast(errText(e), 'err'); }
   };
-  const offer = async (r: CaptainReq, price?: number) => { try { const x = await apiCaptainOffer(r.id, price); toast(x.accepted ? 'تم قبول الرحلة ✅' : 'تم إرسال عرضك'); } catch (e) { toast(errText(e), 'err'); } };
-  const step = async (id: number, s: 'arrived' | 'started' | 'completed') => { try { const x = await apiCaptainStatus(id, s); if (s === 'completed') toast(`تمت الرحلة — العمولة ${x.commission} ج`); await load(); } catch (e) { toast(errText(e), 'err'); } };
+  const offer = async (r: CaptainReq, price?: number) => { try { const x = await apiCaptainOffer(r.id, price); toast(x.accepted ? 'تم قبول الرحلة ✅' : 'تم إرسال عرضك'); pullCur(); } catch (e) { toast(errText(e), 'err'); } };
+  const step = async (id: number, s: 'arrived' | 'started' | 'completed') => { try { const x = await apiCaptainStatus(id, s); if (s === 'completed') toast(`تمت الرحلة — العمولة ${x.commission} ج`); await load(); await pullCur(); } catch (e) { toast(errText(e), 'err'); } };
 
   const left = (r: CaptainReq) => Math.max(0, offerSecs - Math.floor((now - (seen.current[r.id] || now)) / 1000));
   const hot = reqs.find((r) => r.myOffer == null && !skipped.current[r.id] && left(r) > 0) || null;
@@ -249,6 +253,7 @@ export function CaptainScreen({ navigation }: any) {
                 <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}><View style={{ height: 6, width: `${Math.round((left(hot) / offerSecs) * 100)}%`, backgroundColor: C.gold }} /></View>
                 <T w="black" size={26} color="#fff" align="center">{hot.offered} ج</T>
                 <T size={13} color="#DDEEE4" align="center">{hot.km} كم{hot.pickupKm != null ? ` • بعيد عنك ${hot.pickupKm} كم` : ''}</T>
+                <MapView markers={[{ lat: hot.from.lat, lng: hot.from.lng, kind: 'me', label: 'العميل' }, { lat: hot.to.lat, lng: hot.to.lng, kind: 'dest', label: 'الوصول' }]} fitKey={hot.id} height={150} />
                 {!!hot.from.text && <T size={12.5} color="#DDEEE4">من: {hot.from.text}</T>}{!!hot.to.text && <T size={12.5} color="#DDEEE4">إلى: {hot.to.text}</T>}
                 <Btn title={`اقبل بـ ${hot.offered} ج`} icon="checkmark-circle" onPress={() => offer(hot)} />
                 <Btn title="تخطّي" variant="soft" small onPress={() => { skipped.current[hot.id] = true; setNow(Date.now()); }} />
@@ -269,13 +274,24 @@ export function CaptainScreen({ navigation }: any) {
                 {r.myOffer != null && <T size={12} color={C.goldDeep}>عرضك الحالي: {r.myOffer} ج</T>}
               </Card>
             ))}
-            <Card style={{ gap: 8 }}>
-              <T w="black">رحلتك الحالية (رقم الرحلة)</T>
-              <Field label="رقم الرحلة" value={counter[-1] ? String(counter[-1]) : ''} onChangeText={(v) => setCounter((c) => ({ ...c, [-1]: Number(v.replace(/\D/g, '')) }))} keyboardType="number-pad" />
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {(['arrived', 'started', 'completed'] as const).map((s) => <Btn key={s} small variant="soft" style={{ flex: 1 }} title={{ arrived: 'وصلت', started: 'بدأنا', completed: 'خلصنا' }[s]} onPress={() => counter[-1] ? step(counter[-1], s) : toast('اكتب رقم الرحلة', 'err')} />)}
-              </View>
-            </Card>
+            {curRide && (
+              <Card style={{ gap: 8, borderWidth: 2, borderColor: C.green }}>
+                <T w="black" size={16}>🚕 رحلتك الحالية — {({ assigned: 'روح للعميل', arrived: 'وصلت للعميل', started: 'الرحلة شغالة' } as Record<string, string>)[curRide.status] || curRide.status}</T>
+                <MapView
+                  markers={[{ lat: curRide.from.lat, lng: curRide.from.lng, kind: 'me', label: 'العميل' }, { lat: curRide.to.lat, lng: curRide.to.lng, kind: 'dest', label: 'الوصول' }]}
+                  fitKey={curRide.id} height={220} />
+                <T w="bold" size={13.5}>مكان العميل: {curRide.from.text || 'حسب الدبوس على الخريطة'}</T>
+                {!!curRide.to.text && <T size={13} color={C.sub}>إلى: {curRide.to.text}</T>}
+                <T w="black" size={18} color={C.green}>{curRide.finalPrice ?? curRide.offered} ج • {curRide.km} كم</T>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn title="اتصل بالعميل" icon="call" small variant="soft" style={{ flex: 1 }} onPress={() => Linking.openURL(`tel:${curRide.customer.phone}`)} />
+                  <Btn title="افتح في الخرائط" icon="navigate" small variant="soft" style={{ flex: 1 }} onPress={() => Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${curRide.status === 'started' ? curRide.to.lat + ',' + curRide.to.lng : curRide.from.lat + ',' + curRide.from.lng}`)} />
+                </View>
+                {curRide.status === 'assigned' && <Btn title="وصلت للعميل" icon="location" onPress={() => step(curRide.id, 'arrived')} />}
+                {curRide.status === 'arrived' && <Btn title="بدأنا الرحلة" icon="play" onPress={() => step(curRide.id, 'started')} />}
+                {curRide.status === 'started' && <Btn title="خلصنا الرحلة" icon="checkmark-circle" onPress={() => step(curRide.id, 'completed')} />}
+              </Card>
+            )}
           </>
         )}
       </ScrollView>

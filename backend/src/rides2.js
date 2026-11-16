@@ -235,6 +235,15 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     if (!p.rowCount || p.rows[0].status !== 'approved') throw fail(403, 'حسابك كابتن غير مفعّل بعد');
     return p.rows[0];
   };
+  /** the captain's trip in progress (accepted by the customer): both points, the written details and the customer to call */
+  app.get('/api/captain/current', auth, roles('courier'), guard(async (req, res) => {
+    await needCaptain(req);
+    const r = await pool.query(`SELECT ${RIDE_COLS}, u.name AS customer_name, u.phone AS customer_phone FROM rides r JOIN users u ON u.id=r.customer_id
+      WHERE r.driver_id=$1 AND r.status IN ('assigned','arrived','started') ORDER BY r.id DESC LIMIT 1`, [me(req)]);
+    if (!r.rowCount) return res.json({ ride: null });
+    const x = r.rows[0];
+    res.json({ ride: { ...rideOut(x), customer: { name: String(x.customer_name || '').split(' ')[0], phone: x.customer_phone } } });
+  }));
   app.get('/api/captain/requests', auth, roles('courier'), guard(async (req, res) => {
     const p = await needCaptain(req), s = await settings();
     if (!canReceive(p.balance, s.ride_min_balance)) throw fail(403, 'رصيدك غير كافٍ. اشحن رصيدك لاستقبال الرحلات');

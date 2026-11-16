@@ -542,6 +542,8 @@ export type CaptainReq = Ride & { myOffer: number | null; pickupKm: number | nul
 export const apiCaptainRequests = () => apiRequest<{ requests: CaptainReq[]; offerSecs: number }>('/api/captain/requests');
 export const apiCaptainOffer = (id: number, price?: number) => apiRequest<{ ok: boolean; accepted: boolean }>(`/api/captain/requests/${id}/offer`, { method: 'POST', body: JSON.stringify(price === undefined ? {} : { price }) });
 export const apiCaptainStatus = (id: number, status: 'arrived' | 'started' | 'completed') => apiRequest<{ ok: boolean; commission: number | null }>(`/api/captain/rides/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
+export type CaptainRide = Ride & { customer: { name: string; phone: string } };
+export const apiCaptainCurrent = () => apiRequest<{ ride: CaptainRide | null }>('/api/captain/current');
 // the owner
 export const apiAdminRideTypes = () => apiRequest<{ types: RideType[] }>('/api/admin/ride-types');
 export const apiAdminRideTypeSave = (id: number | null, b: any) => apiRequest<{ type: RideType }>(id ? `/api/admin/ride-types/${id}` : '/api/admin/ride-types', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(b) });
