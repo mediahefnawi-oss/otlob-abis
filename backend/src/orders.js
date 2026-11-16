@@ -410,7 +410,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       if (tag && req.query.tag === tag) { res.set('Cache-Control', 'no-store'); return res.json({ unchanged: true, tag }); }
     }
     const [settings, meRow] = await Promise.all([loadSettings(), pool.query('SELECT * FROM users WHERE id=$1', [Number(req.auth.sub)])]);
-    const me = meRow.rows[0] ? cleanUser(meRow.rows[0]) : null;
+    const me = meRow.rows[0] ? { ...cleanUser(meRow.rows[0]), role: req.auth.role, ...(req.auth.role !== meRow.rows[0].role ? { baseRole: meRow.rows[0].role } : {}) } : null; // a shop owner / courier using the app as a customer keeps that view
     if (!me || req.auth.status !== 'active') {
       // an account still waiting for approval only needs its own status and the app settings
       return res.json({ settings, user: me, couriersOnline: 0, orders: [], invoices: [], appointments: [], messages: [], bookedSlots: [] });

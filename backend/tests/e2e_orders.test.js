@@ -171,6 +171,8 @@ const pushes = [];
   eq((await q('SELECT customer_user_id FROM orders WHERE id=$1', [r.json.orders[0].id])).rows[0].customer_user_id.toString(), String(oR), 'the order is recorded under his account as a customer');
   r = await call('GET /api/sync', OC, {}, {}, {});
   ok(r.json.orders.some(o => o.id === String(r.json.orders[0].id)) || r.json.orders.length >= 1, 'as a customer he sees the order he placed');
+  eq(r.json.user.role, 'customer', 'sync keeps him in the customer view (the screen must not jump back)'); eq(r.json.user.baseRole, 'provider', 'sync tells the real role');
+  r = await call('GET /api/sync', R, {}, {}, {}); eq(r.json.user.role, 'provider', 'back in the shop view the sync says provider'); ok(r.json.user.baseRole === undefined, 'no baseRole in the normal view');
 
   console.log('8) notifications');
   ok(pushes.length > 10, 'people were notified along the way: ' + pushes.length);

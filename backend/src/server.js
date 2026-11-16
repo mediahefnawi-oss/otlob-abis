@@ -428,7 +428,7 @@ app.patch('/api/me', auth, asyncRoute(async (req, res) => {
     if (open.rowCount) return res.status(409).json({ error: 'أكمل طلباتك الحالية قبل إيقاف الاستقبال' });
   }
   const r = await pool.query('UPDATE users SET name=COALESCE($1,name), address=COALESCE($2,address), region_id=CASE WHEN $3 THEN $4::bigint ELSE region_id END, available=CASE WHEN $6 THEN $7::boolean ELSE available END, available_since=CASE WHEN $6 AND $7::boolean AND NOT available THEN NOW() WHEN $6 AND NOT $7::boolean THEN NULL ELSE available_since END, phone2=CASE WHEN $8 THEN $9::varchar ELSE phone2 END WHERE id=$5 RETURNING *', [name, address, regionSet, region, Number(req.auth.sub), availSet, availSet ? b.available : false, phone2Set, phone2]);
-  res.json({ user: cleanUser(r.rows[0]) });
+  res.json({ user: meJson(r.rows[0], req.auth) });
 }));
 app.patch('/api/me/password', auth, asyncRoute(async (req, res) => {
   const { oldPassword, newPassword } = req.body || {};
