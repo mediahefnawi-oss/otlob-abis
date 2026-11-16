@@ -106,8 +106,7 @@ export function RideHomeScreen({ navigation }: any) {
               onPick={(p) => { if (!from) setFrom(p); else setTo(p); }}
             />
             <T size={12} color={C.sub}>{!from ? 'ضغطتك الأولى = نقطة التحميل' : !to ? 'اضغط على الخريطة لتحديد وجهتك' : 'تقدر تغير الوجهة بضغطة تانية'}</T>
-            <Field label="وصف مكان التحميل (اختياري)" value={fromText} onChangeText={setFromText} />
-            <Field label="وصف الوجهة (اختياري)" value={toText} onChangeText={setToText} />
+            <Field label="ملاحظة للكابتن (اختياري) — مثال: عمارة 5 جنب الصيدلية" value={toText} onChangeText={setToText} />
             {est && (
               <Card style={{ gap: 8 }}>
                 <T size={13} color={C.sub}>{est.km} كم • حوالي {est.minutes} دقيقة</T>
@@ -213,7 +212,7 @@ export function CaptainScreen({ navigation }: any) {
                 <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}><View style={{ height: 6, width: `${Math.round((left(hot) / offerSecs) * 100)}%`, backgroundColor: C.gold }} /></View>
                 <T w="black" size={26} color="#fff" align="center">{hot.offered} ج</T>
                 <T size={13} color="#DDEEE4" align="center">{hot.km} كم{hot.pickupKm != null ? ` • بعيد عنك ${hot.pickupKm} كم` : ''}</T>
-                {!!hot.from.text && <T size={12.5} color="#DDEEE4">من: {hot.from.text}</T>}{!!hot.to.text && <T size={12.5} color="#DDEEE4">إلى: {hot.to.text}</T>}
+                {!!hot.from.text && <T size={12.5} color="#DDEEE4">من: {hot.from.text}</T>}{!!hot.to.text && <T size={12.5} color="#DDEEE4">ملاحظة: {hot.to.text}</T>}
                 <Btn title={`اقبل بـ ${hot.offered} ج`} icon="checkmark-circle" onPress={() => offer(hot)} />
                 <Btn title="تخطّي" variant="soft" small onPress={() => { skipped.current[hot.id] = true; setNow(Date.now()); }} />
               </View>
@@ -222,7 +221,7 @@ export function CaptainScreen({ navigation }: any) {
             {me.canReceive && reqs.map((r) => (
               <Card key={r.id} style={{ gap: 6 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black" size={16}>{r.offered} ج</T><T size={12.5} color={C.sub}>{r.km} كم{r.pickupKm != null ? ` • بعيد عنك ${r.pickupKm} كم` : ''}</T></View>
-                {!!r.from.text && <T size={12.5}>من: {r.from.text}</T>}{!!r.to.text && <T size={12.5}>إلى: {r.to.text}</T>}
+                {!!r.from.text && <T size={12.5}>من: {r.from.text}</T>}{!!r.to.text && <T size={12.5}>ملاحظة: {r.to.text}</T>}
                 <Btn title={`اقبل بـ ${r.offered} ج`} icon="checkmark-circle" small onPress={() => offer(r)} />
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                   <Pressable onPress={() => setCounter((c) => ({ ...c, [r.id]: (c[r.id] ?? r.offered) - 5 }))}><Icon name="remove-circle" size={30} color={C.green} /></Pressable>
