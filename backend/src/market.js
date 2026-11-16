@@ -10,16 +10,32 @@ function cleanProduct(b, partial = false) {
   }
   if (b.category !== undefined) out.category = String(b.category).trim().slice(0, 30);
   if (b.emoji !== undefined) out.emoji = String(b.emoji).trim().slice(0, 8) || '🛒';
+  if (b.discountPct !== undefined) {
+    if (b.discountPct === null || b.discountPct === '' || Number(b.discountPct) === 0) out.discount_pct = null;
+    else { const v = Number(b.discountPct); if (!Number.isFinite(v) || v < 1 || v > 90) return null; out.discount_pct = Math.round(v * 100) / 100; }
+  }
+  if (b.offerText !== undefined) out.offer_text = String(b.offerText || '').trim().slice(0, 30);
+  if (b.offerUntil !== undefined) {
+    if (!b.offerUntil) out.offer_until = null;
+    else { const t = new Date(b.offerUntil); if (isNaN(t.getTime())) return null; out.offer_until = t.toISOString(); }
+  }
   if (b.available !== undefined) out.available = !!b.available;
   if (b.sort_order !== undefined) { const v = Number(b.sort_order); if (!Number.isFinite(v) || v < 0 || v > 9999) return null; out.sort_order = Math.round(v); }
   return out;
+}
+/** Pure: the price a customer pays now. A discount applies only to a priced product and only until offer_until (if set). */
+function salePrice(row, now = Date.now()) {
+  if (row.price == null) return { price: null, active: false };
+  const base = Number(row.price), pct = row.discount_pct == null ? 0 : Number(row.discount_pct);
+  const live = pct > 0 && (!row.offer_until || new Date(row.offer_until).getTime() > now);
+  return { price: live ? Math.round(base * (100 - pct)) / 100 : base, active: live };
 }
 function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib }) {
   const fail = (status, error) => Object.assign(new Error(error), { http: status });
   const guard = fn => asyncRoute(async (req, res) => { try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; } });
   const admin = [auth, roles('admin')];
-  const COLS = 'id, name, category, price, emoji, available, sort_order, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
-  const out = r => ({ id: r.id, name: r.name, category: r.category, price: r.price == null ? null : Number(r.price), emoji: r.emoji, available: r.available, sort: r.sort_order, image: r.has_image ? `/api/market-image/${r.id}?v=${r.v}` : null });
+  const COLS = 'id, name, category, price, discount_pct, offer_text, offer_until, emoji, available, sort_order, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
+  const out = r => { const sp = salePrice(r); return ({ id: r.id, name: r.name, category: r.category, price: r.price == null ? null : Number(r.price), discountPct: r.discount_pct == null ? null : Number(r.discount_pct), offerText: r.offer_text || '', offerUntil: r.offer_until ? new Date(r.offer_until).toISOString() : null, salePrice: sp.price, onOffer: sp.active, emoji: r.emoji, available: r.available, sort: r.sort_order, image: r.has_image ? `/api/market-image/${r.id}?v=${r.v}` : null }); };
 
   app.get('/api/admin/market-products', ...admin, guard(async (_req, res) => {
     res.json({ products: (await pool.query(`SELECT ${COLS} FROM market_products ORDER BY sort_order, id`)).rows.map(out) });
@@ -27,7 +43,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
   app.post('/api/admin/market-products', ...admin, guard(async (req, res) => {
     const c = cleanProduct(req.body); if (!c) throw fail(400, 'البيانات غير صحيحة (الاسم والسعر)');
     const n = await pool.query('SELECT COUNT(*)::int AS c FROM market_products'); if (n.rows[0].c >= 2000) throw fail(409, 'الحد الأقصى 2000 منتج');
-    const r = await pool.query(`INSERT INTO market_products(name, price, category, emoji, available, sort_order) VALUES($1,$2,$3,$4,$5,$6) RETURNING ${COLS}`, [c.name, c.price, c.category || '', c.emoji || '🛒', c.available !== false, c.sort_order || 0]);
+    const r = await pool.query(`INSERT INTO market_products(name, price, category, emoji, available, sort_order, discount_pct, offer_text, offer_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${COLS}`, [c.name, c.price, c.category || '', c.emoji || '🛒', c.available !== false, c.sort_order || 0, c.discount_pct ?? null, c.offer_text || '', c.offer_until ?? null]);
     res.status(201).json({ product: out(r.rows[0]) });
   }));
   /** one tap: adds the ready-made list of products (no prices). Products with the same name are skipped, so it is safe to press twice. */
@@ -69,18 +85,24 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
     res.set('Content-Type', r.rows[0].mime); res.set('Cache-Control', 'public, max-age=31536000, immutable'); res.set('Cross-Origin-Resource-Policy', 'cross-origin'); res.send(r.rows[0].image);
   }));
   app.get('/api/admin/market-settings', ...admin, guard(async (_req, res) => {
-    const r = await pool.query('SELECT market_fee FROM app_settings WHERE id=1'); res.json({ fee: Number((r.rows[0] || {}).market_fee ?? 15) });
+    const r = await pool.query('SELECT market_fee, market_offer_text FROM app_settings WHERE id=1'); res.json({ fee: Number((r.rows[0] || {}).market_fee ?? 15), offerText: (r.rows[0] || {}).market_offer_text || 'وفّر واطلب' });
   }));
   app.patch('/api/admin/market-settings', ...admin, guard(async (req, res) => {
-    const v = Number((req.body || {}).fee); if (!Number.isFinite(v) || v < 0 || v > 1000) throw fail(400, 'رسوم التوصيل غير صحيحة');
+    const b = req.body || {};
+    if (b.offerText !== undefined) {
+      const t = String(b.offerText || '').trim().slice(0, 30); if (!t) throw fail(400, 'اكتب جملة الزر');
+      await pool.query('UPDATE app_settings SET market_offer_text=$1 WHERE id=1', [t]);
+      if (b.fee === undefined) return res.json({ ok: true });
+    }
+    const v = Number(b.fee); if (!Number.isFinite(v) || v < 0 || v > 1000) throw fail(400, 'رسوم التوصيل غير صحيحة');
     await pool.query('UPDATE app_settings SET market_fee=$1 WHERE id=1', [v]); res.json({ ok: true });
   }));
   /** the customer's catalogue (only while the switch is ON) */
   app.get('/api/market-products', auth, guard(async (_req, res) => {
     if (!(await extrasLib.featureOn(pool, 'market'))) throw fail(404, 'الخدمة غير متاحة الآن');
     const r = await pool.query(`SELECT ${COLS} FROM market_products WHERE available ORDER BY sort_order, id`);
-    const f = await pool.query('SELECT market_fee FROM app_settings WHERE id=1');
-    res.json({ products: r.rows.map(out), fee: Number((f.rows[0] || {}).market_fee ?? 15) });
+    const f = await pool.query('SELECT market_fee, market_offer_text FROM app_settings WHERE id=1');
+    res.json({ products: r.rows.map(out), fee: Number((f.rows[0] || {}).market_fee ?? 15), offerText: (f.rows[0] || {}).market_offer_text || 'وفّر واطلب' });
   }));
 
   /* ----- the look of the new services on the home: icon picture, cover picture, one description line ----- */
@@ -120,4 +142,4 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib })
     res.json({ ok: true });
   }));
 }
-module.exports = { cleanProduct, register };
+module.exports = { cleanProduct, salePrice, register };

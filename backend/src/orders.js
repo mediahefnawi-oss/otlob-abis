@@ -648,15 +648,15 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const lines = cleanLines(b.lines);
     if (!lines.length) throw fail(400, 'السلة فارغة');
     const out = await withTx(async db => {
-      const pr = await db.query('SELECT id, name, price, emoji, available FROM market_products WHERE id = ANY($1::bigint[])', [lines.map(l => l.id)]);
+      const pr = await db.query('SELECT id, name, price, discount_pct, offer_until, emoji, available FROM market_products WHERE id = ANY($1::bigint[])', [lines.map(l => l.id)]);
       const byId = new Map(pr.rows.map(r => [Number(r.id), r]));
       const items = []; let base = 0;
       for (const l of lines) {
         const p = byId.get(l.id);
         if (!p || !p.available) throw fail(409, 'أحد المنتجات لم يعد متاحاً');
-        const priced = p.price != null;
-        items.push({ productId: String(p.id), name: p.name, price: priced ? Number(p.price) : null, qty: l.qty, emoji: p.emoji || '🛒' });
-        if (priced) base += Number(p.price) * l.qty;
+        const sp = require('./market').salePrice(p), priced = sp.price != null;   // a live discount is charged by the server, never trusted from the app
+        items.push({ productId: String(p.id), name: p.name, price: priced ? sp.price : null, ...(sp.active ? { was: Number(p.price) } : {}), qty: l.qty, emoji: p.emoji || '🛒' });
+        if (priced) base += sp.price * l.qty;
       }
       base = Math.round(base * 100) / 100;
       // like "اطلب إيه نجيبهولك": no fixed delivery fee; the courier prices the unpriced items + his delivery, the customer approves the invoice

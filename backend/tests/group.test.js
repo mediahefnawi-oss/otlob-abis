@@ -126,6 +126,30 @@ const roles = (...a) => (req, res, next) => { if (!req.auth || !a.includes(req.a
   ok(img.sent && img.headers['Content-Type'] === 'image/png', 'cover served');
   eq((await call('DELETE /api/admin/svc-image/:key/:kind', { as: A, params: { key: 'market', kind: 'icon' } })).status, 200, 'icon removed');
   eq((await call('GET /api/svc-meta')).json.market.icon, 0, 'removed');
+  // ---- discounts: percent off, optional end time, the server charges the sale price
+  await feat('market', true);
+  const dp = (await call('POST /api/admin/market-products', { as: A, body: { name: 'عسل', price: 100, discountPct: 20, offerText: 'خصم النهارده' } })).json.product;
+  eq(dp.salePrice, 80, '20% off 100 = 80'); ok(dp.onOffer === true && dp.offerText === 'خصم النهارده', 'offer is live with its own text');
+  eq((await call('POST /api/admin/market-products', { as: A, body: { name: 'x', price: 10, discountPct: 95 } })).status, 400, 'a discount above 90% is refused');
+  eq((await call('POST /api/admin/market-products', { as: A, body: { name: 'x', price: 10, offerUntil: 'garbage' } })).status, 400, 'a bad end time is refused');
+  const nodp = (await call('POST /api/admin/market-products', { as: A, body: { name: 'بدون سعر مخفض', price: null, discountPct: 30 } })).json.product;
+  eq(nodp.salePrice, null, 'no price = nothing to discount'); ok(nodp.onOffer === false, 'not an offer');
+  const od3c = await call('POST /api/orders/market', { as: Mh, body: { ...body, lines: [{ productId: String(dp.id), qty: 2 }] }, table: oroutes });
+  eq(od3c.status, 201, 'order with a discounted product');
+  const od3 = (await q("SELECT data FROM orders WHERE customer_user_id=$1 ORDER BY id DESC LIMIT 1", [mId])).rows[0].data;
+  eq(od3.marketBase, 160, 'charged 2 x 80, not 2 x 100'); eq(od3.items[0].was, 100, 'the old price is kept for the invoice');
+  await call('PATCH /api/admin/market-products/:id', { as: A, params: { id: dp.id }, body: { offerUntil: new Date(Date.now() - 1000).toISOString() } });
+  const dl = (await call('GET /api/market-products', { as: Mh })).json.products.find(x => x.id === dp.id);
+  eq(dl.salePrice, 100, 'an expired offer is back to the full price'); ok(dl.onOffer === false, 'expired = not on offer');
+  await call('PATCH /api/admin/market-products/:id', { as: A, params: { id: dp.id }, body: { offerUntil: null, discountPct: null } });
+  eq((await call('GET /api/market-products', { as: Mh })).json.offerText, 'وفّر واطلب', 'default button text');
+  eq((await call('PATCH /api/admin/market-settings', { as: Mh, body: { offerText: 'x' } })).status, 403, 'only the owner edits the button text');
+  eq((await call('PATCH /api/admin/market-settings', { as: A, body: { offerText: '  ' } })).status, 400, 'empty text refused');
+  eq((await call('PATCH /api/admin/market-settings', { as: A, body: { offerText: 'الحق العرض' } })).status, 200, 'owner sets the button text');
+  eq((await call('GET /api/market-products', { as: Mh })).json.offerText, 'الحق العرض', 'customers see the new text');
+  await q("UPDATE app_settings SET market_offer_text='وفّر واطلب' WHERE id=1");
+
+  await feat('market', false);
   // ---- one-tap ready-made product list (no prices)
   const before = (await q('SELECT COUNT(*)::int c FROM market_products')).rows[0].c;
   eq((await call('POST /api/admin/market-products/import-defaults', { as: Mh, body: {} })).status, 403, 'only the owner imports the list');

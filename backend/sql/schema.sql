@@ -426,6 +426,11 @@ CREATE TABLE IF NOT EXISTS market_products (
 );
 -- a product may have no price: the courier who takes the order prices it
 ALTER TABLE market_products ALTER COLUMN price DROP NOT NULL;
+-- discounts on market products: a percent off, an optional end time, an optional button text of its own
+ALTER TABLE market_products ADD COLUMN IF NOT EXISTS discount_pct NUMERIC(5,2);
+ALTER TABLE market_products ADD COLUMN IF NOT EXISTS offer_until TIMESTAMPTZ;
+ALTER TABLE market_products ADD COLUMN IF NOT EXISTS offer_text TEXT NOT NULL DEFAULT '';
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS market_offer_text TEXT NOT NULL DEFAULT 'وفّر واطلب';
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS market_fee NUMERIC(8,2) NOT NULL DEFAULT 15;
 
 -- Look of the new services on the home (market, rides): a description line; the pictures live in site_images (svc_<key>_icon / svc_<key>_cover).
