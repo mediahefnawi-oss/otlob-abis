@@ -6,6 +6,7 @@ import { DeliveryPin } from '../components/Location';
 import { AddressPicker } from '../components/AddressBook';
 import { useStore, useMe, placeMarketOrder, placeGroupOrder } from '../lib/store';
 import { isMakerTpl } from '../lib/format';
+import { storage } from '../lib/storage';
 import {
   apiGroupOpen, apiGroupGet, apiGroupSet, apiGroupRemove, apiGroupDone, apiGroupCancel, GroupCart,
   apiMarketProducts, MarketProduct, marketImageUrl, SvcKey, SvcMeta, apiSvcMeta, svcImageUrl,
@@ -204,27 +205,50 @@ export function MarketOffersRow({ navigation }: { navigation: any }) {
   );
 }
 
+/** the market basket survives leaving the screen (and closing the app): kept per account until the order is sent */
+const marketBasket: { [uid: string]: { [id: number]: number } } = {};
+const basketKey = (uid: string) => `market_basket_v1:${uid}`;
 export function MarketScreen({ navigation, route }: any) {
   const me = useMe()!;
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<MarketProduct[]>([]);
   const [state, setState] = useState<'load' | 'ok' | 'err'>('load');
   const [cat, setCat] = useState('الكل');
-  const [qty, setQty] = useState<{ [id: number]: number }>({});
+  const [qty, setQty] = useState<{ [id: number]: number }>(() => ({ ...(marketBasket[me.id] || {}) }));
   const [phone, setPhone] = useState(me.phone);
   const [address, setAddress] = useState(me.address);
   const [busy, setBusy] = useState(false);
   const [checkout, setCheckout] = useState(false);
   const [offerText, setOfferText] = useState('وفّر واطلب');
+  const [synced, setSynced] = useState(false); // the saved basket has been read: only then is the basket written back (never over it)
   const OFFERS = '🔥 عروض';
   useEffect(() => {
     apiMarketProducts().then((r) => {
       setItems(r.products); setState('ok'); if (r.offerText) setOfferText(r.offerText);
+      // the saved basket comes back (without products that are gone or no longer available)
+      storage.getItem(basketKey(me.id)).then((raw) => {
+        let saved: { [id: number]: number } = {};
+        try { saved = raw ? JSON.parse(raw) : {}; } catch { saved = {}; }
+        const ok = (id: number) => r.products.some((x) => x.id === id && x.available);
+        setQty((cur) => {
+          const next: { [id: number]: number } = {};
+          for (const k of Object.keys({ ...saved, ...cur })) { const id = Number(k); const n = Number(cur[id] ?? saved[id]); if (ok(id) && n > 0) next[id] = Math.min(50, n); }
+          return next;
+        });
+        setSynced(true);
+      }).catch(() => setSynced(true));
       const add = Number(route?.params?.addId);   // "وفّر واطلب" on the home: open with that product already in the cart
-      if (add && r.products.some((x) => x.id === add && x.available)) setQty((q) => ({ ...q, [add]: 1 }));
+      if (add && r.products.some((x) => x.id === add && x.available)) setQty((q) => ({ ...q, [add]: q[add] || 1 }));
       if (route?.params?.offers) setCat(OFFERS);
     }).catch(() => setState('err'));
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!synced) return;
+    const clean: { [id: number]: number } = {};
+    for (const k of Object.keys(qty)) if (qty[Number(k)] > 0) clean[Number(k)] = qty[Number(k)];
+    marketBasket[me.id] = clean;
+    storage.setItem(basketKey(me.id), JSON.stringify(clean)).catch(() => {});
+  }, [qty, me.id, synced]);
   const hasOffers = items.some((x) => x.onOffer);
   const cats: string[] = ['الكل', ...(hasOffers ? [OFFERS] : []), ...(Array.from(new Set(items.map((x) => x.category).filter(Boolean))) as string[])];
   const shown = items.filter((x) => cat === 'الكل' || (cat === OFFERS ? !!x.onOffer : x.category === cat));
@@ -241,6 +265,7 @@ export function MarketScreen({ navigation, route }: any) {
     const r = await placeMarketOrder(me, { lines, phone, address });
     setBusy(false);
     if (!r.ok) return toast(r.error, 'err');
+    marketBasket[me.id] = {}; storage.setItem(basketKey(me.id), '{}').catch(() => {});
     toast('تم إرسال طلبك للمناديب 🛵');
     navigation.replace('OrderDetail', { id: r.orderId });
   };
@@ -251,7 +276,8 @@ export function MarketScreen({ navigation, route }: any) {
         <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
             <Card style={{ gap: 10 }}>
-              <T w="black" size={15}>طلبك</T>
+              <T w="black" size={15}>سلتك</T>
+              <T size={11.5} color={C.sub}>زوّد أو قلّل الكمية، أو احذف المنتج، قبل ما تبعت الطلب</T>
               {lines.map((l) => { const p = items.find((x) => String(x.id) === l.productId); return p ? (
                 <View key={l.productId} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <View style={{ flex: 1 }}>
@@ -316,7 +342,7 @@ export function MarketScreen({ navigation, route }: any) {
           {count > 0 && (
             <View style={{ position: 'absolute', left: 16, right: 16, bottom: Platform.OS === 'web' ? 96 : 16 }}>
               <Pressable onPress={() => setCheckout(true)} style={[{ backgroundColor: C.green, borderRadius: 16, paddingVertical: 13, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, shadow]}>
-                <T w="black" color="#fff">🛒 {count} منتجات</T>
+                <T w="black" color="#fff">🛒 سلتك: {count} منتجات — عرض وتعديل</T>
                 <T w="black" color="#fff">{subtotal} ج{unpriced > 0 ? ' + المندوب يكمّل' : ''}  ›</T>
               </Pressable>
             </View>
