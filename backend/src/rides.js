@@ -46,6 +46,7 @@ function cleanType(b, partial = false) {
     else { const v = num(b.max_fee, 5, 5000); if (v === null) return null; out.max_fee = v; }
   }
   if (b.active !== undefined) out.active = !!b.active;
+  if (b.trips_enabled !== undefined) out.trips_enabled = !!b.trips_enabled;   // this vehicle may run intercity trips
   return out;
 }
 
@@ -131,8 +132,8 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
   const guard = fn => asyncRoute(async (req, res) => { try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; } });
   const admin = [auth, roles('admin')];
   const on = async () => { try { return await extrasLib.featureOn(pool, 'rides'); } catch { return false; } };
-  const COLS = 'id, name, base_fee, per_km, min_fee, adj_pct, sort_order, active, pricing_mode, max_fee, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
-  const out = r => ({ id: r.id, name: r.name, baseFee: Number(r.base_fee), perKm: Number(r.per_km), minFee: Number(r.min_fee), adjPct: r.adj_pct, sort: r.sort_order, active: r.active, pricingMode: r.pricing_mode || null, maxFee: r.max_fee == null ? null : Number(r.max_fee), image: r.has_image ? `/api/ride-type-image/${r.id}?v=${r.v}` : null });
+  const COLS = 'id, name, base_fee, per_km, min_fee, adj_pct, sort_order, active, pricing_mode, max_fee, trips_enabled, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
+  const out = r => ({ id: r.id, name: r.name, baseFee: Number(r.base_fee), perKm: Number(r.per_km), minFee: Number(r.min_fee), adjPct: r.adj_pct, sort: r.sort_order, active: r.active, pricingMode: r.pricing_mode || null, maxFee: r.max_fee == null ? null : Number(r.max_fee), tripsEnabled: !!r.trips_enabled, image: r.has_image ? `/api/ride-type-image/${r.id}?v=${r.v}` : null });
 
   /* ----- the owner: add / edit / stop / delete the types ----- */
   app.get('/api/admin/ride-types', ...admin, guard(async (_req, res) => {
@@ -144,7 +145,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
     if (!c) throw fail(400, 'البيانات غير صحيحة (الاسم والأرقام)');
     const n = await pool.query('SELECT COUNT(*)::int AS c FROM ride_types');
     if (n.rows[0].c >= 20) throw fail(409, 'الحد الأقصى 20 نوع');
-    const r = await pool.query(`INSERT INTO ride_types(name, base_fee, per_km, min_fee, adj_pct, sort_order, active, pricing_mode, max_fee) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${COLS}`, [c.name, c.base_fee, c.per_km, c.min_fee, c.adj_pct, c.sort_order, c.active !== false, c.pricing_mode ?? null, c.max_fee ?? null]);
+    const r = await pool.query(`INSERT INTO ride_types(name, base_fee, per_km, min_fee, adj_pct, sort_order, active, pricing_mode, max_fee, trips_enabled) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING ${COLS}`, [c.name, c.base_fee, c.per_km, c.min_fee, c.adj_pct, c.sort_order, c.active !== false, c.pricing_mode ?? null, c.max_fee ?? null, c.trips_enabled === true]);
     clearCaches();
     res.json({ type: out(r.rows[0]) });
   }));

@@ -16,6 +16,7 @@ export function TripsScreen({ navigation }: any) {
   const [closed, setClosed] = useState<string | null>(null);
   const [pick, setPick] = useState<Record<number, number[]>>({});
   const [busy, setBusy] = useState<number | null>(null);
+  const [veh, setVeh] = useState<number | null>(null);      // filter by vehicle type
   const load = useCallback(async () => {
     try { const [a, b] = await Promise.all([apiTrips(), apiMyTrips()]); setList(a.trips); setMine(b.trips); }
     catch (e) { toast(errText(e), 'err'); setList((l) => l || []); }
@@ -54,12 +55,14 @@ export function TripsScreen({ navigation }: any) {
           </>
         )}
         <T w="black" size={16}>رحلات متاحة</T>
-        {list === null ? <Empty title="جاري التحميل..." /> : list.length === 0 ? <Empty title="مفيش رحلات معلنة دلوقتي" /> : list.map((t) => {
+        {(() => { const vs = Array.from(new Map((list || []).filter((t) => t.vehicle).map((t) => [t.vehicle!.id, t.vehicle!.name])).entries()); return vs.length > 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}><Chip label="الكل" active={veh === null} onPress={() => setVeh(null)} />{vs.map(([id, name]) => <Chip key={id} label={String(name)} active={veh === id} onPress={() => setVeh(id)} />)}</ScrollView> : null; })()}
+        {list === null ? <Empty title="جاري التحميل..." /> : list.filter((t) => veh === null || t.vehicle?.id === veh).length === 0 ? <Empty title="مفيش رحلات معلنة دلوقتي" /> : list.filter((t) => veh === null || t.vehicle?.id === veh).map((t) => {
           const sel = pick[t.id] || [];
           return (
             <Card key={t.id} style={{ gap: 8 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <T w="black" size={17}>🚗 إلى {t.dest}</T>
+                {!!t.vehicle && <View style={{ backgroundColor: C.greenSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}><T w="black" size={11.5} color={C.green}>{t.vehicle.name}</T></View>}
                 <T w="black" size={17} color={C.green}>{t.price} ج</T>
               </View>
               <T size={13} color={C.sub}>{when(t.departAt)}{t.fromText ? ` • من ${t.fromText}` : ''}</T>
@@ -94,7 +97,8 @@ export function CaptainTripsScreen({ navigation }: any) {
   const [dest, setDest] = useState(''); const [fromText, setFromText] = useState(''); const [seats, setSeats] = useState('4'); const [price, setPrice] = useState(''); const [note, setNote] = useState('');
   const [dayOff, setDayOff] = useState(1); const [time, setTime] = useState('08:00');
   const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => { try { setList((await apiCaptainTrips()).trips); } catch (e) { toast(errText(e), 'err'); setList((l) => l || []); } }, []);
+  const [allowed, setAllowed] = useState(true);
+  const load = useCallback(async () => { try { const r = await apiCaptainTrips(); setList(r.trips); setAllowed(r.allowed !== false); } catch (e) { toast(errText(e), 'err'); setList((l) => l || []); } }, []);
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
   const dayLabel = (off: number) => { const d = new Date(); d.setDate(d.getDate() + off); return off === 0 ? 'النهاردة' : off === 1 ? 'بكرة' : `${DAYS[(d.getDay() + 1) % 7]} ${d.getDate()}/${d.getMonth() + 1}`; };
   const create = async () => {
@@ -115,7 +119,8 @@ export function CaptainTripsScreen({ navigation }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="رحلات المحافظات" subtitle="أعلن عن رحلة والعملاء يحجزوا كراسي" onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">
-        <Card style={{ gap: 8 }}>
+        {!allowed && <Card><T w="bold" color={C.red} align="center">نوع مركبتك مش مسموح له بإعلان رحلات المحافظات</T></Card>}
+        {allowed && <Card style={{ gap: 8 }}>
           <T w="black">إعلان رحلة جديدة</T>
           <Field label="رايح محافظة / مدينة" value={dest} onChangeText={setDest} />
           <Field label="من فين (اختياري)" value={fromText} onChangeText={setFromText} />
@@ -126,7 +131,7 @@ export function CaptainTripsScreen({ navigation }: any) {
           <Field label="سعر الكرسي (ج)" value={price} onChangeText={setPrice} keyboardType="number-pad" />
           <Field label="ملاحظات (اختياري)" value={note} onChangeText={setNote} />
           <Btn title="أعلن الرحلة وابعت إشعار للعملاء" icon="megaphone" onPress={create} loading={busy} />
-        </Card>
+        </Card>}
         <T w="black" size={16}>رحلاتي</T>
         {list === null ? <Empty title="جاري التحميل..." /> : list.length === 0 ? <Empty title="لسه ما أعلنتش عن رحلات" /> : list.map((t) => (
           <Card key={t.id} style={{ gap: 6 }}>

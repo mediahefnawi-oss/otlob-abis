@@ -31,6 +31,8 @@ globalThis.fetch = async () => ({ ok: true, json: async () => ({ routes: [{ dist
   await call('PATCH /api/admin/ride-types/:id', { as: A, params: { id: bike.id }, body: { pricing_mode: 'km' } });
   eq((await call('GET /api/ride-types', { as: C })).json.types.find(t => t.id === tuk.id).pricingMode, 'zones', 'the customer app gets the method of each vehicle');
 
+  const te = await call('PATCH /api/admin/ride-types/:id', { as: A, params: { id: car.id }, body: { trips_enabled: true } }); eq([te.status, te.json.type.tripsEnabled], [200, true], 'the owner ticks a vehicle type for intercity trips');
+  eq((await call('GET /api/ride-types', { as: C })).json.types.find(t => t.id === car.id).tripsEnabled, true, 'the customer app gets it');
   /* ---- the zone table ---- */
   eq((await call('PUT /api/admin/ride-types/:id/zones', { as: A, params: { id: tuk.id }, body: { zones: [{ fromRegionId: rid1, toRegionId: rid2, price: -5 }] } })).status, 400, 'negative price refused');
   eq((await call('PUT /api/admin/ride-types/:id/zones', { as: A, params: { id: tuk.id }, body: { zones: [{ fromRegionId: rid1, toRegionId: rid2, price: 10 }, { fromRegionId: rid1, toRegionId: rid2, price: 12 }] } })).status, 400, 'the same way twice refused');

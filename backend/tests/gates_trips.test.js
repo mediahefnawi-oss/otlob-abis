@@ -128,6 +128,17 @@ const { ok, eq, done } = H.counters();
   const open2 = (await call('GET /api/captain/trips', { as: D })).json.trips.find(t => t.status === 'open');
   const gc = await mkTrip(D); eq([gc.status, gc.json.error], [409, 'الحجز واقف'], 'closed trips: no new announcement');
   if (open2) eq((await call('POST /api/trips/:id/book', { as: C2, params: { id: open2.id }, body: { seats: [1] } })).status, 409, 'closed trips: no booking');
+  /* ---- the owner picks the vehicle types that run intercity trips ---- */
+  const ty2 = (await q("INSERT INTO ride_types(name, base_fee, per_km, min_fee, adj_pct) VALUES('توكتوك',5,3,10,30) RETURNING id")).rows[0].id;
+  await q("DELETE FROM order_gates"); require('../src/gates.js').invalidate();
+  let al = (await call('GET /api/captain/trips', { as: D })).json; eq(al.allowed, true, 'nothing ticked: every captain may run trips (as before)');
+  await q('UPDATE ride_types SET trips_enabled=TRUE WHERE id=$1', [ty2]);
+  al = (await call('GET /api/captain/trips', { as: D })).json; eq(al.allowed, false, 'a captain of another type is not allowed now');
+  const blocked = await mkTrip(D, { dest: 'القاهرة' }); eq([blocked.status, blocked.json.error], [403, 'نوع مركبتك مش مسموح له برحلات المحافظات'], 'and cannot announce a trip');
+  await q('UPDATE ride_types SET trips_enabled=TRUE WHERE id=$1', [ty]);
+  const okT = await mkTrip(D, { dest: 'القاهرة' }); eq(okT.status, 201, 'a captain of a ticked type can: ' + JSON.stringify(okT.json).slice(0, 80));
+  ok(okT.json.trip.vehicle && okT.json.trip.vehicle.name === 'ملاكي', 'the trip carries its vehicle type');
+  const lst2 = (await call('GET /api/trips', { as: C1 })).json.trips.find(t => t.id === okT.json.trip.id); ok(lst2 && lst2.vehicle && lst2.vehicle.name === 'ملاكي', 'the customer list shows the vehicle');
   console.log('');
   const bad = done('gates+trips'); await pool.end(); process.exit(bad ? 1 : 0);
 })().catch(e => { console.error('CRASH', e); process.exit(2); });

@@ -517,7 +517,7 @@ export function CaptainScreen({ navigation }: any) {
         )}
         {approved && me && (
           <>
-            <Btn title="رحلات المحافظات — أعلن عن رحلة" icon="bus" variant="soft" onPress={() => navigation.navigate('CaptainTrips')} />
+            {me.tripsAllowed !== false && <Btn title="رحلات المحافظات — أعلن عن رحلة" icon="bus" variant="soft" onPress={() => navigation.navigate('CaptainTrips')} />}
             <Card style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رصيدك</T><T w="black" color={me.balance < 0 ? C.red : C.green}>{me.balance} ج</T></Card>
             {!me.canReceive && <Card><T color={C.red} w="bold">رصيدك غير كافٍ لاستقبال الرحلات. اشحن رصيدك من الإدارة.</T></Card>}
             {me.canReceive && hot && (

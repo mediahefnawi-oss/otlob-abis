@@ -44,6 +44,12 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   const me = req => Number(req.auth.sub);
   const push = (ids, title, body, tag) => { try { const p = pushToUsers && pushToUsers((ids || []).filter(Boolean), { title, body, tag, url: '/' }); if (p && p.catch) p.catch(() => {}); } catch { /* a failed push never fails the request */ } };
   const needOn = async () => { let on = false; try { on = await extrasLib.featureOn(pool, 'rides'); } catch { /* off */ } if (!on) throw fail(404, 'الخدمة غير متاحة الآن'); };
+  /** the owner chooses which vehicle types run intercity trips; while none is chosen every captain may (as before) */
+  const tripsAllowed = async uid => {
+    const r = await pool.query(`SELECT (SELECT COUNT(*) FROM ride_types WHERE trips_enabled AND active)::int AS n,
+      COALESCE((SELECT t.trips_enabled FROM captain_profiles p JOIN ride_types t ON t.id=p.type_id WHERE p.user_id=$1), FALSE) AS mine`, [uid]);
+    return r.rows[0].n === 0 || r.rows[0].mine === true;
+  };
   const needCaptain = async req => {
     await needOn();
     const p = await pool.query('SELECT status FROM captain_profiles WHERE user_id=$1', [me(req)]);
@@ -60,13 +66,15 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   const baseOut = (t, seatRows) => ({
     id: Number(t.id), dest: t.dest, fromText: t.from_text, departAt: new Date(t.depart_at).getTime(), seats: t.seats, price: Number(t.price), note: t.note, status: t.status,
     booked: seatRows.map(s => s.seat_no), free: t.seats - seatRows.length,
+    vehicle: t.vtype_id ? { id: Number(t.vtype_id), name: t.vtype_name } : null,
   });
-  const TRIP_SQL = `SELECT t.*, u.name AS driver_name, p.model, p.color, p.plate FROM trips t JOIN users u ON u.id=t.driver_id LEFT JOIN captain_profiles p ON p.user_id=t.driver_id`;
+  const TRIP_SQL = `SELECT t.*, u.name AS driver_name, p.model, p.color, p.plate, rt.id AS vtype_id, rt.name AS vtype_name FROM trips t JOIN users u ON u.id=t.driver_id LEFT JOIN captain_profiles p ON p.user_id=t.driver_id LEFT JOIN ride_types rt ON rt.id=p.type_id`;
 
   /* ================= captain ================= */
   app.post('/api/captain/trips', auth, roles('courier'), guard(async (req, res) => {
     await needCaptain(req);
     await gatesLib.assertOpen(pool, ['trips'], fail);
+    if (!(await tripsAllowed(me(req)))) throw fail(403, 'نوع مركبتك مش مسموح له برحلات المحافظات');
     const c = cleanTrip(req.body);
     if (c.error) throw fail(400, c.error);
     const open = await pool.query("SELECT COUNT(*)::int AS n FROM trips WHERE driver_id=$1 AND status='open' AND depart_at > NOW()", [me(req)]);
@@ -76,13 +84,15 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     // everybody is told: a car goes to <dest> on <day>
     const ids = (await pool.query("SELECT id FROM users WHERE role='customer' AND status='active' AND deleted_at IS NULL ORDER BY id DESC LIMIT $1", [MAX_NOTIFY])).rows.map(x => x.id);
     push(ids, `عربية رايحة ${v.dest} 🚗`, `${fmtWhen(v.departAt)} — فاضل ${v.seats} كراسي. احجز كرسيك دلوقتي!`, `trip-${r.rows[0].id}`);
-    res.status(201).json({ trip: baseOut(r.rows[0], []), notified: ids.length });
+    const vt = (await pool.query('SELECT rt.id AS vtype_id, rt.name AS vtype_name FROM captain_profiles p JOIN ride_types rt ON rt.id=p.type_id WHERE p.user_id=$1', [me(req)])).rows[0] || {};
+    res.status(201).json({ trip: baseOut({ ...r.rows[0], ...vt }, []), notified: ids.length });
   }));
   app.get('/api/captain/trips', auth, roles('courier'), guard(async (req, res) => {
     await needCaptain(req);
+    const allowed = await tripsAllowed(me(req));
     const r = await pool.query(`${TRIP_SQL} WHERE t.driver_id=$1 AND t.depart_at > NOW() - INTERVAL '7 days' ORDER BY t.depart_at DESC LIMIT 50`, [me(req)]);
     const sm = await seatsOf(r.rows.map(x => Number(x.id)));
-    res.json({ trips: r.rows.map(t => { const rows = sm.get(Number(t.id)) || []; return { ...baseOut(t, rows), passengers: rows.map(s => ({ seat: s.seat_no, name: s.name, phone: s.phone })) }; }) });
+    res.json({ allowed, trips: r.rows.map(t => { const rows = sm.get(Number(t.id)) || []; return { ...baseOut(t, rows), passengers: rows.map(s => ({ seat: s.seat_no, name: s.name, phone: s.phone })) }; }) });
   }));
   app.post('/api/captain/trips/:id/status', auth, roles('courier'), guard(async (req, res) => {
     await needCaptain(req);

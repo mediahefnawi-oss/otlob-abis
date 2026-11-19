@@ -568,7 +568,7 @@ export const apiAdminMarketSetOfferText = (offerText: string) => apiRequest<{ ok
 export const apiAdminMarketSetFee = (fee: number) => apiRequest<{ ok: boolean }>('/api/admin/market-settings', { method: 'PATCH', body: JSON.stringify({ fee }) });
 
 export type RidePricingMode = 'km' | 'zones' | 'captain';
-export type RideType = { id: number; name: string; baseFee: number; perKm: number; minFee: number; adjPct: number; sort: number; active: boolean; image: string | null; pricingMode?: RidePricingMode | null; maxFee?: number | null };
+export type RideType = { id: number; name: string; baseFee: number; perKm: number; minFee: number; adjPct: number; sort: number; active: boolean; image: string | null; pricingMode?: RidePricingMode | null; maxFee?: number | null; tripsEnabled?: boolean };
 export type RidePoint = { lat: number; lng: number; text?: string };
 export type RideOffer = { id: number; price: number; status: string; driver: { id: number; name: string; model: string; color: string; plate: string } };
 export type Ride = { id: number; status: string; typeId: number; from: RidePoint; to: RidePoint; km: number; minutes: number; suggested: number; offered: number; finalPrice: number | null; driverId: number | null; expiresAt: string; bidding?: boolean; textDest?: boolean; byRegion?: boolean; fromPin?: boolean; pricing?: RidePricingMode; maxFee?: number | null };
@@ -589,7 +589,7 @@ export const apiRideCurrent = () => apiRequest<{ ride: Ride | null; driver?: Rid
 export const apiRideAcceptOffer = (id: number, offerId: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/accept-offer`, { method: 'POST', body: JSON.stringify({ offerId }) });
 export const apiRideCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/cancel`, { method: 'POST' });
 // the captain
-export type CaptainMe = { status: string; note: string; typeId: number; typeName: string; model: string; color: string; plate: string; balance: number; photos: string[]; autoReceive: boolean; canReceive: boolean };
+export type CaptainMe = { status: string; note: string; typeId: number; typeName: string; model: string; color: string; plate: string; balance: number; photos: string[]; autoReceive: boolean; canReceive: boolean; tripsAllowed?: boolean };
 export const apiCaptainMe = () => apiRequest<{ profile: CaptainMe | null }>('/api/captain/me');
 export const apiCaptainProfile = (b: { typeId: number; model: string; color: string; plate: string; nationalId?: string }) => apiRequest<{ ok: boolean; status: string }>('/api/captain/profile', { method: 'PUT', body: JSON.stringify(b) });
 export const apiCaptainPhoto = (kind: 'car' | 'license' | 'driver' | 'selfie', image: string) => apiRequest<{ ok: boolean }>(`/api/captain/photos/${kind}`, { method: 'PUT', body: JSON.stringify({ image }) });
@@ -631,13 +631,13 @@ export const apiAdminGateSave = (key: string, b: { closed: boolean; message?: st
 
 /* intercity trips with seats */
 export type TripDriver = { name: string; model: string; color: string; plate: string };
-export type Trip = { id: number; dest: string; fromText: string; departAt: number; seats: number; price: number; note: string; status: string; booked: number[]; free: number; mine?: number[]; driver?: TripDriver; passengers?: { seat: number; name: string; phone: string }[] };
+export type Trip = { id: number; dest: string; fromText: string; departAt: number; seats: number; price: number; note: string; status: string; booked: number[]; free: number; mine?: number[]; driver?: TripDriver; passengers?: { seat: number; name: string; phone: string }[]; vehicle?: { id: number; name: string } | null };
 export type MyTrip = { id: number; dest: string; fromText: string; departAt: number; price: number; status: string; mySeats: number[]; driver: TripDriver & { phone: string } };
 export const apiTrips = () => apiRequest<{ trips: Trip[] }>('/api/trips');
 export const apiMyTrips = () => apiRequest<{ trips: MyTrip[] }>('/api/trips/mine');
 export const apiTripBook = (id: number, seats: number[]) => apiRequest<{ ok: boolean; seats: number[] }>(`/api/trips/${id}/book`, { method: 'POST', body: JSON.stringify({ seats }) });
 export const apiTripCancelBooking = (id: number) => apiRequest<{ ok: boolean }>(`/api/trips/${id}/cancel-booking`, { method: 'POST' });
-export const apiCaptainTrips = () => apiRequest<{ trips: Trip[] }>('/api/captain/trips');
+export const apiCaptainTrips = () => apiRequest<{ trips: Trip[]; allowed?: boolean }>('/api/captain/trips');
 export const apiCaptainTripCreate = (b: { dest: string; fromText?: string; departAt: string; seats: number; price: number; note?: string }) => apiRequest<{ trip: Trip; notified: number }>('/api/captain/trips', { method: 'POST', body: JSON.stringify(b) });
 export const apiCaptainTripStatus = (id: number, status: 'started' | 'done') => apiRequest<{ ok: boolean }>(`/api/captain/trips/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
 export const apiCaptainTripCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/captain/trips/${id}/cancel`, { method: 'POST' });

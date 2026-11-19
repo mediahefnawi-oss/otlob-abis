@@ -73,7 +73,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       FROM captain_profiles p LEFT JOIN ride_types t ON t.id=p.type_id WHERE p.user_id=$1`, [me(req)]);
     if (!r.rowCount) return res.json({ profile: null });
     const p = r.rows[0], s = await settings();
-    res.json({ profile: { status: p.status, note: p.note, typeId: p.type_id, typeName: p.type_name, model: p.model, color: p.color, plate: p.plate, balance: Number(p.balance), photos: p.photos, autoReceive: p.auto_receive, canReceive: p.status === 'approved' && canReceive(p.balance, s.ride_min_balance) } });
+    res.json({ profile: { status: p.status, note: p.note, typeId: p.type_id, typeName: p.type_name, model: p.model, color: p.color, plate: p.plate, balance: Number(p.balance), photos: p.photos, autoReceive: p.auto_receive, tripsAllowed: await (async () => { const q = await pool.query('SELECT (SELECT COUNT(*) FROM ride_types WHERE trips_enabled AND active)::int AS n, COALESCE((SELECT trips_enabled FROM ride_types WHERE id=$1), FALSE) AS mine', [p.type_id]); return q.rows[0].n === 0 || q.rows[0].mine === true; })(), canReceive: p.status === 'approved' && canReceive(p.balance, s.ride_min_balance) } });
   }));
 
   /* ================= admin: review + control the captains ================= */

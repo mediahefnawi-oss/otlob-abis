@@ -289,6 +289,10 @@ function TypesTab() {
             <Btn title="حذف" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminRideTypeDelete(t.id), 'تم الحذف')} />
           </View>
           <PricingRow type={t} onSaved={load} />
+          <Pressable onPress={() => run(() => apiAdminRideTypeSave(t.id, { trips_enabled: !t.tripsEnabled }))} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.tripsEnabled ? C.greenSoft : '#F6F8F6', borderRadius: 12, padding: 10 }}>
+            <Icon name={t.tripsEnabled ? 'checkbox' : 'square-outline'} size={22} color={C.green} />
+            <View style={{ flex: 1 }}><T w="bold" size={13}>رحلات المحافظات</T><T size={11.5} color={C.sub}>{t.tripsEnabled ? 'النوع ده يقدر يعمل رحلات محافظات' : 'مقفول — ما يقدرش يعلن رحلات'}</T></View>
+          </Pressable>
           <CommissionRow type={t} />
         </Card>
       ))}

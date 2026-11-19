@@ -979,3 +979,5 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS home_layout JSONB NOT NULL DEF
 ALTER TABLE market_products ADD COLUMN IF NOT EXISTS sold_out BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS by_region BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS from_pin BOOLEAN NOT NULL DEFAULT TRUE;
+-- which vehicle types may run intercity trips (nothing ticked = every captain may, as before)
+ALTER TABLE ride_types ADD COLUMN IF NOT EXISTS trips_enabled BOOLEAN NOT NULL DEFAULT FALSE;
