@@ -1,4 +1,5 @@
 import React from 'react';
+import { reportError } from '../lib/report';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { C } from '../lib/theme';
 
@@ -12,7 +13,7 @@ export const rememberCrash = (e: any) => { lastCrash = String((e && (e.stack || 
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err: any; taps: number }> {
   state = { err: null as any, taps: 0 };
   static getDerivedStateFromError(err: any) { return { err }; }
-  componentDidCatch(err: any) { rememberCrash(err); }
+  componentDidCatch(err: any) { rememberCrash(err); reportError('screen-crash', err); }
   render() {
     if (!this.state.err) return this.props.children;
     return (

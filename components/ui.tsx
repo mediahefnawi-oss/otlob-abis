@@ -1,4 +1,5 @@
 import React, { ReactNode, useEffect, useState } from 'react';
+import { reportError } from '../lib/report';
 import {
   View, Text, TextInput, Pressable, StyleSheet, Modal, ActivityIndicator, TextStyle, ViewStyle,
   TextInputProps, Platform, KeyboardAvoidingView, ScrollView, Linking, StyleProp,
@@ -55,7 +56,8 @@ export const friendlyError = (text: string) => {
 const recentErr = new Map<string, number>();
 export const toast = (text: string, type: ToastMsg['type'] = 'ok') => {
   if (type === 'err') {
-    text = friendlyError(text);
+    const raw = text; text = friendlyError(text);
+    if (text !== String(raw || '').trim()) reportError('toast', raw);   // a technical message the customer does not see goes to the owner instead
     const now = Date.now(); if ((recentErr.get(text) || 0) > now - 4000) return;   // the same error is never shown twice in a row
     recentErr.set(text, now);
   }

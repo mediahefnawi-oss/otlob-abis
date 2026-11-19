@@ -674,3 +674,16 @@ export const apiAdminBroadcastSend = (b: { title: string; body: string; audience
 export const apiAdminBroadcastDelete = (id: number) => apiRequest<{ broadcasts: Broadcast[] }>(`/api/admin/broadcasts/${id}`, { method: 'DELETE' });
 export const apiBroadcastsUnread = () => apiRequest<{ broadcasts: Broadcast[] }>('/api/broadcasts/unread');
 export const apiBroadcastSeen = (id: number) => apiRequest<{ ok: boolean }>(`/api/broadcasts/${id}/seen`, { method: 'POST' });
+
+/** Silent error report to the server (never throws, never waits for an answer). */
+export async function apiClientError(body: { message: string; where: string; stack?: string; platform?: string; version?: string }): Promise<void> {
+  try {
+    const token = await getToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    await fetch(`${API_BASE}/api/client-errors`, { method: 'POST', headers, body: JSON.stringify(body) });
+  } catch { /* reporting must never cause a new error */ }
+}
+export type ClientErrorRow = { id: string; where: string; message: string; stack: string; platform: string; version: string; userId: string | null; count: number; first: number; last: number };
+export const apiAdminClientErrors = () => apiRequest<{ errors: ClientErrorRow[] }>('/api/admin/client-errors');
+export const apiAdminClientErrorsClear = () => apiRequest<{ ok: boolean }>('/api/admin/client-errors', { method: 'DELETE' });

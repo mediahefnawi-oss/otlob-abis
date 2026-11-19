@@ -1,4 +1,5 @@
 import { storage } from './storage';
+import { quiet } from './report';
 import { openLive } from './api';
 import { alertNewOrder, setAlarm } from './alerts';
 import { syncPushSubscription, forgetPushSubscription } from './push';
@@ -511,10 +512,10 @@ export async function syncRemote(withCatalog = true) {
       try {
         const { settings } = await apiGetSettings();
         applySettings(settings);
-      } catch {}
+      } catch (e) { quiet('settings-sync')(e); }
     }
     if (withCatalog) {
-      try { await syncCatalog(); } catch {}
+      try { await syncCatalog(); } catch (e) { quiet('catalog-sync')(e); }
     }
   } finally {
     syncing = false;
@@ -1513,7 +1514,7 @@ export async function refresh() {
     if (!raw) return;
     const parsed: DB = JSON.parse(raw);
     if (parsed.rev > state.db.rev) setState({ db: parsed });
-  } catch {}
+  } catch (e) { quiet('db-restore')(e); }
   await new Promise((r) => setTimeout(r, 500));
 }
 

@@ -1,4 +1,5 @@
 import { apiPushSubscribeDevice, apiPushUnsubscribe } from './api';
+import { quiet } from './report';
 import { storage } from './storage';
 
 /**
@@ -65,7 +66,7 @@ export async function syncPushSubscription() {
     const n = N();
     const p = await n.getPermissionsAsync();
     if (p.status === 'granted' && !(await storage.getItem(OPTOUT))) await register();
-  } catch {}
+  } catch (e) { quiet('push-sync')(e); }
 }
 
 let askedThisRun = false;
@@ -85,7 +86,7 @@ export async function autoEnablePush(): Promise<void> {
       if (p.status !== 'granted') return;
     }
     await register();
-  } catch {}
+  } catch (e) { quiet('push-enable')(e); }
 }
 
 /** Opens the phone's own settings page of this app (for a blocked notification permission). */

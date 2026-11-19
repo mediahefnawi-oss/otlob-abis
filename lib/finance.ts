@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { quiet } from './report';
 import { apiRequest } from './api';
 
 /** Commission / counter data comes straight from the central server (reset-aware), never from the local copy. */
@@ -16,7 +17,7 @@ export async function refreshCounters() {
   try {
     cache = await apiJson<Counters>('/api/counters');
     subs.forEach((f) => f());
-  } catch {}
+  } catch (e) { quiet('counters')(e); }
 }
 /** Live counters for the owner (all providers) or a provider (own). Refreshes every few seconds while a screen shows them. */
 export function useCounters(role: string, every = 10000): Counters | null {

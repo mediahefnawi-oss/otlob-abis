@@ -278,6 +278,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     { label: 'شكل الشاشة الرئيسية', route: 'AdminHomeLayout', icon: 'color-palette', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'owner' },
     { label: 'ربط أوردرات بطيار', route: 'Dispatch', icon: 'link', color: C.green, bg: C.greenSoft, badge: 0, perm: 'orders' },
     { label: 'تشغيل الميزات', route: 'AdminFeatures', icon: 'options', color: C.green, bg: C.greenSoft, badge: 0, perm: 'owner' },
+    { label: 'أخطاء التطبيق', route: 'AdminErrors', icon: 'bug', color: C.red, bg: C.redSoft, badge: 0, perm: 'owner' },
     { label: 'سجل التغييرات', route: 'AdminLog', icon: 'time', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'any' },
     { label: 'التقييمات', route: 'AdminRatings', icon: 'star', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'users' },
     { label: 'المشرفون', route: 'AdminSupervisors', icon: 'shield-checkmark', color: C.green, bg: C.greenSoft, badge: 0, perm: 'owner' },

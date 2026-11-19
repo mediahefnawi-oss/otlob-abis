@@ -198,7 +198,7 @@ async function call(key, { as, body, query, params } = {}) {
   const dataAfter = await snap();
   eq(dataAfter, dataMid, 'still nothing deleted or changed after all resets');
   const ovAfter = (await call('GET /api/admin/commissions/overview', { as: A })).json;
-  ok(ovAfter.totals.length === 2, 'cumulative commission totals still available');
+  ok(ovAfter.totals.some(x => x.kind === 'provider') && ovAfter.totals.some(x => x.kind === 'courier'), 'cumulative commission totals still available (provider + courier, per kind of work)');
   const rep = (await call('GET /api/admin/commissions/report', { as: A, query: { period: 'day' } })).json;
   ok(rep.rows.length >= 2 && rep.rows.some(x => x.kind === 'provider' && x.count > 0), 'reports unaffected by resets');
   const repM = (await call('GET /api/admin/commissions/report', { as: A, query: { period: 'month' } })).json;

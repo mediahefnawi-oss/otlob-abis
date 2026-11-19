@@ -47,6 +47,8 @@ import { AdminRatingsScreen } from './components/Ratings';
 import { CouriersMapScreen, useCourierTracking } from './components/Location';
 import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
+import { reportError } from './lib/report';
+import { AdminErrorsScreen } from './components/AdminErrors';
 import { GroupCartScreen, MarketScreen } from './screens/extra';
 import { RideHomeScreen, CaptainScreen } from './screens/rides';
 import { AdminGatesScreen, DispatchScreen } from './screens/adminControl';
@@ -56,7 +58,12 @@ import { AdminMarketScreen, AdminRidesScreen, AdminBroadcastScreen } from './scr
 // the phone app must not close because of one failing action: show a message instead (a crash in a screen is caught by ErrorBoundary)
 if (Platform.OS !== 'web') {
   const EU = (globalThis as any).ErrorUtils;
-  if (EU && EU.setGlobalHandler) EU.setGlobalHandler((e: any) => { rememberCrash(e); try { toast('حصل خطأ غير متوقع، حاول مرة أخرى', 'err'); } catch {} });
+  if (EU && EU.setGlobalHandler) EU.setGlobalHandler((e: any) => { rememberCrash(e); reportError('global', e); try { toast('حصل خطأ غير متوقع، حاول مرة أخرى', 'err'); } catch {} });
+}
+
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  window.addEventListener('error', (ev: any) => reportError('web', ev && (ev.error || ev.message)));
+  window.addEventListener('unhandledrejection', (ev: any) => reportError('web-promise', ev && ev.reason));
 }
 
 setStoreErrorHandler((msg) => toast(msg, 'err'));
@@ -236,6 +243,7 @@ function Root() {
         <Stack.Screen name="AdminFeatures" component={AdminFeaturesScreen} />
         <Stack.Screen name="Premium" component={PremiumScreen} />
         <Stack.Screen name="AdminLog" component={AdminLogScreen} />
+        <Stack.Screen name="AdminErrors" component={AdminErrorsScreen} />
         <Stack.Screen name="AdminRatings" component={AdminRatingsScreen} />
       </>
     );

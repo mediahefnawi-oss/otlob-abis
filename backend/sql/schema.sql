@@ -981,3 +981,19 @@ ALTER TABLE rides ADD COLUMN IF NOT EXISTS by_region BOOLEAN NOT NULL DEFAULT FA
 ALTER TABLE rides ADD COLUMN IF NOT EXISTS from_pin BOOLEAN NOT NULL DEFAULT TRUE;
 -- which vehicle types may run intercity trips (nothing ticked = every captain may, as before)
 ALTER TABLE ride_types ADD COLUMN IF NOT EXISTS trips_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- silent error reports from the app (grouped: the same error is one row with a counter)
+CREATE TABLE IF NOT EXISTS client_errors (
+  id BIGSERIAL PRIMARY KEY,
+  fp TEXT NOT NULL UNIQUE,
+  where_ TEXT NOT NULL DEFAULT 'app',
+  message TEXT NOT NULL,
+  stack TEXT NOT NULL DEFAULT '',
+  platform TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '',
+  user_id INTEGER,
+  cnt INTEGER NOT NULL DEFAULT 1,
+  first_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_client_errors_last ON client_errors(last_at DESC);
