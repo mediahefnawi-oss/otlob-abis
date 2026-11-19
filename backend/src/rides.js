@@ -10,6 +10,7 @@ const { km: lineKm } = require('./tracking');
 const ROAD_FACTOR = 1.3;          // straight line -> road, used only when the routing service is unreachable
 const OSRM = process.env.OSRM_URL || 'https://router.project-osrm.org';
 const NAME_MAX = 40;
+const MODES = ['km', 'zones', 'captain'];     // price by distance | a fixed price between two areas | the captain names the price
 
 const num = (v, lo, hi) => { const x = Number(v); return Number.isFinite(x) && x >= lo && x <= hi ? x : null; };
 const okPoint = p => p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)) && Math.abs(Number(p.lat)) <= 90 && Math.abs(Number(p.lng)) <= 180;
@@ -35,6 +36,15 @@ function cleanType(b, partial = false) {
   if (!f('base_fee', 0, 5000) || !f('per_km', 0, 500) || !f('min_fee', 0, 5000)) return null;
   if (!partial || b.adj_pct !== undefined) { const v = num(b.adj_pct, 0, 90); if (v === null) return null; out.adj_pct = Math.round(v); }
   if (!partial || b.sort_order !== undefined) { const v = num(b.sort_order, 0, 999); if (v === null) return null; out.sort_order = Math.round(v); }
+  if (b.pricing_mode !== undefined) {
+    if (b.pricing_mode === null || b.pricing_mode === '') out.pricing_mode = null;
+    else if (MODES.includes(b.pricing_mode)) out.pricing_mode = b.pricing_mode;
+    else return null;
+  }
+  if (b.max_fee !== undefined) {
+    if (b.max_fee === null || b.max_fee === '') out.max_fee = null;
+    else { const v = num(b.max_fee, 5, 5000); if (v === null) return null; out.max_fee = v; }
+  }
   if (b.active !== undefined) out.active = !!b.active;
   return out;
 }
@@ -57,6 +67,36 @@ async function roadDistance(a, b, fetchFn = globalThis.fetch, withRoute = false)
   } catch { /* fall through to the straight line */ }
   const d = Math.round(line * ROAD_FACTOR * 10) / 10;
   return { km: d, min: Math.max(1, Math.round(d * 2.5)), source: 'line' };
+}
+
+const pid = v => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
+/**
+ * Pure-ish: how a ride request is priced. t = the ride_types row, b = the request body, globalPricing = the old general setting ('fixed' | 'bidding').
+ * mode: 'km' (price by the road, the customer may move it a little) | 'zones' (a fixed price between two areas) | 'captain' (the captain names it).
+ * A typed destination (not found on the map) and a missing area price always fall back to 'captain'.
+ */
+async function planPrice(db, t, b, globalPricing, fetchFn = globalThis.fetch, withRoute = false) {
+  const textDest = b.textDest === true;
+  let mode = t.pricing_mode || (globalPricing === 'bidding' ? 'captain' : 'km');
+  if (textDest) mode = 'captain';
+  const fromRegionId = pid(b.fromRegionId), toRegionId = pid(b.toRegionId);
+  let zonePrice = null, zoneMissing = false;
+  if (mode === 'zones') {
+    if (fromRegionId && toRegionId) {
+      const r = await db.query('SELECT price FROM ride_zone_prices WHERE type_id=$1 AND from_region_id=$2 AND to_region_id=$3', [t.id, fromRegionId, toRegionId]);
+      if (r.rowCount) zonePrice = Number(r.rows[0].price);
+    }
+    if (zonePrice === null) { mode = 'captain'; zoneMissing = true; }   // a way that is not in the owner's table: the captain names the price
+  }
+  const d = textDest ? { km: 0, min: 0, source: 'none' } : await roadDistance(b.from, b.to, fetchFn, withRoute);
+  const maxFee = t.max_fee == null ? null : Number(t.max_fee);
+  let suggested, lo, hi;
+  if (mode === 'zones') { suggested = lo = hi = zonePrice; }
+  else if (mode === 'captain') {
+    suggested = textDest ? Number(t.min_fee || 0) : priceFor(t, d.km);
+    lo = Number(t.min_fee || 0); hi = maxFee !== null ? maxFee : textDest ? 1000 : Math.ceil(suggested * 3);
+  } else { suggested = priceFor(t, d.km); ({ lo, hi } = bounds(suggested, t.adj_pct)); }
+  return { mode, textDest, zoneMissing, km: d.km, minutes: d.min, source: d.source, route: d.route || null, suggested, lo, hi, bidding: mode === 'captain', maxFee, fromRegionId, toRegionId };
 }
 
 /** The first time only: the six vehicle types with their photos and starting prices (the owner edits everything from the panel). */
@@ -90,8 +130,8 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
   const guard = fn => asyncRoute(async (req, res) => { try { await fn(req, res); } catch (e) { if (e && e.http) return res.status(e.http).json({ error: e.message }); throw e; } });
   const admin = [auth, roles('admin')];
   const on = async () => { try { return await extrasLib.featureOn(pool, 'rides'); } catch { return false; } };
-  const COLS = 'id, name, base_fee, per_km, min_fee, adj_pct, sort_order, active, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
-  const out = r => ({ id: r.id, name: r.name, baseFee: Number(r.base_fee), perKm: Number(r.per_km), minFee: Number(r.min_fee), adjPct: r.adj_pct, sort: r.sort_order, active: r.active, image: r.has_image ? `/api/ride-type-image/${r.id}?v=${r.v}` : null });
+  const COLS = 'id, name, base_fee, per_km, min_fee, adj_pct, sort_order, active, pricing_mode, max_fee, (image IS NOT NULL) AS has_image, (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v';
+  const out = r => ({ id: r.id, name: r.name, baseFee: Number(r.base_fee), perKm: Number(r.per_km), minFee: Number(r.min_fee), adjPct: r.adj_pct, sort: r.sort_order, active: r.active, pricingMode: r.pricing_mode || null, maxFee: r.max_fee == null ? null : Number(r.max_fee), image: r.has_image ? `/api/ride-type-image/${r.id}?v=${r.v}` : null });
 
   /* ----- the owner: add / edit / stop / delete the types ----- */
   app.get('/api/admin/ride-types', ...admin, guard(async (_req, res) => {
@@ -103,7 +143,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
     if (!c) throw fail(400, 'البيانات غير صحيحة (الاسم والأرقام)');
     const n = await pool.query('SELECT COUNT(*)::int AS c FROM ride_types');
     if (n.rows[0].c >= 20) throw fail(409, 'الحد الأقصى 20 نوع');
-    const r = await pool.query(`INSERT INTO ride_types(name, base_fee, per_km, min_fee, adj_pct, sort_order, active) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING ${COLS}`, [c.name, c.base_fee, c.per_km, c.min_fee, c.adj_pct, c.sort_order, c.active !== false]);
+    const r = await pool.query(`INSERT INTO ride_types(name, base_fee, per_km, min_fee, adj_pct, sort_order, active, pricing_mode, max_fee) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${COLS}`, [c.name, c.base_fee, c.per_km, c.min_fee, c.adj_pct, c.sort_order, c.active !== false, c.pricing_mode ?? null, c.max_fee ?? null]);
     clearCaches();
     res.json({ type: out(r.rows[0]) });
   }));
@@ -150,17 +190,46 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
     const r = await pool.query(`SELECT ${COLS} FROM ride_types WHERE active ORDER BY sort_order, id`);
     res.json({ types: r.rows.map(out) });
   }));
+  /* ----- the owner: the fixed price between two areas, per vehicle type ----- */
+  app.get('/api/admin/ride-types/:id/zones', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const r = await pool.query('SELECT from_region_id, to_region_id, price FROM ride_zone_prices WHERE type_id=$1 ORDER BY from_region_id, to_region_id', [id]);
+    res.json({ zones: r.rows.map(x => ({ fromRegionId: Number(x.from_region_id), toRegionId: Number(x.to_region_id), price: Number(x.price) })) });
+  }));
+  app.put('/api/admin/ride-types/:id/zones', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const raw = (req.body || {}).zones;
+    if (!Array.isArray(raw) || raw.length > 600) throw fail(400, 'قائمة الأسعار غير صالحة');
+    const seen = new Set(), rows = [];
+    for (const z of raw) {
+      const a = pid(z && z.fromRegionId), b = pid(z && z.toRegionId), p = num(z && z.price, 0, 5000);
+      if (!a || !b || p === null) throw fail(400, 'كل سطر لازم فيه منطقتين وسعر صحيح');
+      const k = a + '-' + b; if (seen.has(k)) throw fail(400, 'مسار مكرر في الجدول'); seen.add(k);
+      rows.push([a, b, Math.round(p * 100) / 100]);
+    }
+    if (!(await pool.query('SELECT 1 FROM ride_types WHERE id=$1', [id])).rowCount) throw fail(404, 'النوع غير موجود');
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('DELETE FROM ride_zone_prices WHERE type_id=$1', [id]);
+      if (rows.length) await c.query('INSERT INTO ride_zone_prices(type_id, from_region_id, to_region_id, price) SELECT $1, f, t, p FROM unnest($2::bigint[], $3::bigint[], $4::numeric[]) AS x(f, t, p)', [id, rows.map(r => r[0]), rows.map(r => r[1]), rows.map(r => r[2])]);
+      await c.query('COMMIT');
+    } catch (e) { try { await c.query('ROLLBACK'); } catch { /* already */ } throw e; } finally { c.release(); }
+    clearCaches();
+    res.json({ ok: true, count: rows.length });
+  }));
+
   app.post('/api/rides/estimate', auth, roles('customer'), guard(async (req, res) => {
     if (!(await on())) throw fail(404, 'الخدمة غير متاحة الآن');
     const b = req.body || {};
-    if (!okPoint(b.from) || !okPoint(b.to)) throw fail(400, 'حدد نقطة التحميل والوجهة');
+    if (!okPoint(b.from)) throw fail(400, 'حدد نقطة التحميل');
+    if (b.textDest !== true && !okPoint(b.to)) throw fail(400, 'حدد الوجهة على الخريطة أو اكتبها');
     const id = positiveId(b.typeId); if (!id) throw fail(400, 'اختر نوع المركبة');
     const t = await pool.query('SELECT * FROM ride_types WHERE id=$1 AND active', [id]);
     if (!t.rowCount) throw fail(404, 'النوع غير متاح');
-    const bidding = ((await pool.query('SELECT ride_pricing FROM app_settings WHERE id=1')).rows[0] || {}).ride_pricing === 'bidding';
-    const d = await roadDistance(b.from, b.to, globalThis.fetch, true);
-    const price = priceFor(t.rows[0], d.km);
-    res.json({ km: d.km, minutes: d.min, source: d.source, route: d.route || null, bidding, price, ...bounds(price, t.rows[0].adj_pct) });
+    const g = ((await pool.query('SELECT ride_pricing FROM app_settings WHERE id=1')).rows[0] || {}).ride_pricing;
+    const pl = await planPrice(pool, t.rows[0], b, g, globalThis.fetch, true);
+    res.json({ mode: pl.mode, textDest: pl.textDest, zoneMissing: pl.zoneMissing, km: pl.km, minutes: pl.minutes, source: pl.source, route: pl.route, bidding: pl.bidding, price: pl.suggested, lo: pl.lo, hi: pl.hi, maxFee: pl.maxFee });
   }));
 }
-module.exports = { priceFor, bounds, cleanType, roadDistance, seedTypes, register };
+module.exports = { priceFor, bounds, cleanType, roadDistance, planPrice, MODES, seedTypes, register };

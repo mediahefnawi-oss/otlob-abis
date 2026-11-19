@@ -15,10 +15,12 @@ function parsePerms(v) {
 const ADMIN_RULES = [
   [/^managers(\/|$)/, 'block'],
   [/^users\/[^/]+\/password$/, 'block'],
+  [/^users\/[^/]+\/role$/, 'block'],        // turning an account into a supervisor / manager is the owner's alone
   [/^users$/, 'any_perm', ['GET']], // the user list feeds every screen (couriers, shops, orders); any granted permission may read it
   [/^(users|customers|ratings)(\/|$)/, 'users'],
   [/^rides\/settings$/, 'block'],
   [/^rides(\/|$)/, 'orders'],
+  [/^(gates|trips)(\/|$)/, 'orders'],        // open / close of new orders and the intercity trips
   [/^chat-reports(\/|$)/, 'support'],
   [/^(providers|market-products|offers|coupons|ads|provider-cover)(\/|$)/, 'providers'],
   [/^captains\/[^/]+\/balance$/, 'finance_edit'],
@@ -98,6 +100,38 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, hashPassword
     const name = typeof b.name === 'string' && b.name.trim().length >= 3 ? b.name.trim().slice(0, 100) : cur.rows[0].name;
     const perms = Array.isArray(b.perms) ? parsePerms(b.perms).join(',') : cur.rows[0].mgr_perms;
     const r = await pool.query('UPDATE users SET name=$1, mgr_perms=$2 WHERE id=$3 RETURNING *', [name, perms, id]);
+    clearAuth();
+    res.json({ user: shape(r.rows[0]) });
+  }));
+  /**
+   * The owner turns an existing account into a supervisor (with his areas), a manager (with permissions) or back into a normal customer.
+   * Only customers, supervisors and managers can be changed this way: shops, couriers and the owner accounts keep their type.
+   */
+  const CHANGEABLE = ['customer', 'supervisor', 'manager'];
+  app.post('/api/admin/users/:id/role', ...owner, asyncRoute(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const b = req.body || {}, role = String(b.role || '');
+    if (!CHANGEABLE.includes(role)) return res.status(400).json({ error: 'اختار عميل أو مشرف أو مدير' });
+    const cur = await pool.query('SELECT * FROM users WHERE id=$1 AND deleted_at IS NULL', [id]);
+    if (!cur.rowCount) return res.status(404).json({ error: 'الحساب غير موجود' });
+    const u = cur.rows[0];
+    if (Number(u.id) === Number(req.auth.sub)) return res.status(409).json({ error: 'مينفعش تغيّر نوع حسابك إنت' });
+    if (!CHANGEABLE.includes(u.role)) return res.status(409).json({ error: 'الحساب ده نوعه مختلف (متجر أو مندوب أو أدمن)، التحويل متاح للعملاء والمشرفين والمديرين بس' });
+    if (u.status !== 'active') return res.status(409).json({ error: 'فعّل الحساب الأول' });
+    let regions = '', perms = '';
+    if (role === 'supervisor') {
+      const want = [...new Set((Array.isArray(b.regions) ? b.regions : []).map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, 50);
+      if (!want.length) return res.status(400).json({ error: 'اختار منطقة واحدة على الأقل للمشرف' });
+      const ok = await pool.query('SELECT id FROM regions WHERE id = ANY($1::bigint[])', [want]);
+      if (ok.rowCount !== want.length) return res.status(400).json({ error: 'منطقة غير موجودة' });
+      regions = want.join(',');
+    } else if (role === 'manager') {
+      const list = parsePerms(b.perms);
+      if (!list.length) return res.status(400).json({ error: 'اختار صلاحية واحدة على الأقل للمدير' });
+      perms = list.join(',');
+    }
+    const r = await pool.query('UPDATE users SET role=$2, sup_regions=$3, mgr_perms=$4 WHERE id=$1 RETURNING *', [id, role, regions, perms]);
     clearAuth();
     res.json({ user: shape(r.rows[0]) });
   }));

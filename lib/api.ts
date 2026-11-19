@@ -111,6 +111,7 @@ export type CentralSettings = {
   appIconV?: number;
   homeCoverV?: number;
   homeBlocks?: HomeBlock[];
+  homeLayout?: Record<string, any>;
   premium?: PremiumPublic | null;
   catIconV?: Record<string, number>;
   apkUrl?: string;
@@ -517,33 +518,37 @@ export const apiGroupDone = (code: string) => apiRequest<{ ok: boolean }>(`/api/
 export const apiGroupCancel = (code: string) => apiRequest<{ ok: boolean }>(`/api/group-carts/${encodeURIComponent(code)}/cancel`, { method: 'POST' });
 
 export type MarketSize = { label: string; price: number | null; salePrice?: number | null };
-export type MarketProduct = { id: number; name: string; category: string; description?: string; sizes?: MarketSize[]; price: number | null; discountPct?: number | null; offerText?: string; offerUntil?: string | null; salePrice?: number | null; onOffer?: boolean; emoji: string; available: boolean; sort: number; image: string | null };
+export type MarketOption = { label: string; price: number };
+export type MarketProduct = { id: number; name: string; category: string; description?: string; sizes?: MarketSize[]; options?: MarketOption[]; soldOut?: boolean; price: number | null; discountPct?: number | null; offerText?: string; offerUntil?: string | null; salePrice?: number | null; onOffer?: boolean; emoji: string; available: boolean; sort: number; image: string | null };
 export const apiMarketProducts = () => apiRequest<{ products: MarketProduct[]; fee: number; offerText?: string }>('/api/market-products');
-export const apiMarketOrder = (input: { lines: { productId: string; qty: number; size?: string }[]; phone: string; address: string; notes?: string; destMode?: string; destLat?: number; destLng?: number }) =>
+export const apiMarketOrder = (input: { lines: { productId: string; qty: number; size?: string; opts?: string[] }[]; phone: string; address: string; notes?: string; destMode?: string; destLat?: number; destLng?: number }) =>
   apiRequest<{ orders: any[]; invoice: any }>('/api/orders/market', { method: 'POST', body: JSON.stringify(input) });
 export const marketImageUrl = (p: { image: string | null }) => (p.image ? `${API_BASE}${p.image}` : '');
 export const apiAdminMarketList = () => apiRequest<{ products: MarketProduct[] }>('/api/admin/market-products');
 export const apiAdminMarketImportDefaults = () => apiRequest<{ ok: boolean; added: number; total: number }>('/api/admin/market-products/import-defaults', { method: 'POST' });
-export const apiAdminMarketAdd = (b: { name: string; price: number | null; sizes?: { label: string; price: number | null }[]; description?: string; category?: string; emoji?: string; discountPct?: number | null; offerText?: string; offerUntil?: string | null }) => apiRequest<{ product: MarketProduct }>('/api/admin/market-products', { method: 'POST', body: JSON.stringify(b) });
-export const apiAdminMarketEdit = (id: number, b: Partial<{ name: string; price: number | null; sizes: { label: string; price: number | null }[]; description: string; category: string; emoji: string; available: boolean; discountPct: number | null; offerText: string; offerUntil: string | null }>) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
+export const apiAdminMarketAdd = (b: { name: string; price: number | null; sizes?: { label: string; price: number | null }[]; options?: MarketOption[]; soldOut?: boolean; description?: string; category?: string; emoji?: string; discountPct?: number | null; offerText?: string; offerUntil?: string | null }) => apiRequest<{ product: MarketProduct }>('/api/admin/market-products', { method: 'POST', body: JSON.stringify(b) });
+export const apiAdminMarketEdit = (id: number, b: Partial<{ name: string; price: number | null; sizes: { label: string; price: number | null }[]; options: MarketOption[]; soldOut: boolean; description: string; category: string; emoji: string; available: boolean; discountPct: number | null; offerText: string; offerUntil: string | null }>) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminMarketDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/market-products/${id}`, { method: 'DELETE' });
 export const apiAdminMarketImage = (id: number, image: string) => apiRequest<{ product: MarketProduct }>(`/api/admin/market-products/${id}/image`, { method: 'PUT', body: JSON.stringify({ image }) });
 export const apiAdminMarketFee = () => apiRequest<{ fee: number; offerText?: string }>('/api/admin/market-settings');
 export const apiAdminMarketSetOfferText = (offerText: string) => apiRequest<{ ok: boolean }>('/api/admin/market-settings', { method: 'PATCH', body: JSON.stringify({ offerText }) });
 export const apiAdminMarketSetFee = (fee: number) => apiRequest<{ ok: boolean }>('/api/admin/market-settings', { method: 'PATCH', body: JSON.stringify({ fee }) });
 
-export type RideType = { id: number; name: string; baseFee: number; perKm: number; minFee: number; adjPct: number; sort: number; active: boolean; image: string | null };
+export type RidePricingMode = 'km' | 'zones' | 'captain';
+export type RideType = { id: number; name: string; baseFee: number; perKm: number; minFee: number; adjPct: number; sort: number; active: boolean; image: string | null; pricingMode?: RidePricingMode | null; maxFee?: number | null };
 export type RidePoint = { lat: number; lng: number; text?: string };
 export type RideOffer = { id: number; price: number; status: string; driver: { id: number; name: string; model: string; color: string; plate: string } };
-export type Ride = { id: number; status: string; typeId: number; from: RidePoint; to: RidePoint; km: number; minutes: number; suggested: number; offered: number; finalPrice: number | null; driverId: number | null; expiresAt: string; bidding?: boolean };
+export type Ride = { id: number; status: string; typeId: number; from: RidePoint; to: RidePoint; km: number; minutes: number; suggested: number; offered: number; finalPrice: number | null; driverId: number | null; expiresAt: string; bidding?: boolean; textDest?: boolean; pricing?: RidePricingMode; maxFee?: number | null };
 export const rideImageUrl = (t: { image: string | null }) => (t.image ? `${API_BASE}${t.image}` : '');
 export const apiRideTypes = () => apiRequest<{ types: RideType[] }>('/api/ride-types');
-export const apiRideEstimate = (from: RidePoint, to: RidePoint, typeId: number) => apiRequest<{ km: number; minutes: number; source: string; route?: [number, number][] | null; bidding?: boolean; price: number; lo: number; hi: number }>('/api/rides/estimate', { method: 'POST', body: JSON.stringify({ from, to, typeId }) });
-export const apiRideCreate = (from: RidePoint, to: RidePoint, typeId: number, price: number) => apiRequest<{ ride: Ride; notified: number }>('/api/rides', { method: 'POST', body: JSON.stringify({ from, to, typeId, price }) });
+export type RideEstimate = { mode?: RidePricingMode; textDest?: boolean; zoneMissing?: boolean; km: number; minutes: number; source: string; route?: [number, number][] | null; bidding?: boolean; price: number; lo: number; hi: number; maxFee?: number | null };
+export type RideExtra = { textDest?: boolean; fromRegionId?: number; toRegionId?: number };
+export const apiRideEstimate = (from: RidePoint, to: RidePoint | null, typeId: number, extra: RideExtra = {}) => apiRequest<RideEstimate>('/api/rides/estimate', { method: 'POST', body: JSON.stringify({ from, ...(to ? { to } : {}), typeId, ...extra }) });
+export const apiRideCreate = (from: RidePoint, to: RidePoint, typeId: number, price: number, extra: RideExtra = {}) => apiRequest<{ ride: Ride; notified: number }>('/api/rides', { method: 'POST', body: JSON.stringify({ from, to, typeId, price, ...extra }) });
 export type RideDriver = { id: number; name: string; phone: string; model: string; color: string; plate: string };
 export type RideLeg = { km: number; minutes: number; route: [number, number][] };
 /** the map of a trip in progress: where the captain is and the ways to draw */
-export type RideLive = { active: boolean; status: string; driver?: { lat: number; lng: number; heading: number | null; ageSec: number } | null; pickup?: RideLeg | null; trip?: RideLeg | null; dest?: RideLeg | null };
+export type RideLive = { active: boolean; status: string; driver?: { lat: number; lng: number; heading: number | null; ageSec: number } | null; pickup?: RideLeg | null; trip?: RideLeg | null; dest?: RideLeg | null; textDest?: boolean };
 export const apiRideLive = (id: number) => apiRequest<RideLive>(`/api/rides/${id}/live`);
 export const apiRideCurrent = () => apiRequest<{ ride: Ride | null; driver?: RideDriver | null; offers: RideOffer[] }>('/api/rides/current');
 export const apiRideAcceptOffer = (id: number, offerId: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/accept-offer`, { method: 'POST', body: JSON.stringify({ offerId }) });
@@ -577,6 +582,42 @@ export const apiAdminRideComplete = (id: number) => apiRequest<{ ok: boolean; co
 export const apiAdminCaptainAdd = (b: { name: string; phone: string; password: string; typeId: number; model?: string; color?: string; plate?: string }) => apiRequest<{ ok: boolean; id: number }>('/api/admin/captains', { method: 'POST', body: JSON.stringify(b) });
 export const apiAdminRideAssign = (id: number, driverId: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/assign`, { method: 'POST', body: JSON.stringify({ driverId }) });
 export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
+
+/* zones: the owner's fixed price between two areas, per vehicle */
+export type RideZone = { fromRegionId: number; toRegionId: number; price: number };
+export const apiAdminRideZones = (typeId: number) => apiRequest<{ zones: RideZone[] }>(`/api/admin/ride-types/${typeId}/zones`);
+export const apiAdminRideZonesSave = (typeId: number, zones: RideZone[]) => apiRequest<{ ok: boolean; count: number }>(`/api/admin/ride-types/${typeId}/zones`, { method: 'PUT', body: JSON.stringify({ zones }) });
+
+/* open / close of new orders (the whole app, or one service) */
+export type GateRow = { key: string; label: string; closed: boolean; rawClosed: boolean; message: string; until: number | null };
+export const apiGates = () => apiRequest<{ closed: Record<string, { message: string; until: number | null }> }>('/api/gates');
+export const apiAdminGates = () => apiRequest<{ gates: GateRow[] }>('/api/admin/gates');
+export const apiAdminGateSave = (key: string, b: { closed: boolean; message?: string; until?: string | null }) => apiRequest<{ ok: boolean }>(`/api/admin/gates/${key}`, { method: 'PUT', body: JSON.stringify(b) });
+
+/* intercity trips with seats */
+export type TripDriver = { name: string; model: string; color: string; plate: string };
+export type Trip = { id: number; dest: string; fromText: string; departAt: number; seats: number; price: number; note: string; status: string; booked: number[]; free: number; mine?: number[]; driver?: TripDriver; passengers?: { seat: number; name: string; phone: string }[] };
+export type MyTrip = { id: number; dest: string; fromText: string; departAt: number; price: number; status: string; mySeats: number[]; driver: TripDriver & { phone: string } };
+export const apiTrips = () => apiRequest<{ trips: Trip[] }>('/api/trips');
+export const apiMyTrips = () => apiRequest<{ trips: MyTrip[] }>('/api/trips/mine');
+export const apiTripBook = (id: number, seats: number[]) => apiRequest<{ ok: boolean; seats: number[] }>(`/api/trips/${id}/book`, { method: 'POST', body: JSON.stringify({ seats }) });
+export const apiTripCancelBooking = (id: number) => apiRequest<{ ok: boolean }>(`/api/trips/${id}/cancel-booking`, { method: 'POST' });
+export const apiCaptainTrips = () => apiRequest<{ trips: Trip[] }>('/api/captain/trips');
+export const apiCaptainTripCreate = (b: { dest: string; fromText?: string; departAt: string; seats: number; price: number; note?: string }) => apiRequest<{ trip: Trip; notified: number }>('/api/captain/trips', { method: 'POST', body: JSON.stringify(b) });
+export const apiCaptainTripStatus = (id: number, status: 'started' | 'done') => apiRequest<{ ok: boolean }>(`/api/captain/trips/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
+export const apiCaptainTripCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/captain/trips/${id}/cancel`, { method: 'POST' });
+export const apiAdminTrips = () => apiRequest<{ trips: (Trip & { driver: any; plate: string })[] }>('/api/admin/trips');
+export const apiAdminTripCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/trips/${id}/cancel`, { method: 'POST' });
+
+/* the owner turns an account into a supervisor / manager / customer; staff link 1-3 orders to one courier */
+export const apiAdminSetRole = (id: string, b: { role: 'customer' | 'supervisor' | 'manager'; regions?: string[]; perms?: string[] }) => apiRequest<{ user: any }>(`/api/admin/users/${id}/role`, { method: 'POST', body: JSON.stringify(b) });
+export const apiStaffDispatch = (orderIds: string[], courierId: string) => apiRequest<{ ok: boolean; batchId: string; orders: any[] }>('/api/staff/dispatch', { method: 'POST', body: JSON.stringify({ orderIds, courierId }) });
+
+/* the owner's design of the customer home */
+export type HomeShape = 'tile' | 'rect' | 'wide' | 'round' | 'text';
+export type HomeLayout = { order?: string[]; hidden?: string[]; mode?: 'grid' | 'row'; svc?: Record<string, { shape: HomeShape }> };
+export const apiAdminHomeLayout = () => apiRequest<{ layout: HomeLayout }>('/api/admin/home-layout');
+export const apiAdminHomeLayoutSave = (layout: HomeLayout) => apiRequest<{ layout: HomeLayout }>('/api/admin/home-layout', { method: 'PUT', body: JSON.stringify({ layout }) });
 
 /* look of the new services (market, rides): icon picture, cover picture, description */
 export type SvcKey = 'market' | 'rides' | 'errand';

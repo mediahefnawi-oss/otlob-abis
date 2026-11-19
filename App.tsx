@@ -49,6 +49,8 @@ import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 import { GroupCartScreen, MarketScreen } from './screens/extra';
 import { RideHomeScreen, CaptainScreen } from './screens/rides';
+import { AdminGatesScreen, AdminHomeLayoutScreen, DispatchScreen } from './screens/adminControl';
+import { TripsScreen, CaptainTripsScreen } from './screens/trips';
 import { AdminMarketScreen, AdminRidesScreen, AdminBroadcastScreen } from './screens/adminExtra';
 
 // the phone app must not close because of one failing action: show a message instead (a crash in a screen is caught by ErrorBoundary)
@@ -203,9 +205,14 @@ function Root() {
         <Stack.Screen name="Market" component={isGuestId(me.id) ? GuestBlockScreen : MarketScreen} />
         <Stack.Screen name="RideHome" component={isGuestId(me.id) ? GuestBlockScreen : RideHomeScreen} />
         <Stack.Screen name="Captain" component={CaptainScreen} />
+        <Stack.Screen name="Trips" component={isGuestId(me.id) ? GuestBlockScreen : TripsScreen} />
+        <Stack.Screen name="CaptainTrips" component={CaptainTripsScreen} />
         <Stack.Screen name="CourierAccounts" component={CourierAccountsScreen} />
         <Stack.Screen name="AdminMarket" component={AdminMarketScreen} />
         <Stack.Screen name="AdminRides" component={AdminRidesScreen} />
+        <Stack.Screen name="AdminGates" component={AdminGatesScreen} />
+        <Stack.Screen name="Dispatch" component={DispatchScreen} />
+        <Stack.Screen name="AdminHomeLayout" component={AdminHomeLayoutScreen} />
         <Stack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} />
         <Stack.Screen name="Provider" component={ProviderScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />

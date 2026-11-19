@@ -20,7 +20,8 @@ import { ProductSheet } from '../components/ProductSheet';
 import {
   useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, requestClinicSlot, deliveryOpen, feeFor, kmInfoFor, premiumEstimate } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
-import { catIconUrl, providerCoverUrl, homeCoverUrl } from '../lib/api';
+import { catIconUrl, providerCoverUrl, homeCoverUrl, apiGates } from '../lib/api';
+import { HomeBlocksView } from '../components/HomeBlocks';
 import { PremiumBar } from '../components/Premium';
 import { AdsCarousel } from '../components/Ads';
 import { FavoritesRow, HeartButton } from '../components/Favorites';
@@ -87,6 +88,65 @@ function WideCard({ emoji, art, imageUri, title, sub, onPress, tint }: { emoji: 
 // shorter names for the home grid, used ONLY while the owner has not renamed the service (a name he typed always wins)
 const HOME_NAMES: Record<string, { from: string; short: string }> = { clinic: { from: 'حجز العيادات', short: 'العيادات' }, lab: { from: 'المعامل والتحاليل', short: 'المعامل والتحاليل' } };
 const homeName = (k: string, label: string) => (HOME_NAMES[k] && HOME_NAMES[k].from === label ? HOME_NAMES[k].short : label);
+/** one service icon of the grid, in the shape the owner chose: tile (default), rect, wide, round or text */
+function SvcIcon({ k, i, shape, row, closed, onPress }: { k: string; i: number; shape: string; row?: boolean; closed?: boolean; onPress: () => void }) {
+  const { db } = useStore();
+  const def = serviceDefs().find((x) => x.key === k);
+  const sz = def?.size || 'small';
+  const label = homeName(k, TYPES[k].label);
+  const uploaded = (db.settings.catIconV?.[k] || 0) > 0;
+  const art = (fill: boolean) => uploaded
+    ? <Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" />
+    : DEFAULT_ICONS[k]
+    ? <Image source={DEFAULT_ICONS[k]} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" />
+    : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><View style={{ height: '97%', aspectRatio: 1, borderRadius: 999, backgroundColor: '#FFF1CC', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: fill ? 40 : 24 }}>{TYPES[k].emoji}</Text></View></View>;
+  const lock = closed ? <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: C.red, borderRadius: 9, paddingHorizontal: 6, paddingVertical: 1 }}><T size={9.5} w="black" color="#fff">مقفول</T></View> : null;
+  const pressStyle = ({ pressed }: any) => pressed && { transform: [{ scale: 0.96 }] };
+  const wrapW: any = row ? { width: shape === 'wide' ? 250 : shape === 'rect' ? 150 : shape === 'round' ? 82 : shape === 'text' ? undefined : 112 } : { width: shape === 'wide' ? '100%' : shape === 'rect' ? '48%' : shape === 'round' ? '22%' : shape === 'text' ? undefined : sz === 'large' ? '21%' : sz === 'medium' ? '26%' : '31.2%' };
+  let body: React.ReactNode;
+  if (shape === 'round') body = (
+    <Pressable onPress={onPress} style={(p) => [{ alignItems: 'center', gap: 4 }, pressStyle(p)]}>
+      <View style={{ width: '100%', aspectRatio: 1, borderRadius: 999, backgroundColor: '#fff', overflow: 'hidden', padding: 6, ...shadow }}>{art(false)}</View>
+      <T w="black" size={11.5} align="center" numberOfLines={2}>{label}</T>{lock}
+    </Pressable>
+  );
+  else if (shape === 'text') body = (
+    <Pressable onPress={onPress} style={(p) => [{ backgroundColor: C.dark, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 20, ...shadow }, pressStyle(p)]}>
+      <T w="black" size={14} color={C.gold}>{label}</T>{lock}
+    </Pressable>
+  );
+  else if (shape === 'rect') body = (
+    <Pressable onPress={onPress} style={(p) => [{ backgroundColor: '#fff', borderRadius: 20, overflow: 'hidden', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8, height: 64, ...shadow }, pressStyle(p)]}>
+      <View style={{ width: 52, height: 40 }}>{art(false)}</View>
+      <T w="black" size={13.5} numberOfLines={2} style={{ flex: 1 }}>{label}</T>{lock}
+    </Pressable>
+  );
+  else if (shape === 'wide') body = (
+    <Pressable onPress={onPress} style={(p) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, ...shadow }, pressStyle(p)]}>
+      <View style={{ width: 84, aspectRatio: 738 / 444 }}>{art(false)}</View>
+      <T w="black" size={17} style={{ flex: 1 }} numberOfLines={2}>{label}</T>
+      <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.dark, alignItems: 'center', justifyContent: 'center' }}><Icon name="arrow-back" size={17} color={C.gold} /></View>{lock}
+    </Pressable>
+  );
+  else body = (
+    <Pressable onPress={onPress} style={(p) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, paddingTop: 4, paddingBottom: 8, ...shadow }, pressStyle(p)]}>
+      <View style={{ width: '100%', aspectRatio: 738 / 444 }}>{art(true)}</View>
+      <T w="black" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 13} align="center" numberOfLines={2}>{label}</T>{lock}
+    </Pressable>
+  );
+  return <Appear i={i} style={wrapW}>{body}</Appear>;
+}
+/** which services the owner has closed for new orders right now (refreshed every minute) */
+function useGates(): Record<string, { message: string; until: number | null }> {
+  const [g, setG] = useState<Record<string, { message: string; until: number | null }>>({});
+  useEffect(() => {
+    let live = true;
+    const go = () => apiGates().then((r) => { if (live) setG((old) => (JSON.stringify(old) === JSON.stringify(r.closed || {}) ? old : r.closed || {})); }).catch(() => {});
+    go(); const t = setInterval(go, 60000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+  return g;
+}
 const rows3 = <X,>(l: X[]): X[][] => { const r: X[][] = []; for (let i = 0; i < l.length; i += 3) r.push(l.slice(i, i + 3)); return r; };
 
 /** The owner's switch "homeNew" picks the new home; switched off, the old one below is shown exactly as before. */
@@ -131,6 +191,148 @@ function HomeOld({ navigation }: any) {
   const nearby = me.regionId ? provs.filter((p) => p.regionId === me.regionId && p.open !== undefined).sort((a, b) => Number(b.open) - Number(a.open)) : [];
   const top = provs.filter((p) => p.featured).sort((a, b) => b.rating - a.rating).slice(0, 12);
 
+  /* ---- the home is a list of sections; the owner's design (order / hidden / shapes) decides which show and in what order ---- */
+  const layout = db.settings.homeLayout || {};
+  const hiddenSet = new Set<string>(layout.hidden ?? ['trips']);
+  const svcSorted = [
+    { k: 'market', sort: svc.market?.sort || 1 },
+    { k: 'rides', sort: svc.rides?.sort || 2 },
+  ].sort((x, y) => x.sort - y.sort).map((x) => x.k);
+  const DEFAULT_ORDER = ['ads', 'today', 'favorites', 'announce', 'services', 'marketOffers', 'makers', ...svcSorted, 'active', 'errand', 'nearby', 'top', 'trips'];
+  const blockIds = (db.settings.homeBlocks || []).filter((b) => b.active).map((b) => `ban:${b.id}`);
+  const order = [...(layout.order || []).filter((id) => DEFAULT_ORDER.includes(id) || blockIds.includes(id)), ...DEFAULT_ORDER.filter((id) => !(layout.order || []).includes(id))].filter((id) => !hiddenSet.has(id));
+  const gateClosed = useGates();
+  const sec: Record<string, React.ReactNode> = {
+    ads: (
+      <>
+        {(db.ads || []).some((a) => a.active)
+          ? <View style={{ marginHorizontal: -16, marginTop: -6, marginBottom: 12 }}><AdsCarousel /></View>
+          : <View style={{ marginTop: -2, marginBottom: 12, borderRadius: 26, overflow: 'hidden', ...shadow }}><Image source={require('../assets/images/home/banner.webp')} style={{ width: '100%', aspectRatio: 782 / 376 }} resizeMode="cover" /></View>}
+        <RegionClosedBanner regionId={me.regionId} />
+        {!!gateClosed['*'] && (
+          <View style={{ flexDirection: 'row', gap: 10, backgroundColor: C.redSoft, borderRadius: 16, padding: 12, alignItems: 'center', marginBottom: 14 }}>
+            <Icon name="lock-closed" size={20} color={C.red} />
+            <T size={12.5} w="bold" color={C.red} style={{ flex: 1 }}>{gateClosed['*'].message}</T>
+          </View>
+        )}
+      </>
+    ),
+    today: <TodayOffers onOpen={(id) => navigation.navigate('Provider', { id })} />,
+    favorites: <FavoritesRow />,
+    announce: !!db.settings.announcement ? (
+      <Appear>
+        <View style={{ flexDirection: 'row', gap: 10, backgroundColor: C.goldSoft, borderRadius: 16, padding: 12, alignItems: 'center', marginBottom: 14 }}>
+          <Icon name="megaphone" size={20} color={C.goldDeep} />
+          <T size={12.5} w="semi" color={C.goldDeep} style={{ flex: 1 }}>{db.settings.announcement}</T>
+        </View>
+      </Appear>
+    ) : null,
+    services: (
+      <View style={{ gap: 10 }} onLayout={(e) => setGridW(e.nativeEvent.layout.width)}>
+        {layout.mode === 'row' ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 4 }}>
+            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => <SvcIcon key={k} k={k} i={i} shape={layout.svc?.[k]?.shape || 'tile'} row closed={!!gateClosed[k]} onPress={() => navigation.navigate('Category', { type: k })} />)}
+          </ScrollView>
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
+            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => <SvcIcon key={k} k={k} i={i} shape={layout.svc?.[k]?.shape || 'tile'} closed={!!gateClosed[k]} onPress={() => navigation.navigate('Category', { type: k })} />)}
+          </View>
+        )}
+      </View>
+    ),
+    marketOffers: !!db.settings.features?.market ? <View style={{ marginTop: 16 }}><MarketOffersRow navigation={navigation} /></View> : null,
+    makers: (
+      <>
+        {cats.filter((k) => isMakerTpl(k)).map((k, i) => (
+          <Appear key={k} i={i + 3} style={{ marginTop: 12 }}>
+            <WideCard art={require('../assets/images/home/ic_maker.png')} emoji={TYPES[k].emoji} imageUri={(db.settings.catIconV?.[k] || 0) > 0 ? catIconUrl(k, db.settings.catIconV![k]) : undefined} title={TYPES[k].label} sub={serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'} onPress={() => navigation.navigate('Category', { type: k })} tint="#FBE3EC" />
+          </Appear>
+        ))}
+      </>
+    ),
+    market: !!db.settings.features?.market ? (
+      <Appear i={4} style={{ marginTop: 12 }}>
+        <WideCard emoji="🧺" imageUri={svc.market?.icon ? svcImageUrl('market', 'icon', svc.market.icon) : undefined} title={svc.market?.title || 'طلبات ماركت'} sub={gateClosed.market ? 'مقفول مؤقتاً' : svc.market?.sub || 'اختار منتجاتك والمندوب يجيبها لحد بابك'} onPress={() => navigation.navigate('Market')} />
+      </Appear>
+    ) : null,
+    rides: !!db.settings.features?.rides ? (
+      <Appear i={5} style={{ marginTop: 12 }}>
+        <WideCard emoji="🚕" imageUri={svc.rides?.icon ? svcImageUrl('rides', 'icon', svc.rides.icon) : undefined} title={svc.rides?.title || 'توصيلة'} sub={gateClosed.ride ? 'مقفول مؤقتاً' : svc.rides?.sub || 'توكتوك، موتوسيكل، ملاكي... وانت تحدد السعر'} onPress={() => navigation.navigate('RideHome')} />
+      </Appear>
+    ) : null,
+    trips: !!db.settings.features?.rides ? (
+      <Appear i={6} style={{ marginTop: 12 }}>
+        <WideCard emoji="🚌" title="رحلات المحافظات" sub={gateClosed.trips ? 'مقفول مؤقتاً' : 'احجز كرسي في عربية رايحة محافظتك'} onPress={() => navigation.navigate('Trips')} />
+      </Appear>
+    ) : null,
+    active: active.length > 0 ? (
+      <Appear style={{ marginTop: 18 }}>
+        <SectionTitle title="طلباتك الجارية" />
+        {active.slice(0, 2).map((o) => (
+          <View key={o.id} style={{ marginBottom: 10 }}>
+            <OrderCard o={o} perspective="customer" onPress={() => navigation.navigate('OrderDetail', { id: o.id })} />
+          </View>
+        ))}
+      </Appear>
+    ) : null,
+    errand: errandDef().active && errandDef().showHome ? (
+      <Appear i={2} style={{ marginTop: 12 }}>
+        <WideCard art={require('../assets/images/home/ic_errand.png')} emoji={errandDef().emoji} imageUri={svc.errand?.icon ? svcImageUrl('errand', 'icon', svc.errand.icon) : (db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={svc.errand?.sub || errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
+      </Appear>
+    ) : null,
+    nearby: nearby.length > 0 ? (
+      <View style={{ marginTop: 18 }}>
+        <SectionTitle title="بالقرب منك" />
+        <FlatList
+          horizontal
+          data={nearby}
+          keyExtractor={(p) => p.id}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
+          initialNumToRender={4}
+          windowSize={3}
+          renderItem={({ item }) => (
+            <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 10, alignItems: 'center', gap: 4 }}>
+              <ProviderLogo p={item} size={Math.round((tw - 18) * 0.7)} />
+              <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
+              <AreaTag p={item} />
+              <ShopOfferTag providerId={item.id} compact />
+            </Card>
+          )}
+        />
+      </View>
+    ) : null,
+    top: top.length > 0 ? (
+      <View style={{ marginTop: 18 }}>
+        <SectionTitle title="الأعلى تقييماً" action="عرض المطاعم" onAction={() => navigation.navigate('Category', { type: 'restaurant' })} />
+        <FlatList
+          horizontal
+          inverted={false}
+          data={top}
+          keyExtractor={(p) => p.id}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
+          initialNumToRender={4}
+          windowSize={3}
+          renderItem={({ item }) => (
+            <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 10, alignItems: 'center', gap: 4 }}>
+              <ProviderLogo p={item} size={Math.round((tw - 18) * 0.7)} />
+              <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Icon name="star" size={13} color={C.gold} />
+                <T w="bold" size={12}>{item.rating.toFixed(1)}</T>
+                <T size={11.5} color={C.sub}>• {item.eta} د</T>
+              </View>
+              <AreaTag p={item} />
+              <ShopOfferTag providerId={item.id} compact />
+            </Card>
+          )}
+        />
+      </View>
+    ) : null,
+  };
+  for (const id of blockIds) sec[id] = <HomeBlocksView navigation={navigation} tw={tw} only={id.slice(4)} />;
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       {/* the header: the owner's artwork as the background (green, light-green shape, gold swoosh), the content drawn over it at the same places */}
@@ -167,130 +369,7 @@ function HomeOld({ navigation }: any) {
         />
       ) : (
         <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
-          {(db.ads || []).some((a) => a.active)
-            ? <View style={{ marginHorizontal: -16, marginTop: -6, marginBottom: 12 }}><AdsCarousel /></View>
-            : <View style={{ marginTop: -2, marginBottom: 12, borderRadius: 26, overflow: 'hidden', ...shadow }}><Image source={require('../assets/images/home/banner.webp')} style={{ width: '100%', aspectRatio: 782 / 376 }} resizeMode="cover" /></View>}
-          <RegionClosedBanner regionId={me.regionId} />
-          <TodayOffers onOpen={(id) => navigation.navigate('Provider', { id })} />
-          <FavoritesRow />
-          {!!db.settings.announcement && (
-            <Appear>
-              <View style={{ flexDirection: 'row', gap: 10, backgroundColor: C.goldSoft, borderRadius: 16, padding: 12, alignItems: 'center', marginBottom: 14 }}>
-                <Icon name="megaphone" size={20} color={C.goldDeep} />
-                <T size={12.5} w="semi" color={C.goldDeep} style={{ flex: 1 }}>{db.settings.announcement}</T>
-              </View>
-            </Appear>
-          )}
-
-          <View style={{ gap: 10 }} onLayout={(e) => setGridW(e.nativeEvent.layout.width)}>
-            {rows3(cats.filter((k) => !isMakerTpl(k))).map((row, ri) => (
-              <View key={ri} style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
-            {row.map((k, ci) => { const i = ri * 3 + ci; const sz = serviceDefs().find((x) => x.key === k)?.size || 'small'; return (
-              <Appear key={k} i={i} style={{ width: sz === 'large' ? '21%' : sz === 'medium' ? '26%' : '31.3%' }}>
-                <Pressable
-                  onPress={() => navigation.navigate('Category', { type: k })}
-                  style={({ pressed }) => [{ backgroundColor: '#fff', borderRadius: 24, overflow: 'hidden', alignItems: 'center', gap: 2, ...shadow }, { paddingTop: 4, paddingBottom: 8 }, pressed && { transform: [{ scale: 0.96 }] }]}
-                >
-                  {(db.settings.catIconV?.[k] || 0) > 0
-                    // a picture the owner uploaded wins over the built-in one
-                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={{ uri: catIconUrl(k, db.settings.catIconV![k]) }} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" /></View>
-                    : DEFAULT_ICONS[k]
-                    ? <View style={{ width: '100%', aspectRatio: 738 / 444 }}><Image source={DEFAULT_ICONS[k]} style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, width: '100%', height: '100%' } as any} resizeMode="contain" /></View>
-                    : (
-                      // a service added later with no picture yet: the same cream circle with its emoji, so the tile still matches the others
-                      <View style={{ width: '100%', aspectRatio: 738 / 444, alignItems: 'center', justifyContent: 'center' }}>
-                        <View style={{ height: '97%', aspectRatio: 1, borderRadius: 999, backgroundColor: '#FFF1CC', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontSize: 40 }}>{TYPES[k].emoji}</Text>
-                        </View>
-                      </View>
-                    )}
-                  <T w="black" size={sz === 'large' ? 10 : sz === 'medium' ? 11 : 13} align="center" numberOfLines={2}>{homeName(k, TYPES[k].label)}</T>
-                </Pressable>
-              </Appear>
-            ); })}
-              </View>
-            ))}
-          </View>
-
-          {!!db.settings.features?.market && <View style={{ marginTop: 16 }}><MarketOffersRow navigation={navigation} /></View>}
-          {/* makers: one full-width card under the six icons */}
-          {cats.filter((k) => isMakerTpl(k)).map((k, i) => (
-            <Appear key={k} i={i + 3} style={{ marginTop: 12 }}>
-              <WideCard art={require('../assets/images/home/ic_maker.png')} emoji={TYPES[k].emoji} imageUri={(db.settings.catIconV?.[k] || 0) > 0 ? catIconUrl(k, db.settings.catIconV![k]) : undefined} title={TYPES[k].label} sub={serviceDefs().find((x) => x.key === k)?.tagline || 'منتجات يدوية من أهل أبيس.. اطلب والصانع يحدد السعر وموعد التسليم'} onPress={() => navigation.navigate('Category', { type: k })} tint="#FBE3EC" />
-            </Appear>
-          ))}
-
-          {[
-            { k: 'market', on: !!db.settings.features?.market, sort: svc.market?.sort || 1, i: 4 },
-            { k: 'rides', on: !!db.settings.features?.rides, sort: svc.rides?.sort || 2, i: 5 },
-          ].filter((x) => x.on).sort((x, y) => x.sort - y.sort).map((x) => x.k === 'market' ? (
-            <Appear key="market" i={x.i} style={{ marginTop: 12 }}>
-              <WideCard emoji="🧺" imageUri={svc.market?.icon ? svcImageUrl('market', 'icon', svc.market.icon) : undefined} title={svc.market?.title || 'طلبات ماركت'} sub={svc.market?.sub || 'اختار منتجاتك والمندوب يجيبها لحد بابك'} onPress={() => navigation.navigate('Market')} />
-            </Appear>
-          ) : (
-            <Appear key="rides" i={x.i} style={{ marginTop: 12 }}>
-              <WideCard emoji="🚕" imageUri={svc.rides?.icon ? svcImageUrl('rides', 'icon', svc.rides.icon) : undefined} title={svc.rides?.title || 'توصيلة'} sub={svc.rides?.sub || 'توكتوك، موتوسيكل، ملاكي... وانت تحدد السعر'} onPress={() => navigation.navigate('RideHome')} />
-            </Appear>
-          ))}
-
-          {active.length > 0 && (
-            <Appear style={{ marginTop: 18 }}>
-              <SectionTitle title="طلباتك الجارية" />
-              {active.slice(0, 2).map((o) => (
-                <View key={o.id} style={{ marginBottom: 10 }}>
-                  <OrderCard o={o} perspective="customer" onPress={() => navigation.navigate('OrderDetail', { id: o.id })} />
-                </View>
-              ))}
-            </Appear>
-          )}
-
-          {errandDef().active && errandDef().showHome && <Appear i={2} style={{ marginTop: 12 }}>
-            <WideCard art={require('../assets/images/home/ic_errand.png')} emoji={errandDef().emoji} imageUri={svc.errand?.icon ? svcImageUrl('errand', 'icon', svc.errand.icon) : (db.settings.catIconV?.[errandDef().key] || 0) > 0 ? catIconUrl(errandDef().key, db.settings.catIconV![errandDef().key]) : undefined} title={errandDef().label} sub={svc.errand?.sub || errandDef().tagline || 'اكتب أي حاجة محتاجها وهنوصلهالك من أي مكان في أبيس'} onPress={() => navigation.navigate('CustomOrder')} />
-          </Appear>}
-
-          {nearby.length > 0 && <View style={{ marginTop: 18 }}>
-            <SectionTitle title="بالقرب منك" />
-            <FlatList
-              horizontal
-              data={nearby}
-              keyExtractor={(p) => p.id}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
-              renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 10, alignItems: 'center', gap: 4 }}>
-                  <ProviderLogo p={item} size={Math.round((tw - 18) * 0.7)} />
-                  <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
-                  <AreaTag p={item} />
-                  <ShopOfferTag providerId={item.id} compact />
-                </Card>
-              )}
-            />
-          </View>}
-
-          {top.length > 0 && <View style={{ marginTop: 18 }}>
-            <SectionTitle title="الأعلى تقييماً" action="عرض المطاعم" onAction={() => navigation.navigate('Category', { type: 'restaurant' })} />
-            <FlatList
-              horizontal
-              inverted={false}
-              data={top}
-              keyExtractor={(p) => p.id}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 12, paddingVertical: 4 }}
-              renderItem={({ item }) => (
-                <Card onPress={() => navigation.navigate('Provider', { id: item.id })} style={{ width: tw, borderRadius: 24, paddingHorizontal: 9, paddingTop: 10, paddingBottom: 10, alignItems: 'center', gap: 4 }}>
-                  <ProviderLogo p={item} size={Math.round((tw - 18) * 0.7)} />
-                  <T w="bold" size={11.5} align="center" numberOfLines={2}>{item.name}</T>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Icon name="star" size={13} color={C.gold} />
-                    <T w="bold" size={12}>{item.rating.toFixed(1)}</T>
-                    <T size={11.5} color={C.sub}>• {item.eta} د</T>
-                  </View>
-                  <AreaTag p={item} />
-                  <ShopOfferTag providerId={item.id} compact />
-                </Card>
-              )}
-            />
-          </View>}
+          {order.map((id) => { const node = sec[id]; return node ? <React.Fragment key={id}>{node}</React.Fragment> : null; })}
         </ScrollView>
       )}
 

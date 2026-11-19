@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, Pressable, Text, Image } from 'react-native';
 import { C } from '../lib/theme';
+import { useStore } from '../lib/store';
 import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog } from '../components/ui';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import {
   MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketImportDefaults, apiAdminMarketSetOfferText, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
-  RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission,
+  RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission, RideZone, apiAdminRideZones, apiAdminRideZonesSave,
   SvcKey, SvcCoverKind, apiAdminSvcImage, apiAdminSvcSub, apiAdminSvcMeta, apiSvcMeta, svcImageUrl,
   Broadcast, BroadcastAud, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
@@ -65,6 +66,58 @@ function DetailsEditor({ p, onSave }: { p: MarketProduct; onSave: (b: { descript
   );
 }
 
+/** Owner: the basics of a product — rename it, change its section, its emoji and (for a one-price product) its price. */
+function BasicsEditor({ p, onSave }: { p: MarketProduct; onSave: (b: { name: string; category: string; emoji: string; price?: number | null }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(p.name);
+  const [cat, setCat] = useState(p.category || '');
+  const [emoji, setEmoji] = useState(p.emoji || '');
+  const [price, setPrice] = useState(p.price == null ? '' : String(p.price));
+  if (!open) return <Btn title="تعديل الاسم والقسم والسعر" icon="create" small variant="soft" onPress={() => setOpen(true)} />;
+  return (
+    <View style={{ gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+      <Field label="اسم المنتج" value={name} onChangeText={setName} />
+      <Field label="القسم" value={cat} onChangeText={setCat} />
+      <Field label="إيموجي" value={emoji} onChangeText={setEmoji} />
+      {!p.sizes?.length && <Field label="السعر (ج) — فاضي = المندوب يسعّره" value={price} onChangeText={setPrice} keyboardType="number-pad" />}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn title="حفظ" icon="checkmark" small style={{ flex: 1 }} onPress={() => { if (name.trim().length < 1) return toast('اكتب اسم المنتج', 'err'); onSave({ name: name.trim(), category: cat.trim(), emoji: emoji.trim() || '🛒', ...(p.sizes?.length ? {} : { price: price.trim() === '' ? null : num(price) }) }); setOpen(false); }} />
+        <Btn title="إلغاء" small variant="soft" style={{ flex: 1 }} onPress={() => setOpen(false)} />
+      </View>
+    </View>
+  );
+}
+/** Owner: the extra choices a customer can tick on a product ("ناضجة" free, "تنضيف وتقطيع +3 ج"). */
+type OptRow = { label: string; price: string };
+function OptionsEditor({ p, onSave }: { p: MarketProduct; onSave: (opts: { label: string; price: number }[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<OptRow[]>((p.options || []).map((o) => ({ label: o.label, price: o.price ? String(o.price) : '' })));
+  const set = (i: number, patch: Partial<OptRow>) => setRows((r) => r.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  if (!open) return <Btn title={p.options?.length ? `الإضافات والاختيارات (${p.options.length})` : 'إضافات واختيارات للعميل'} icon="add-circle" small variant="soft" onPress={() => setOpen(true)} />;
+  return (
+    <View style={{ gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+      <T size={12} color={C.sub}>اختيارات العميل يدوس عليها وهي بتتضاف على سعر المنتج. مثال: «ناضجة» مجاناً، «تنضيف وتقطيع» +3 ج.</T>
+      {rows.map((r, i) => (
+        <View key={i} style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-end' }}>
+          <View style={{ flex: 2 }}><Field label="الاختيار" value={r.label} onChangeText={(v) => set(i, { label: v })} /></View>
+          <View style={{ flex: 1 }}><Field label="+ ج (0 مجاناً)" value={r.price} onChangeText={(v) => set(i, { price: v })} keyboardType="number-pad" /></View>
+          <Pressable onPress={() => setRows((x) => x.filter((_, k) => k !== i))} hitSlop={8} style={{ paddingBottom: 14 }}><Icon name="trash-outline" size={22} color={C.red} /></Pressable>
+        </View>
+      ))}
+      {rows.length < 12 && <Btn title="+ اختيار جديد" small variant="soft" onPress={() => setRows((r) => [...r, { label: '', price: '' }])} />}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn title="حفظ" icon="checkmark" small style={{ flex: 1 }} onPress={() => {
+          const clean = rows.map((r) => ({ label: r.label.trim(), price: r.price.trim() === '' ? 0 : num(r.price) }));
+          if (clean.some((r) => !r.label)) return toast('اكتب اسم كل اختيار أو احذف الفاضي', 'err');
+          if (new Set(clean.map((r) => r.label)).size !== clean.length) return toast('اسم الاختيار مكرر', 'err');
+          onSave(clean); setOpen(false);
+        }} />
+        <Btn title="إلغاء" small variant="soft" style={{ flex: 1 }} onPress={() => setOpen(false)} />
+      </View>
+    </View>
+  );
+}
+
 /* ---------------- market products ---------------- */
 /** Owner: a discount on one product (percent, optional hours until it ends, optional button text of its own). */
 function DiscountEditor({ p, onSave }: { p: MarketProduct; onSave: (b: { discountPct: number | null; offerUntil: string | null; offerText: string }) => void }) {
@@ -111,6 +164,7 @@ export function AdminMarketScreen({ navigation }: any) {
   const [list, setList] = useState<MarketProduct[] | null>(null);
   const [name, setName] = useState(''); const [price, setPrice] = useState(''); const [cat, setCat] = useState(''); const [emoji, setEmoji] = useState('');
   const [desc, setDesc] = useState(''); const [sized, setSized] = useState(false); const [rows, setRows] = useState<SizeRow[]>([]);
+  const [q, setQ] = useState(''); const [fcat, setFcat] = useState('الكل');
   const load = useCallback(async () => { try { setList((await apiAdminMarketList()).products); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
   useEffect(() => { load(); }, [load]);
   const run = async (fn: () => Promise<any>, ok?: string) => { try { await fn(); if (ok) toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
@@ -147,14 +201,24 @@ export function AdminMarketScreen({ navigation }: any) {
           <Field label="إيموجي (اختياري)" value={emoji} onChangeText={setEmoji} />
           <Btn title="أضف" icon="add-circle" onPress={add} />
         </Card>
-        {list === null ? <Empty title="جاري التحميل..." /> : list.length === 0 ? <Empty title="لا توجد منتجات بعد" /> : list.map((p) => (
+        {!!list && list.length > 0 && (
+          <Card style={{ gap: 8 }}>
+            <Field label={`ابحث في ${list.length} منتج`} icon="search" value={q} onChangeText={setQ} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {['الكل', ...Array.from(new Set(list.map((x) => x.category).filter(Boolean))) as string[]].map((c) => <Chip key={c} label={c} active={fcat === c} onPress={() => setFcat(c)} />)}
+              <Chip label="نفد" active={fcat === '__sold'} onPress={() => setFcat('__sold')} />
+              <Chip label="مخفي" active={fcat === '__hidden'} onPress={() => setFcat('__hidden')} />
+            </ScrollView>
+          </Card>
+        )}
+        {list === null ? <Empty title="جاري التحميل..." /> : list.length === 0 ? <Empty title="لا توجد منتجات بعد" /> : list.filter((x) => (!q.trim() || x.name.includes(q.trim()) || (x.category || '').includes(q.trim())) && (fcat === 'الكل' || (fcat === '__sold' ? !!x.soldOut : fcat === '__hidden' ? !x.available : x.category === fcat))).map((p) => (
           <Card key={p.id} style={{ gap: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={{ width: 52, height: 52, borderRadius: 12, backgroundColor: '#EEF3EE', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                 {p.image ? <Image source={{ uri: marketImageUrl(p) }} style={{ width: 52, height: 52 }} /> : <Text style={{ fontSize: 26 }}>{p.emoji}</Text>}
               </View>
               <View style={{ flex: 1 }}><T w="black">{p.name}</T><T size={12} color={C.sub}>{p.category || 'بدون قسم'} • {p.sizes?.length ? `${p.sizes.length} أحجام: ${p.sizes.map((z) => z.label).join('، ')}` : p.price == null ? 'بدون سعر (المندوب يسعّره)' : `${p.price} ج`}</T></View>
-              <Chip label={p.available ? 'متاح' : 'موقوف'} active={p.available} onPress={() => run(() => apiAdminMarketEdit(p.id, { available: !p.available }))} />
+              <View style={{ gap: 6 }}><Chip label={p.available ? 'ظاهر' : 'مخفي'} active={p.available} onPress={() => run(() => apiAdminMarketEdit(p.id, { available: !p.available }))} /><Chip label={p.soldOut ? 'نفد' : 'متوفر'} active={!p.soldOut} onPress={() => run(() => apiAdminMarketEdit(p.id, { soldOut: !p.soldOut }))} /></View>
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Btn title="صورة" small variant="soft" style={{ flex: 1 }} onPress={() => pic(p.id)} />
@@ -163,6 +227,8 @@ export function AdminMarketScreen({ navigation }: any) {
               {!p.sizes?.length && <Btn title={p.price == null ? 'له سعر' : 'بدون سعر'} small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketEdit(p.id, { price: p.price == null ? 10 : null }))} />}
               <Btn title="حذف" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminMarketDelete(p.id), 'تم الحذف')} />
             </View>
+            <BasicsEditor key={`b-${p.id}-${p.name}-${p.category}-${p.price}`} p={p} onSave={(b) => run(() => apiAdminMarketEdit(p.id, b), 'تم الحفظ')} />
+            <OptionsEditor key={`o-${p.id}-${JSON.stringify(p.options)}`} p={p} onSave={(o) => run(() => apiAdminMarketEdit(p.id, { options: o }), 'تم حفظ الاختيارات')} />
             <DetailsEditor key={`d-${p.id}-${p.sizes?.length}-${p.description}`} p={p} onSave={(b) => run(() => apiAdminMarketEdit(p.id, b), 'تم حفظ التفاصيل')} />
             <DiscountEditor key={`${p.id}-${p.discountPct}-${p.offerUntil}`} p={p} onSave={(b) => run(() => apiAdminMarketEdit(p.id, b), 'تم حفظ العرض')} />
           </Card>
@@ -222,10 +288,68 @@ function TypesTab() {
             <Btn title="الكيلو -1" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminRideTypeSave(t.id, { per_km: Math.max(0, t.perKm - 1) }))} />
             <Btn title="حذف" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminRideTypeDelete(t.id), 'تم الحذف')} />
           </View>
+          <PricingRow type={t} onSaved={load} />
           <CommissionRow type={t} />
         </Card>
       ))}
     </>
+  );
+}
+const MODE_LABEL: Record<string, string> = { km: 'بالكيلومتر', zones: 'سعر ثابت بين المناطق', captain: 'الكابتن يحدد' };
+/** Owner: how this vehicle is priced — per km, a fixed table between areas, or the captain names the price. */
+function PricingRow({ type, onSaved }: { type: RideType; onSaved: () => void }) {
+  const regions = useStore().db.regions || [];
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<string>(type.pricingMode || '');
+  const [maxFee, setMaxFee] = useState(type.maxFee ? String(type.maxFee) : '');
+  const [zones, setZones] = useState<RideZone[] | null>(null);
+  const [from, setFrom] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open && mode === 'zones' && zones === null) apiAdminRideZones(type.id).then((r) => setZones(r.zones)).catch((e) => { toast(errText(e), 'err'); setZones([]); }); }, [open, mode, zones, type.id]);
+  const priceOf = (a: number, b: number) => { const z = (zones || []).find((x) => x.fromRegionId === a && x.toRegionId === b); return z ? String(z.price) : ''; };
+  const setPrice = (a: number, b: number, v: string) => setZones((zs) => {
+    const rest = (zs || []).filter((x) => !(x.fromRegionId === a && x.toRegionId === b));
+    const n = num(v);
+    return v.trim() === '' || !(n >= 0) ? rest : [...rest, { fromRegionId: a, toRegionId: b, price: n }];
+  });
+  const save = async () => {
+    setBusy(true);
+    try {
+      await apiAdminRideTypeSave(type.id, { pricing_mode: mode || null, max_fee: maxFee.trim() === '' ? null : num(maxFee) });
+      if (mode === 'zones' && zones) await apiAdminRideZonesSave(type.id, zones);
+      toast('تم حفظ التسعير'); setOpen(false); onSaved();
+    } catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }
+  };
+  if (!open) return <Btn title={`طريقة التسعير: ${MODE_LABEL[type.pricingMode || ''] || 'الإعداد العام'}`} icon="pricetag" small variant="soft" onPress={() => setOpen(true)} />;
+  return (
+    <View style={{ gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+      <T size={12} color={C.sub}>اختار طريقة حساب سعر هذا النوع. لو الوجهة مش على الخريطة أو الخط مش في الجدول، الكابتن هو اللي يحدد السعر.</T>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        {[['', 'الإعداد العام'], ['km', 'بالكيلومتر'], ['zones', 'ثابت بين المناطق'], ['captain', 'الكابتن يحدد']].map(([k, l]) => <Chip key={k || 'g'} label={l} active={mode === k} onPress={() => setMode(k)} />)}
+      </ScrollView>
+      <Field label="أعلى سعر مسموح (ج) — فاضي = بدون حد" value={maxFee} onChangeText={setMaxFee} keyboardType="number-pad" />
+      {mode === 'zones' && (
+        zones === null ? <T color={C.sub}>جاري التحميل...</T> : regions.length < 2 ? <T color={C.sub}>أضف منطقتين على الأقل أولاً.</T> : (
+          <View style={{ gap: 6 }}>
+            <T w="bold">من منطقة:</T>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {regions.map((r) => <Chip key={r.id} label={r.name} active={from === Number(r.id)} onPress={() => setFrom(Number(r.id))} />)}
+            </ScrollView>
+            {from != null && regions.filter((r) => Number(r.id) !== from).map((r) => (
+              <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <T style={{ flex: 1 }}>إلى {r.name}</T>
+                <View style={{ width: 110 }}><Field label="السعر (ج)" value={priceOf(from, Number(r.id))} onChangeText={(v) => setPrice(from, Number(r.id), v)} keyboardType="number-pad" /></View>
+              </View>
+            ))}
+            <T size={12} color={C.sub}>المسجّل: {(zones || []).length} خط. كل اتجاه له سعره (من أ إلى ب غير من ب إلى أ). أي خط مش مسجّل، الكابتن يحدد سعره.</T>
+          </View>
+        )
+      )}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn title="حفظ" icon="checkmark" small style={{ flex: 1 }} onPress={save} loading={busy} />
+        <Btn title="إلغاء" small variant="soft" style={{ flex: 1 }} onPress={() => setOpen(false)} />
+      </View>
+    </View>
   );
 }
 function CommissionRow({ type }: { type: RideType }) {

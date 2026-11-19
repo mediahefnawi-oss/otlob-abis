@@ -281,6 +281,7 @@ export interface Settings {
   loginImageV?: number; // 0 / missing = the original picture
   appIconV?: number; // 0 / missing = the built-in icon
   homeBlocks?: HomeBlock[];
+  homeLayout?: { order?: string[]; hidden?: string[]; mode?: 'grid' | 'row'; svc?: Record<string, { shape: 'tile' | 'rect' | 'wide' | 'round' | 'text' }> }; // the owner's design of the customer home
   premium?: PremiumPublic | null; // what the customer needs to see about "أبيس بريميم" (null / off = hidden everywhere) // the owner's lists of shops and banners shown in the new home
   homeCoverV?: number; // the owner's one fixed cover picture behind the home header (0 = none)
   catIconV?: Record<string, number>; // the owner's picture for each service icon on the home screen (type -> version)

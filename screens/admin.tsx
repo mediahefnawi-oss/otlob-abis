@@ -12,7 +12,7 @@ import { useRC } from './customer';
 import { ProfileScreen } from './shared';
 import { ProviderFormSheet, CatalogEditor } from '../components/OwnerTools';
 import {
-  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminPinProvider, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor, createManager, updateManager, deleteManager,
+  useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminPinProvider, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor, createManager, updateManager, deleteManager, setUserRole,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
 import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
@@ -221,6 +221,7 @@ export function AdminManagersScreen({ navigation }: any) {
               <Field label="كلمة مرور جديدة" icon="key" value={newPw} onChangeText={setNewPw} secureTextEntry autoCapitalize="none" />
               <Btn variant="outline" title="تعيين كلمة المرور" disabled={busy || newPw.length < 8} onPress={savePw} />
               <Btn variant={editing.status === 'suspended' ? 'green' : 'danger'} icon={editing.status === 'suspended' ? 'play' : 'ban'} title={editing.status === 'suspended' ? 'إعادة تفعيل' : 'إيقاف الحساب'} onPress={toggle} />
+              <RoleButton user={editing} onDone={() => setSheet(false)} />
               <Btn variant="ghost" icon="trash" title="حذف المدير" onPress={remove} />
             </>
           )}
@@ -273,6 +274,9 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     { label: 'منتجات ماركت', route: 'AdminMarket', icon: 'basket', color: C.green, bg: C.greenSoft, badge: 0, perm: 'providers' },
     { label: 'إرسال إشعار للمستخدمين', route: 'AdminBroadcast', icon: 'notifications', color: C.orange, bg: C.orangeSoft, badge: 0, perm: 'notify' },
     { label: 'التوصيلة والكباتن', route: 'AdminRides', icon: 'car', color: C.green, bg: C.greenSoft, badge: 0, perm: 'orders' },
+    { label: 'فتح وقفل الطلبات', route: 'AdminGates', icon: 'lock-closed', color: C.red, bg: C.redSoft, badge: 0, perm: 'orders' },
+    { label: 'شكل الشاشة الرئيسية', route: 'AdminHomeLayout', icon: 'color-palette', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'owner' },
+    { label: 'ربط أوردرات بطيار', route: 'Dispatch', icon: 'link', color: C.green, bg: C.greenSoft, badge: 0, perm: 'orders' },
     { label: 'تشغيل الميزات', route: 'AdminFeatures', icon: 'options', color: C.green, bg: C.greenSoft, badge: 0, perm: 'owner' },
     { label: 'سجل التغييرات', route: 'AdminLog', icon: 'time', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'any' },
     { label: 'التقييمات', route: 'AdminRatings', icon: 'star', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'users' },
@@ -941,6 +945,7 @@ export function AdminCustomerScreen({ navigation, route }: any) {
           <Btn title="حفظ العلامة" icon="checkmark" disabled={busy || !dirty} onPress={save} />
         </Card>
 
+        <RoleButton user={user} onDone={() => navigation.goBack()} />
         <Btn variant="outline" icon="key" title="تعيين كلمة مرور جديدة للعميل" onPress={() => setPwSheet(true)} />
         <Sheet visible={pwSheet} onClose={() => setPwSheet(false)} title="كلمة مرور جديدة">
           <T size={12.5} color={C.sub}>كلمات المرور مشفّرة ولا يمكن لأحد (حتى الإدارة) معرفة القديمة. اكتب كلمة جديدة (8 أحرف على الأقل) وأبلغها للعميل على {user.phone}.</T>
@@ -987,6 +992,62 @@ function RegionChecks({ value, onChange }: { value: string[]; onChange: (v: stri
       </View>
       {list.length === 0 && <T size={12} color={C.sub}>أضف مناطق أولاً من الإعدادات.</T>}
     </View>
+  );
+}
+
+/** Owner: turn this account into a customer / supervisor (with the areas he runs) / manager (with permissions). */
+function RoleButton({ user, onDone }: { onDone?: () => void; user: { id: string; name: string; role: string; manager?: boolean; supRegions?: string[]; mgrPerms?: string[] } }) {
+  const cur = user.manager ? 'manager' : user.role === 'supervisor' ? 'supervisor' : 'customer';
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState<'customer' | 'supervisor' | 'manager'>(cur === 'customer' ? 'supervisor' : 'customer');
+  const [regions, setRegions] = useState<string[]>(user.supRegions || []);
+  const [perms, setPerms] = useState<string[]>(user.mgrPerms?.length ? user.mgrPerms : ['orders', 'support']);
+  const [busy, setBusy] = useState(false);
+  const flip = (k: string) => setPerms((p) => {
+    const on = p.includes(k);
+    let n = on ? p.filter((x) => x !== k) : [...p, k];
+    if (k === 'finance_edit' && !on && !n.includes('finance_view')) n = [...n, 'finance_view'];
+    if (k === 'finance_view' && on) n = n.filter((x) => x !== 'finance_edit');
+    return n;
+  });
+  const NAMES = { customer: 'عميل عادي', supervisor: 'مشرف', manager: 'مدير' } as const;
+  const go = async () => {
+    if (to === 'supervisor' && regions.length === 0) return toast('اختار منطقة واحدة على الأقل للمشرف', 'err');
+    if (to === 'manager' && perms.length === 0) return toast('اختار صلاحية واحدة على الأقل للمدير', 'err');
+    setBusy(true);
+    const r = await setUserRole(user.id, { role: to, ...(to === 'supervisor' ? { regions } : {}), ...(to === 'manager' ? { perms } : {}) });
+    setBusy(false);
+    if (!r.ok) return toast(r.error || 'تعذر تغيير الحساب', 'err');
+    setOpen(false); toast(`تم تحويل ${user.name} إلى ${NAMES[to]} ✅`); onDone?.();
+  };
+  return (
+    <>
+      <Btn variant="outline" icon="swap-horizontal" title={`تحويل الحساب (الآن: ${NAMES[cur]})`} onPress={() => setOpen(true)} />
+      <Sheet visible={open} onClose={() => setOpen(false)} title="تحويل نوع الحساب">
+        <ScrollView style={{ maxHeight: 560 }} contentContainerStyle={{ gap: 12 }}>
+          <T size={12.5} color={C.sub}>بيتغيّر نوع حساب «{user.name}» وبياخد الصلاحيات الجديدة فوراً. رقمه وكلمة سره وطلباته القديمة زي ما هي.</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {(['customer', 'supervisor', 'manager'] as const).filter((k) => k !== cur || k === 'supervisor' || k === 'manager').map((k) => <Chip key={k} label={k === cur ? `${NAMES[k]} (تعديل)` : NAMES[k]} active={to === k} onPress={() => setTo(k)} />)}
+          </View>
+          {to === 'supervisor' && <RegionChecks value={regions} onChange={setRegions} />}
+          {to === 'manager' && MGR_GROUPS.map((g) => (
+            <View key={g.title} style={{ gap: 6 }}>
+              <T w="bold" size={13} color={C.green}>{g.title}</T>
+              <Card style={{ gap: 10 }}>
+                {g.items.map((it) => (
+                  <View key={it.k} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <T size={13} style={{ flex: 1 }}>{it.l}</T>
+                    <Toggle value={perms.includes(it.k)} onValueChange={() => flip(it.k)} />
+                  </View>
+                ))}
+              </Card>
+            </View>
+          ))}
+          {to === 'customer' && <T size={12.5} color={C.red}>هيرجع عميل عادي ويفقد كل صلاحيات الإدارة.</T>}
+          <Btn title={`حوّله إلى ${NAMES[to]}`} icon="checkmark" loading={busy} onPress={go} />
+        </ScrollView>
+      </Sheet>
+    </>
   );
 }
 
@@ -1085,6 +1146,7 @@ export function AdminSupervisorsScreen({ navigation }: any) {
               <Field label="كلمة مرور جديدة" icon="key" value={newPw} onChangeText={setNewPw} secureTextEntry autoCapitalize="none" />
               <Btn variant="outline" title="تعيين كلمة المرور" disabled={busy || newPw.length < 8} onPress={savePw} />
               <Btn variant={editing.status === 'suspended' ? 'green' : 'danger'} icon={editing.status === 'suspended' ? 'play' : 'ban'} title={editing.status === 'suspended' ? 'إعادة تفعيل' : 'إيقاف الحساب'} onPress={toggle} />
+              <RoleButton user={editing} onDone={() => setSheet(false)} />
               <Btn variant="ghost" icon="trash" title="حذف المشرف" onPress={remove} />
             </>
           )}
@@ -1114,7 +1176,8 @@ export function SupervisorOrdersScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="طلبات مناطقي" subtitle={areas || 'لم يتم تحديد مناطق لك بعد'} />
-      <View style={{ padding: 16, paddingBottom: 6 }}>
+      <View style={{ padding: 16, paddingBottom: 6, gap: 10 }}>
+        <Btn title="ربط 1–3 أوردرات بطيار" icon="link" small onPress={() => navigation.navigate('Dispatch')} />
         <FlatList horizontal data={chips} keyExtractor={(x) => x.k} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} renderItem={({ item }) => <Chip label={item.n ? `${item.l} (${item.n})` : item.l} active={f === item.k} onPress={() => setF(item.k)} />} />
       </View>
       <FlatList data={orders} keyExtractor={(o) => o.id} refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 12 }} ListEmptyComponent={<Empty icon="receipt" title="لا توجد طلبات" text={areas ? undefined : 'تواصل مع المالك ليحدد لك المناطق'} />}

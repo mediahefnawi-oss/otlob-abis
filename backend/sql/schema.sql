@@ -917,3 +917,63 @@ CREATE TABLE IF NOT EXISTS service_closings (
   undone_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_service_closings ON service_closings(svc, closed_at DESC);
+
+-- =====================================================================================
+-- 20261226: price method per vehicle, typed destination, intercity trips with seats, open/close of orders,
+--           market product options, the owner's home layout
+-- =====================================================================================
+-- price method of a vehicle type: NULL = follow the general setting; 'km' | 'zones' | 'captain'
+ALTER TABLE ride_types ADD COLUMN IF NOT EXISTS pricing_mode TEXT;
+ALTER TABLE ride_types DROP CONSTRAINT IF EXISTS ride_types_pricing_mode_chk;
+ALTER TABLE ride_types ADD CONSTRAINT ride_types_pricing_mode_chk CHECK (pricing_mode IS NULL OR pricing_mode IN ('km','zones','captain'));
+ALTER TABLE ride_types ADD COLUMN IF NOT EXISTS max_fee NUMERIC(8,2);
+CREATE TABLE IF NOT EXISTS ride_zone_prices (
+  type_id INT NOT NULL REFERENCES ride_types(id) ON DELETE CASCADE,
+  from_region_id BIGINT NOT NULL,
+  to_region_id BIGINT NOT NULL,
+  price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  PRIMARY KEY (type_id, from_region_id, to_region_id)
+);
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS text_dest BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS pricing TEXT NOT NULL DEFAULT 'km';
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS max_fee NUMERIC(8,2);
+
+-- open / close of the new orders: key '*' = the whole app, otherwise a service key (restaurant, supermarket, ..., errand, market, ride, trips)
+CREATE TABLE IF NOT EXISTS order_gates (
+  key TEXT PRIMARY KEY,
+  closed BOOLEAN NOT NULL DEFAULT FALSE,
+  message TEXT NOT NULL DEFAULT '',
+  until TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- intercity trips: a captain announces a trip to a governorate on a day, the customers book seats
+CREATE TABLE IF NOT EXISTS trips (
+  id BIGSERIAL PRIMARY KEY,
+  driver_id BIGINT NOT NULL REFERENCES users(id),
+  dest TEXT NOT NULL,
+  from_text TEXT NOT NULL DEFAULT '',
+  depart_at TIMESTAMPTZ NOT NULL,
+  seats INT NOT NULL CHECK (seats BETWEEN 1 AND 50),
+  price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','started','done','cancelled')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_trips_open ON trips(status, depart_at);
+CREATE TABLE IF NOT EXISTS trip_seats (
+  trip_id BIGINT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  seat_no INT NOT NULL CHECK (seat_no >= 1),
+  customer_id BIGINT NOT NULL REFERENCES users(id),
+  booked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (trip_id, seat_no)
+);
+CREATE INDEX IF NOT EXISTS idx_trip_seats_customer ON trip_seats(customer_id);
+
+-- market products: extra choices the customer may pick ("ناضجة", "تنضيف وتقطيع +3"); a hidden flag; a sort position
+ALTER TABLE market_products ADD COLUMN IF NOT EXISTS options JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- the owner's home layout (order of the sections, the look of each service)
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS home_layout JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE market_products ADD COLUMN IF NOT EXISTS sold_out BOOLEAN NOT NULL DEFAULT FALSE;

@@ -15,6 +15,7 @@ const couponsLib = require('./coupons');
 const premiumLib = require('./premium');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
+const gatesLib = require('./gates');
 const poolLib = require('./pool');
 const voiceLib = require('./voice');
 module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles, asyncRoute, positiveId, maintenanceState, loadSettings, cleanUser, pushToUsers }) {
@@ -461,7 +462,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   /* ---------- placing orders ---------- */
   /** The cart lines the app sent, cleaned. */
   const cleanLines = raw => (Array.isArray(raw) ? raw : []).slice(0, 100)
-    .map(l => ({ id: positiveId(l && l.productId), qty: Math.floor(Number(l && l.qty)), size: typeof (l && l.size) === 'string' ? l.size.trim().slice(0, 20) : '' }))
+    .map(l => ({ id: positiveId(l && l.productId), qty: Math.floor(Number(l && l.qty)), size: typeof (l && l.size) === 'string' ? l.size.trim().slice(0, 20) : '', opts: Array.isArray(l && l.opts) ? [...new Set(l.opts.filter(x => typeof x === 'string').map(x => x.trim().slice(0, 30)).filter(Boolean))].slice(0, 12) : [] }))
     .filter(l => l.id && l.qty > 0 && l.qty <= 50);
   /** The server prices a cart: products grouped by shop, with the offers taken off, exactly as the customer saw them. */
   async function buildGroups(lines) {
@@ -520,6 +521,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const scheduledFor = await scheduleOf(b);
     const wantPool = b.pool === true && !scheduledFor && (await poolLib.on(pool));
     const groups = await buildGroups(lines);
+    await gatesLib.assertOpen(pool, [...new Set([...groups.values()].map(g => g.p.ptype))], fail, services.listJson()); // the owner closed new orders (whole app or this service)
     if ([...groups.values()].some(g => Number(g.p.owner_user_id) === Number(req.auth.sub))) throw fail(409, 'مينفعش تطلب من متجرك إنت. ارجع لحسابك كمقدم خدمة');
     if (String(b.coupon || '').trim() && !(await extrasLib.featureOn(pool, 'coupons'))) throw fail(409, 'الكوبونات متوقفة حاليًا');
     const out = await withTx(async db => {
@@ -603,6 +605,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     await requireOpen();
     await regionClose.assertOpen(pool, Number(req.auth.sub), fail); // the customer's area is closed for a while (switch "regionClose")
     if (!services.errandActive()) throw fail(409, 'هذه الخدمة متوقفة حالياً');
+    await gatesLib.assertOpen(pool, ['errand'], fail, services.listJson());
     const b = req.body || {};
     const dest = await destRule(b);
     await rememberSpot(Number(req.auth.sub), dest);
@@ -641,6 +644,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     await requireOpen();
     await regionClose.assertOpen(pool, Number(req.auth.sub), fail);
     if (!(await extrasLib.featureOn(pool, 'market'))) throw fail(404, 'الخدمة غير متاحة الآن');
+    await gatesLib.assertOpen(pool, ['market'], fail, services.listJson());
     const b = req.body || {};
     const dest = await destRule(b);
     await rememberSpot(Number(req.auth.sub), dest);
@@ -648,12 +652,13 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const lines = cleanLines(b.lines);
     if (!lines.length) throw fail(400, 'السلة فارغة');
     const out = await withTx(async db => {
-      const pr = await db.query('SELECT id, name, price, sizes, discount_pct, offer_until, emoji, available FROM market_products WHERE id = ANY($1::bigint[])', [lines.map(l => l.id)]);
+      const pr = await db.query('SELECT id, name, price, sizes, options, discount_pct, offer_until, emoji, available, sold_out FROM market_products WHERE id = ANY($1::bigint[])', [lines.map(l => l.id)]);
       const byId = new Map(pr.rows.map(r => [Number(r.id), r]));
       const items = []; let base = 0;
       for (const l of lines) {
         const p = byId.get(l.id);
         if (!p || !p.available) throw fail(409, 'أحد المنتجات لم يعد متاحاً');
+        if (p.sold_out) throw fail(409, `${p.name} نفد حالياً، شيله من السلة`);
         const M = require('./market'), sizes = M.sizesOf(p);
         let sp, label = '', was = null;   // a live discount is charged by the server, never trusted from the app
         if (sizes.length) {
@@ -661,8 +666,19 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           if (!z) throw fail(400, `اختار الحجم لـ ${p.name}`);
           const q = M.sizePrice(p, z); sp = { price: q.price, active: q.active }; label = z.label; was = q.was;
         } else { sp = M.salePrice(p); was = sp.active ? Number(p.price) : null; }
+        // extra choices: each must be one the owner defined for this product; the server adds their price (never trusted from the app)
+        const defined = M.optionsOf(p), chosen = [];
+        for (const name of l.opts || []) {
+          const o = defined.find(x => x.label === name);
+          if (!o) throw fail(400, `اختيار غير موجود لـ ${p.name}`);
+          chosen.push(o);
+        }
+        const extra = chosen.reduce((t, o) => t + Number(o.price || 0), 0);
         const priced = sp.price != null;
-        items.push({ productId: String(p.id), name: label ? `${p.name} — ${label}` : p.name, ...(label ? { size: label } : {}), price: priced ? sp.price : null, ...(was != null ? { was } : {}), qty: l.qty, emoji: p.emoji || '🛒' });
+        if (priced && extra) sp = { ...sp, price: Math.round((sp.price + extra) * 100) / 100 };
+        if (was != null && extra) was = Math.round((was + extra) * 100) / 100;
+        const optTxt = chosen.length ? ` (${chosen.map(o => o.label).join('، ')})` : '';
+        items.push({ productId: String(p.id), name: `${p.name}${label ? ` — ${label}` : ''}${optTxt}`, ...(label ? { size: label } : {}), ...(chosen.length ? { opts: chosen.map(o => o.label) } : {}), price: priced ? sp.price : null, ...(was != null ? { was } : {}), qty: l.qty, emoji: p.emoji || '🛒' });
         if (priced) base += sp.price * l.qty;
       }
       base = Math.round(base * 100) / 100;
@@ -713,6 +729,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     if (!prov || prov.status !== 'active' || !prov.is_open) throw fail(409, 'المتجر مغلق حالياً');
     if (!services.acceptsRequests(prov.type) && !(['request', 'menu'].includes(prov.order_mode) && await extrasLib.featureOn(pool, 'menu'))) throw fail(400, 'هذا النوع لا يقبل الطلبات المكتوبة');
     if (!services.isActive(prov.type)) throw fail(409, 'هذه الخدمة متوقفة حالياً');
+    await gatesLib.assertOpen(pool, [prov.type], fail, services.listJson());
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
@@ -893,6 +910,48 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       notify([(out.next.data || {}).providerOwnerId], `تم تغيير مندوب الطلب #${out.next.order_number}`, (out.next.data || {}).courierName || '', `order-${id}`),
     ]);
     res.json({ order: orderJsonFor(out.next, req.auth.role) });
+  }));
+  /**
+   * "ربط الأوردرات": the owner or a supervisor links 1 to 3 orders of ONE area to one courier in a single step.
+   * Any accepted order of his areas that has not been picked up yet may be linked (the shop does not have to be stuck).
+   */
+  const MAX_BATCH = 3;
+  app.post('/api/staff/dispatch', auth, roles('admin', 'supervisor'), guard(async (req, res) => {
+    const b = req.body || {};
+    const ids = [...new Set((Array.isArray(b.orderIds) ? b.orderIds : []).map(positiveId).filter(Boolean))];
+    const cid = positiveId(b.courierId);
+    if (!ids.length || !cid) throw fail(400, 'اختر الأوردرات والمندوب');
+    if (ids.length > MAX_BATCH) throw fail(400, `أقصى عدد ${MAX_BATCH} أوردرات للمندوب الواحد`);
+    const batchId = require('crypto').randomBytes(4).toString('hex');
+    const out = await withTx(async db => {
+      const rows = (await db.query('SELECT * FROM orders WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE', [ids])).rows;
+      if (rows.length !== ids.length) throw fail(404, 'أحد الأوردرات غير موجود');
+      for (const row of rows) {
+        if (!(await staffCan(db, req.auth, row))) throw fail(403, `الأوردر #${row.order_number} خارج مناطقك`);
+        if (!['accepted', 'ready'].includes(row.status)) throw fail(409, `الأوردر #${row.order_number} لا يمكن ربطه الآن (لازم يكون مقبول ولسه ما اتسلمش)`);
+      }
+      if (new Set(rows.map(r => String(r.region_id))).size > 1) throw fail(409, 'الأوردرات لازم تكون من نفس المنطقة');
+      const c = await db.query("SELECT id, name, phone, vehicle FROM users WHERE id=$1 AND role='courier' AND status='active' AND deleted_at IS NULL", [cid]);
+      if (!c.rowCount) throw fail(404, 'المندوب غير متاح');
+      const have = await db.query('SELECT COUNT(*)::int AS n FROM orders WHERE courier_user_id=$1 AND status = ANY($2) AND NOT (id = ANY($3::bigint[]))', [cid, BUSY, ids]);
+      if (have.rows[0].n + ids.length > MAX_BATCH) throw fail(409, `المندوب معاه ${have.rows[0].n} أوردر، والحد الأقصى ${MAX_BATCH} مع بعض`);
+      const done = [];
+      for (const row of rows) {
+        if (Number(row.courier_user_id) === cid && (row.data || {}).dispatch) { done.push({ next: row, prev: null, same: true }); continue; }
+        const next = await moveOrder(db, row, row.status, { dispatch: { batchId, n: ids.length, byRole: req.auth.role, at: Date.now() }, ...(req.auth.role === 'supervisor' ? { staffHandled: true } : {}) },
+          { id: c.rows[0].id, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
+        await sysMsg(db, row.id, `تم تعيين المندوب ${c.rows[0].name} لتوصيل طلبك 🛵`);
+        await audit(db, Number(req.auth.sub), 'order.dispatch', 'order', String(row.id), { courierId: row.courier_user_id ? String(row.courier_user_id) : null, status: row.status }, { courierId: String(cid), batchId });
+        done.push({ next, prev: row.courier_user_id });
+      }
+      return { done, courier: c.rows[0] };
+    });
+    await Promise.allSettled([
+      notify([cid], out.done.length > 1 ? `تم ربط ${out.done.length} أوردرات بيك 🛵` : 'تم تعيين طلب لك 🛵', out.done.map(x => `#${x.next.order_number}`).join(' + '), `dispatch-${batchId}`),
+      ...out.done.filter(x => !x.same).map(x => notify([x.next.customer_user_id], `المندوب ${out.courier.name} سيوصّل طلبك 🛵`, '', `order-${x.next.id}`)),
+      ...out.done.filter(x => x.prev && Number(x.prev) !== cid).map(x => notify([x.prev], 'تم سحب الطلب منك', `#${x.next.order_number}`, `order-${x.next.id}`)),
+    ]);
+    res.json({ ok: true, batchId, orders: out.done.map(x => orderJsonFor(x.next, req.auth.role)) });
   }));
   /** Send a written request that its shop refused to another shop / pharmacy / maker. */
   app.post('/api/orders/:id/transfer', auth, roles('admin', 'supervisor'), guard(async (req, res) => {

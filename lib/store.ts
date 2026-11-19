@@ -184,7 +184,7 @@ function mirrorUser(s: ServerUser) {
 }
 
 const settingsKey = (x: Partial<Settings>) =>
-  JSON.stringify([x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.homeCoverV || 0, x.homeBlocks || null, x.premium || null, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null, x.features || null]);
+  JSON.stringify([x.homeLayout || null, x.appEnabled, x.maintenanceMessage, x.announcement, x.autoAssign, x.supportPhone, x.supportName, x.loginImageV || 0, x.appIconV || 0, x.apkUrl || '', x.update || null, x.catIconV || {}, x.homeCoverV || 0, x.homeBlocks || null, x.premium || null, x.welcomeLogoV || 0, x.credits || null, x.hours || null, x.tzOffsetMin || 0, x.theme || 'default', x.delivery || null, x.map || null, x.ui || null, x.privacy || null, x.features || null]);
 
 let clockSkewMs = 0; // server clock minus this phone's clock, so a wrong phone clock cannot open or close the app by itself
 function applySettings(c: CentralSettings) {
@@ -201,6 +201,7 @@ function applySettings(c: CentralSettings) {
     catIconV: c.catIconV || {},
     homeCoverV: c.homeCoverV || 0,
     homeBlocks: Array.isArray(c.homeBlocks) ? c.homeBlocks : [],
+    homeLayout: c.homeLayout && typeof c.homeLayout === 'object' ? c.homeLayout : {},
     premium: c.premium || null,
     apkUrl: c.apkUrl || '',
     update: c.update || { version: '', message: '', required: false },
@@ -899,6 +900,14 @@ export async function createManager(i: { name: string; phone: string; password: 
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
+/** Owner: turn an existing account into a customer / supervisor (with areas) / manager (with permissions). */
+export async function setUserRole(id: string, b: { role: 'customer' | 'supervisor' | 'manager'; regions?: string[]; perms?: string[] }): Promise<Result> {
+  try {
+    const r = await apiJson<{ user: ServerUser }>(`/api/admin/users/${encodeURIComponent(id)}/role`, 'POST', { role: b.role, ...(b.regions ? { regions: b.regions.map((x) => Number(x)) } : {}), ...(b.perms ? { perms: b.perms } : {}) });
+    mutate((db) => { const old = db.users.find((u) => u.id === r.user.id); db.users = old ? db.users.map((u) => (u.id === r.user.id ? fromServer(r.user, old) : u)) : [...db.users, fromServer(r.user)]; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
 export async function updateManager(id: string, patch: { name?: string; perms?: string[] }): Promise<Result> {
   try {
     const r = await apiJson<{ user: ServerUser }>(`/api/admin/managers/${encodeURIComponent(id)}`, 'PATCH', patch);
@@ -945,6 +954,14 @@ export async function assignCourier(orderId: string, courierId: string, breakdow
   try {
     const r = await apiJson<{ order: Order }>(`/api/orders/${encodeURIComponent(orderId)}/assign`, 'POST', breakdown ? { courierId, breakdown: true } : { courierId });
     mutate((db) => { db.orders = upsertById(db.orders, [r.order]); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner / supervisor: link 1-3 orders of one area to one courier. */
+export async function dispatchOrders(orderIds: string[], courierId: string): Promise<Result> {
+  try {
+    const r = await apiJson<{ orders: Order[] }>('/api/staff/dispatch', 'POST', { orderIds, courierId });
+    mutate((db) => { db.orders = upsertById(db.orders, r.orders || []); });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
@@ -1742,6 +1759,14 @@ export async function saveHomeBlocks(blocks: HomeBlock[]): Promise<Result> {
   try {
     const r = await apiJson<{ blocks: HomeBlock[] }>('/api/admin/home-blocks', 'PUT', { blocks });
     mutate((db) => { db.settings = { ...db.settings, homeBlocks: r.blocks }; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner: the design of the customer home (order, hidden sections, icon shapes, grid / swipe row). */
+export async function saveHomeLayout(layout: any): Promise<Result> {
+  try {
+    const r = await apiJson<{ layout: any }>('/api/admin/home-layout', 'PUT', { layout });
+    mutate((db) => { db.settings = { ...db.settings, homeLayout: r.layout || {} }; });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }

@@ -17,10 +17,10 @@ import { HomeBlock } from '../lib/types';
  * The owner's blocks in the new home (switch "homeBlocks"), in the order he arranged them:
  * a list of shops he picked by hand, or a banner (a picture with an optional link to a shop, a product or a web page).
  */
-export function HomeBlocksView({ navigation, tw }: { navigation: any; tw: number }) {
+export function HomeBlocksView({ navigation, tw, only }: { navigation: any; tw: number; only?: string }) {
   const { db } = useStore();
   const stars = useRatingStars();
-  const blocks = (db.settings.homeBlocks || []).filter((b) => b.active);
+  const blocks = (db.settings.homeBlocks || []).filter((b) => b.active && (!only || b.id === only));
   return (
     <>
       {blocks.map((b) => {

@@ -186,7 +186,7 @@ const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
-const SCHEMA_VERSION = 20261225;
+const SCHEMA_VERSION = 20261226;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -782,7 +782,7 @@ async function loadSettingsBase() {
   } catch { /* column not migrated yet */ }
   let homeCoverV = 0;
   try { const hc = await pool.query("SELECT (EXTRACT(EPOCH FROM updated_at)*1000)::bigint AS v FROM site_images WHERE key='home_cover'"); if (hc.rowCount) homeCoverV = Number(hc.rows[0].v); } catch { /* table not migrated yet */ }
-  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, homeCoverV, homeBlocks, premium: premiumPub, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', features: extrasLib.mergeFeatures(x.features), privacy: { on: x.privacy_hide !== false, minutes: x.privacy_minutes != null ? Number(x.privacy_minutes) : 1 }, ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
+  return settingsMemo.set('s', { hours: hours.fromRow(x), welcomeLogoV, homeCoverV, homeBlocks, homeLayout: x.home_layout && typeof x.home_layout === 'object' ? x.home_layout : {}, premium: premiumPub, credits, loginImageV, appIconV, catIconV, apkUrl: x.apk_url || '', update: { version: x.update_version || '', message: x.update_message || '', required: !!x.update_required }, appEnabled: x.app_enabled, maintenanceMessage: x.maintenance_message, announcement: x.announcement, theme: x.theme || 'default', features: extrasLib.mergeFeatures(x.features), privacy: { on: x.privacy_hide !== false, minutes: x.privacy_minutes != null ? Number(x.privacy_minutes) : 1 }, ui: { phone: x.ui_phone_scale != null ? Number(x.ui_phone_scale) : 1, desktop: x.ui_desktop_scale != null ? Number(x.ui_desktop_scale) : 0.9 }, map: { enabled: x.map_enabled !== false, required: x.map_required !== false }, delivery: require('./kmfee').cfgFromRow(x), autoAssign: x.auto_assign, supportPhone: x.support_phone, supportName: x.support_name, updatedAt: x.updated_at });
 }
 // the clock part is never cached: the app uses it to know when to open / close without asking again
 async function loadSettings() {
@@ -1137,6 +1137,9 @@ require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, 
 require('./rides').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 require('./rides2').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers, hashPassword: (p) => bcrypt.hash(p, 12) });
 require('./geo').register(app, { asyncRoute });
+require('./gates').register(app, { pool, auth, roles, asyncRoute, services });
+require('./trips').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers });
+require('./homelayout').register(app, { pool, auth, roles, asyncRoute, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 managersLib.register(app, { pool, auth, roles, asyncRoute, positiveId, hashPassword: p => bcrypt.hash(p, 12), clearAuth: () => authMemo.clear(), freePhone, cleanUser });
 require('./broadcast').register(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./group').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib });
