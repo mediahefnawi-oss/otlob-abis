@@ -58,7 +58,7 @@ const { ok, eq, done } = H.counters();
     [{ ...good, departAt: new Date(now + 90 * day).toISOString() }, 'too far ahead'], [{ ...good, seats: 0 }, '0 seats'], [{ ...good, seats: 51 }, '51 seats'], [{ ...good, seats: 2.5 }, 'fraction seats'],
     [{ ...good, price: -1 }, 'negative price'], [{ ...good, price: 'abc' }, 'price not a number']]) ok(T.cleanTrip(bad).error, 'refused: ' + why);
   eq(T.cleanSeats([3, 1, 3], 4), [1, 3], 'seats sorted and unique'); eq(T.cleanSeats(2, 4), [2], 'a single seat'); eq(T.cleanSeats([5], 4), null, 'seat beyond the car'); eq(T.cleanSeats([0], 4), null, 'seat 0');
-  eq(T.cleanSeats([1, 2, 3, 4, 5], 9), null, 'more than 4 at once'); eq(T.cleanSeats([], 4), null, 'none');
+  eq(T.cleanSeats([1, 2, 3, 4, 5, 6, 7], 9), [1, 2, 3, 4, 5, 6, 7], 'seven at once'); eq(T.cleanSeats([1, 2, 3, 4, 5, 6, 7, 8], 9), null, 'more than 7 at once'); eq(T.cleanSeats([], 4), null, 'none');
 
   /* ---------------- trips: the flow ---------------- */
   const mkTrip = (as, b = {}) => call('POST /api/captain/trips', { as, body: { ...good, ...b } });
@@ -89,7 +89,23 @@ const { ok, eq, done } = H.counters();
   // limit per customer: 4
   const big = (await mkTrip(D, { seats: 10 })).json.trip.id;
   eq((await call('POST /api/trips/:id/book', { as: C1, params: { id: big }, body: { seats: [1, 2, 3, 4] } })).status, 200, 'four seats at once is fine');
-  eq((await call('POST /api/trips/:id/book', { as: C1, params: { id: big }, body: { seats: [5] } })).status, 409, 'a fifth seat for the same customer is refused');
+  // by headcount: the server picks the free seats, the owner's limit (default 7) is respected
+  const bk = id => (as, count) => call('POST /api/trips/:id/book', { as, params: { id }, body: { count } });
+  const hc = (await mkTrip(D, { seats: 10 })).json.trip.id;
+  let r = await bk(hc)(C1, 3); eq([r.status, r.json.seats], [200, [1, 2, 3]], 'three persons take the first free seats');
+  eq((await bk(hc)(C1, 5)).status, 409, 'a customer cannot pass the limit in total (3+5>7)');
+  eq((await bk(hc)(C2, 8)).status, 400, 'eight persons in one booking is refused');
+  eq((await bk(hc)(C2, 0)).status, 400, 'zero persons is refused');
+  r = await bk(hc)(C2, 7); eq([r.status, r.json.seats], [200, [4, 5, 6, 7, 8, 9, 10]], 'seven persons fill the rest in order');
+  eq((await bk(hc)(C1, 1)).status, 409, 'no room left');
+  await call('POST /api/admin/trips-settings', { as: A, body: { maxPersons: 4 } });
+  const hc2 = (await mkTrip(D, { seats: 10 })).json.trip.id;
+  eq((await bk(hc2)(C1, 5)).status, 400, 'the owner lowered the limit to 4: five is refused');
+  eq((await bk(hc2)(C1, 4)).status, 200, 'and four is fine');
+  eq((await call('GET /api/trips', { as: C1 })).json.maxPersons, 4, 'the customer app receives the limit');
+  eq((await call('POST /api/admin/trips-settings', { as: A, body: { maxPersons: 9 } })).status, 400, 'owner limit must be 1..7');
+  await call('POST /api/admin/trips-settings', { as: A, body: { maxPersons: 7 } });
+  await q('DELETE FROM trips WHERE id = ANY($1::bigint[])', [[hc, hc2]]);
   // two customers fight for one seat at the same moment: exactly one wins
   const race = await Promise.all([C1, C2].map(as => call('POST /api/trips/:id/book', { as, params: { id: big }, body: { seats: [9] } })));
   eq(race.map(x => x.status).sort(), [200, 409], 'a race for the same seat: one wins, one is told');

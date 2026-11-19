@@ -7,7 +7,8 @@
 const gatesLib = require('./gates');
 
 const MAX_OPEN_PER_CAPTAIN = 5;
-const MAX_SEATS_PER_CUSTOMER = 4;
+const MAX_SEATS_PER_CUSTOMER = 7;   // hard ceiling; the owner picks the live limit 4..7 (service_meta 'trips_max_persons')
+const DEFAULT_MAX_PERSONS = 7;
 const MAX_DAYS_AHEAD = 60;
 const MAX_NOTIFY = 20000;
 const str = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
@@ -119,11 +120,16 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   }));
 
   /* ================= customer ================= */
+  async function maxPersons() {
+    try { const r = await pool.query("SELECT sub FROM service_meta WHERE key='trips_max_persons'"); const n = Number(r.rows[0] && r.rows[0].sub); return Number.isInteger(n) && n >= 1 && n <= MAX_SEATS_PER_CUSTOMER ? n : DEFAULT_MAX_PERSONS; }
+    catch { return DEFAULT_MAX_PERSONS; }
+  }
   app.get('/api/trips', auth, roles('customer'), guard(async (req, res) => {
     await needOn();
     const r = await pool.query(`${TRIP_SQL} WHERE t.status='open' AND t.depart_at > NOW() ORDER BY t.depart_at LIMIT 60`);
     const sm = await seatsOf(r.rows.map(x => Number(x.id)));
-    res.json({ trips: r.rows.map(t => {
+    const maxP = await maxPersons();
+    res.json({ maxPersons: maxP, trips: r.rows.map(t => {
       const rows = sm.get(Number(t.id)) || [];
       return { ...baseOut(t, rows), mine: rows.filter(s => Number(s.customer_id) === me(req)).map(s => s.seat_no),
         driver: { name: String(t.driver_name || '').split(' ').slice(0, 2).join(' '), model: t.model || '', color: t.color || '', plate: t.plate || '' } };
@@ -148,18 +154,33 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       await c.query('BEGIN');
       const t = await c.query("SELECT * FROM trips WHERE id=$1 AND status='open' AND depart_at > NOW() FOR UPDATE", [id]);
       if (!t.rowCount) { await c.query('ROLLBACK'); throw fail(404, 'الرحلة لم تعد متاحة'); }
-      seats = cleanSeats((req.body || {}).seats ?? (req.body || {}).seat, t.rows[0].seats);
-      if (!seats) { await c.query('ROLLBACK'); throw fail(400, `اختار من 1 إلى ${MAX_SEATS_PER_CUSTOMER} كراسي صحيحة`); }
+      const lim = await maxPersons();
+      const bb = req.body || {};
+      const total = t.rows[0].seats;
       const mine = await c.query('SELECT COUNT(*)::int AS n FROM trip_seats WHERE trip_id=$1 AND customer_id=$2', [id, me(req)]);
-      if (mine.rows[0].n + seats.length > MAX_SEATS_PER_CUSTOMER) { await c.query('ROLLBACK'); throw fail(409, `أقصى حجز ${MAX_SEATS_PER_CUSTOMER} كراسي للشخص`); }
-      const taken = await c.query('SELECT seat_no FROM trip_seats WHERE trip_id=$1 AND seat_no = ANY($2::int[])', [id, seats]);
-      if (taken.rowCount) { await c.query('ROLLBACK'); throw fail(409, `الكرسي ${taken.rows[0].seat_no} اتحجز، اختار كرسي تاني`); }
+      const taken = await c.query('SELECT seat_no FROM trip_seats WHERE trip_id=$1', [id]);
+      const used = new Set(taken.rows.map(r => Number(r.seat_no)));
+      if (bb.count !== undefined) {
+        const n = Number(bb.count);
+        if (!Number.isInteger(n) || n < 1) { await c.query('ROLLBACK'); throw fail(400, 'اكتب عدد الأفراد'); }
+        if (n > lim) { await c.query('ROLLBACK'); throw fail(400, `أقصى عدد ${lim} أفراد في الحجز، للعدد الأكبر كلّمنا على واتساب`); }
+        if (mine.rows[0].n + n > lim) { await c.query('ROLLBACK'); throw fail(409, `أقصى حجز ${lim} أفراد للعميل في الرحلة`); }
+        seats = [];
+        for (let k = 1; k <= total && seats.length < n; k++) if (!used.has(k)) seats.push(k);
+        if (seats.length < n) { await c.query('ROLLBACK'); throw fail(409, `المتاح ${seats.length} أفراد بس في الرحلة دي`); }
+      } else {
+        seats = cleanSeats(bb.seats ?? bb.seat, total);
+        if (!seats) { await c.query('ROLLBACK'); throw fail(400, 'اختار عدد الأفراد'); }
+        if (mine.rows[0].n + seats.length > lim) { await c.query('ROLLBACK'); throw fail(409, `أقصى حجز ${lim} أفراد للعميل في الرحلة`); }
+        const clash = seats.find(n => used.has(n));
+        if (clash) { await c.query('ROLLBACK'); throw fail(409, 'المقاعد دي اتحجزت، جرّب تاني'); }
+      }
       for (const n of seats) await c.query('INSERT INTO trip_seats(trip_id, seat_no, customer_id) VALUES($1,$2,$3)', [id, n, me(req)]);
       await c.query('COMMIT');
       driverId = Number(t.rows[0].driver_id); dest = t.rows[0].dest;
     } catch (e) { try { await c.query('ROLLBACK'); } catch { /* already */ } throw e; } finally { c.release(); }
     const nm = (await pool.query('SELECT name FROM users WHERE id=$1', [me(req)])).rows[0];
-    push([driverId], 'حجز جديد 🎟️', `${nm ? nm.name : 'عميل'} حجز ${seats.length} كرسي في رحلة ${dest}`, `trip-${id}`);
+    push([driverId], 'حجز جديد 🎟️', `${nm ? nm.name : 'عميل'} حجز ${seats.length} أفراد في رحلة ${dest}`, `trip-${id}`);
     res.json({ ok: true, seats });
   }));
   app.post('/api/trips/:id/cancel-booking', auth, roles('customer'), guard(async (req, res) => {
@@ -169,7 +190,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     if (!t.rowCount) throw fail(409, 'لا يمكن إلغاء الحجز الآن');
     const r = await pool.query('DELETE FROM trip_seats WHERE trip_id=$1 AND customer_id=$2 RETURNING seat_no', [id, me(req)]);
     if (!r.rowCount) throw fail(404, 'مفيش حجز ليك في الرحلة دي');
-    push([Number(t.rows[0].driver_id)], 'تم إلغاء حجز', `عميل ألغى ${r.rowCount} كرسي في رحلة ${t.rows[0].dest}`, `trip-${id}`);
+    push([Number(t.rows[0].driver_id)], 'تم إلغاء حجز', `عميل ألغى ${r.rowCount} أفراد في رحلة ${t.rows[0].dest}`, `trip-${id}`);
     res.json({ ok: true });
   }));
 
@@ -178,6 +199,13 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     const r = await pool.query(`${TRIP_SQL} WHERE t.depart_at > NOW() - INTERVAL '14 days' ORDER BY t.depart_at DESC LIMIT 100`);
     const sm = await seatsOf(r.rows.map(x => Number(x.id)));
     res.json({ trips: r.rows.map(t => ({ ...baseOut(t, sm.get(Number(t.id)) || []), driver: t.driver_name, plate: t.plate || '' })) });
+  }));
+  app.get('/api/admin/trips-settings', ...admin, guard(async (_req, res) => { res.json({ maxPersons: await maxPersons() }); }));
+  app.post('/api/admin/trips-settings', ...admin, guard(async (req, res) => {
+    const n = Number((req.body || {}).maxPersons);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_SEATS_PER_CUSTOMER) throw fail(400, `الحد من 1 إلى ${MAX_SEATS_PER_CUSTOMER}`);
+    await pool.query("INSERT INTO service_meta(key, sub, updated_at) VALUES('trips_max_persons',$1,NOW()) ON CONFLICT (key) DO UPDATE SET sub=EXCLUDED.sub, updated_at=NOW()", [String(n)]);
+    res.json({ ok: true, maxPersons: n });
   }));
   app.post('/api/admin/trips/:id/cancel', ...admin, guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');

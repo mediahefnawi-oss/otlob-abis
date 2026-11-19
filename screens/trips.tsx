@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Pressable, Linking } from 'react-native';
 import { ScrollView } from '../components/KScroll';
 import { C, shadow } from '../lib/theme';
-import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog } from '../components/ui';
+import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog, openWhats } from '../components/ui';
+import { useStore } from '../lib/store';
 import { Trip, MyTrip, apiTrips, apiMyTrips, apiTripBook, apiTripCancelBooking, apiCaptainTrips, apiCaptainTripCreate, apiCaptainTripStatus, apiCaptainTripCancel, apiGates } from '../lib/api';
 
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
@@ -12,24 +13,25 @@ const STATUS: Record<string, string> = { open: 'مفتوحة للحجز', starte
 
 /** Customer: the intercity cars that are announced, pick seats and book. */
 export function TripsScreen({ navigation }: any) {
+  const { db } = useStore();
   const [list, setList] = useState<Trip[] | null>(null);
   const [mine, setMine] = useState<MyTrip[]>([]);
   const [closed, setClosed] = useState<string | null>(null);
-  const [pick, setPick] = useState<Record<number, number[]>>({});
+  const [pick, setPick] = useState<Record<number, number>>({});
+  const [maxP, setMaxP] = useState(7);
   const [busy, setBusy] = useState<number | null>(null);
   const [veh, setVeh] = useState<number | null>(null);      // filter by vehicle type
   const load = useCallback(async () => {
-    try { const [a, b] = await Promise.all([apiTrips(), apiMyTrips()]); setList(a.trips); setMine(b.trips); }
+    try { const [a, b] = await Promise.all([apiTrips(), apiMyTrips()]); setList(a.trips); setMine(b.trips); if (a.maxPersons) setMaxP(a.maxPersons); }
     catch (e) { toast(errText(e), 'err'); setList((l) => l || []); }
     try { const g = (await apiGates()).closed?.trips; setClosed(g ? (g.message || 'الحجز متوقف مؤقتاً') : null); } catch { /* ignore */ }
   }, []);
   useEffect(() => { load(); const t = setInterval(load, 20000); return () => clearInterval(t); }, [load]);
-  const toggle = (id: number, seat: number) => setPick((p) => { const cur = p[id] || []; return { ...p, [id]: cur.includes(seat) ? cur.filter((x) => x !== seat) : [...cur, seat].sort((a, b) => a - b) }; });
   const book = async (t: Trip) => {
-    const seats = pick[t.id] || [];
-    if (!seats.length) return toast('اختار كرسي واحد على الأقل', 'err');
+    const n = pick[t.id] || 0;
+    if (!n) return toast('اختار عدد الأفراد', 'err');
     setBusy(t.id);
-    try { await apiTripBook(t.id, seats); toast(`تم حجز ${seats.length} كرسي ✅`); setPick((p) => ({ ...p, [t.id]: [] })); await load(); }
+    try { await apiTripBook(t.id, n); toast(`تم حجز ${n} ${n === 1 ? 'فرد' : 'أفراد'} ✅`); setPick((p) => ({ ...p, [t.id]: 0 })); await load(); }
     catch (e) { toast(errText(e), 'err'); await load(); } finally { setBusy(null); }
   };
   const cancel = (id: number) => confirmDialog({ title: 'إلغاء الحجز', message: 'هتلغي كل كراسيك في الرحلة دي؟', confirmText: 'إلغاء الحجز', onConfirm: async () => { try { await apiTripCancelBooking(id); toast('تم إلغاء الحجز'); await load(); } catch (e) { toast(errText(e), 'err'); } } });
@@ -45,7 +47,7 @@ export function TripsScreen({ navigation }: any) {
               <Card key={m.id} style={{ gap: 6, borderWidth: 1.5, borderColor: m.status === 'cancelled' ? C.red : C.green }}>
                 <T w="black">إلى {m.dest} — {STATUS[m.status] || m.status}</T>
                 <T size={13} color={C.sub}>{when(m.departAt)} • من {m.fromText || '—'}</T>
-                <T size={13}>كراسيك: {m.mySeats.join('، ')} • {m.price * m.mySeats.length} ج ({m.price} ج للكرسي)</T>
+                <T size={13}>عدد الأفراد: {m.mySeats.length} • {m.price * m.mySeats.length} ج ({m.price} ج للفرد)</T>
                 <T size={12.5} color={C.sub}>{m.driver.name} • {[m.driver.model, m.driver.color, m.driver.plate].filter(Boolean).join(' • ')}</T>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <Btn title="اتصل بالكابتن" icon="call" small variant="soft" style={{ flex: 1 }} onPress={() => Linking.openURL(`tel:${m.driver.phone}`)} />
@@ -58,7 +60,7 @@ export function TripsScreen({ navigation }: any) {
         <T w="black" size={16}>رحلات متاحة</T>
         {(() => { const vs = Array.from(new Map((list || []).filter((t) => t.vehicle).map((t) => [t.vehicle!.id, t.vehicle!.name])).entries()); return vs.length > 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}><Chip label="الكل" active={veh === null} onPress={() => setVeh(null)} />{vs.map(([id, name]) => <Chip key={id} label={String(name)} active={veh === id} onPress={() => setVeh(id)} />)}</ScrollView> : null; })()}
         {list === null ? <Empty title="جاري التحميل..." /> : list.filter((t) => veh === null || t.vehicle?.id === veh).length === 0 ? <Empty title="مفيش رحلات معلنة دلوقتي" /> : list.filter((t) => veh === null || t.vehicle?.id === veh).map((t) => {
-          const sel = pick[t.id] || [];
+          const sel = pick[t.id] || 0;
           return (
             <Card key={t.id} style={{ gap: 8 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -69,19 +71,20 @@ export function TripsScreen({ navigation }: any) {
               <T size={13} color={C.sub}>{when(t.departAt)}{t.fromText ? ` • من ${t.fromText}` : ''}</T>
               {!!t.note && <T size={13}>{t.note}</T>}
               {t.driver && <T size={12.5} color={C.sub}>{t.driver.name} • {[t.driver.model, t.driver.color, t.driver.plate].filter(Boolean).join(' • ')}</T>}
-              <T size={13} w="bold">{t.free > 0 ? `فاضل ${t.free} من ${t.seats} كراسي` : 'اكتمل العدد'}</T>
+              <T size={13} w="bold">{t.free > 0 ? `فاضل ${t.free} من ${t.seats} أماكن` : 'اكتمل العدد'}</T>
+              <T size={12.5} color={C.sub}>عدد الأفراد</T>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {Array.from({ length: t.seats }, (_, i) => i + 1).map((n) => {
-                  const taken = t.booked.includes(n), mineSeat = (t.mine || []).includes(n), on = sel.includes(n);
+                {Array.from({ length: maxP }, (_, i) => i + 1).map((n) => {
+                  const off = n > t.free, on = sel === n;
                   return (
-                    <Pressable key={n} disabled={taken} onPress={() => toggle(t.id, n)} style={{ width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: mineSeat ? C.gold : taken ? '#E3E6E3' : on ? C.green : C.greenSoft, ...(taken ? {} : shadow) }}>
-                      <T w="black" color={mineSeat ? '#fff' : taken ? '#9AA39C' : on ? '#fff' : C.green}>{n}</T>
+                    <Pressable key={n} disabled={off} onPress={() => setPick((p) => ({ ...p, [t.id]: n }))} style={{ width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: off ? '#E3E6E3' : on ? C.green : C.greenSoft, ...(off ? {} : shadow) }}>
+                      <T w="black" color={off ? '#9AA39C' : on ? '#fff' : C.green}>{n}</T>
                     </Pressable>
                   );
                 })}
               </View>
-              <T size={11.5} color={C.sub}>الرمادي محجوز • الذهبي كراسيك</T>
-              <Btn title={sel.length ? `احجز ${sel.length} كرسي — ${sel.length * t.price} ج` : 'اختار كراسيك'} icon="checkmark-circle" disabled={!!closed || t.free === 0} loading={busy === t.id} onPress={() => book(t)} />
+              <Pressable onPress={() => openWhats(db.settings.supportPhone, `عايز أحجز لأكتر من ${maxP} أفراد في رحلة ${t.dest}`)}><T size={12.5} color={C.green} w="bold">أكتر من {maxP} أفراد؟ كلّمنا على واتساب</T></Pressable>
+              <Btn title={sel ? `احجز لـ ${sel} ${sel === 1 ? 'فرد' : 'أفراد'} — ${sel * t.price} ج` : 'اختار عدد الأفراد'} icon="checkmark-circle" disabled={!!closed || t.free === 0} loading={busy === t.id} onPress={() => book(t)} />
             </Card>
           );
         })}
@@ -137,10 +140,10 @@ export function CaptainTripsScreen({ navigation }: any) {
         {list === null ? <Empty title="جاري التحميل..." /> : list.length === 0 ? <Empty title="لسه ما أعلنتش عن رحلات" /> : list.map((t) => (
           <Card key={t.id} style={{ gap: 6 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">إلى {t.dest}</T><T color={C.green} w="bold">{STATUS[t.status] || t.status}</T></View>
-            <T size={13} color={C.sub}>{when(t.departAt)} • {t.price} ج للكرسي • محجوز {t.seats - t.free} من {t.seats}</T>
-            {(t.passengers || []).map((p) => (
-              <Pressable key={p.seat} onPress={() => Linking.openURL(`tel:${p.phone}`)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.greenSoft, borderRadius: 10, padding: 8 }}>
-                <T w="black" color={C.green}>{p.seat}</T><T style={{ flex: 1 }}>{p.name}</T><Icon name="call" size={18} color={C.green} /><T size={12} color={C.sub}>{p.phone}</T>
+            <T size={13} color={C.sub}>{when(t.departAt)} • {t.price} ج للفرد • محجوز {t.seats - t.free} من {t.seats}</T>
+            {Object.values((t.passengers || []).reduce((acc: Record<string, { name: string; phone: string; n: number }>, p) => { const k = p.phone + '|' + p.name; (acc[k] = acc[k] || { name: p.name, phone: p.phone, n: 0 }).n++; return acc; }, {})).map((p) => (
+              <Pressable key={p.phone + p.name} onPress={() => Linking.openURL(`tel:${p.phone}`)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.greenSoft, borderRadius: 10, padding: 8 }}>
+                <T w="black" color={C.green}>{p.n} {p.n === 1 ? 'فرد' : 'أفراد'}</T><T style={{ flex: 1 }}>{p.name}</T><Icon name="call" size={18} color={C.green} /><T size={12} color={C.sub}>{p.phone}</T>
               </Pressable>
             ))}
             <View style={{ flexDirection: 'row', gap: 8 }}>

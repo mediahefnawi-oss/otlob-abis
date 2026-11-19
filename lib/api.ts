@@ -634,9 +634,11 @@ export const apiAdminGateSave = (key: string, b: { closed: boolean; message?: st
 export type TripDriver = { name: string; model: string; color: string; plate: string };
 export type Trip = { id: number; dest: string; fromText: string; departAt: number; seats: number; price: number; note: string; status: string; booked: number[]; free: number; mine?: number[]; driver?: TripDriver; passengers?: { seat: number; name: string; phone: string }[]; vehicle?: { id: number; name: string } | null };
 export type MyTrip = { id: number; dest: string; fromText: string; departAt: number; price: number; status: string; mySeats: number[]; driver: TripDriver & { phone: string } };
-export const apiTrips = () => apiRequest<{ trips: Trip[] }>('/api/trips');
+export const apiTrips = () => apiRequest<{ trips: Trip[]; maxPersons?: number }>('/api/trips');
 export const apiMyTrips = () => apiRequest<{ trips: MyTrip[] }>('/api/trips/mine');
-export const apiTripBook = (id: number, seats: number[]) => apiRequest<{ ok: boolean; seats: number[] }>(`/api/trips/${id}/book`, { method: 'POST', body: JSON.stringify({ seats }) });
+export const apiTripBook = (id: number, count: number) => apiRequest<{ ok: boolean; seats: number[] }>(`/api/trips/${id}/book`, { method: 'POST', body: JSON.stringify({ count }) });
+export const apiAdminTripsSettings = () => apiRequest<{ maxPersons: number }>('/api/admin/trips-settings');
+export const apiAdminTripsSettingsSave = (maxPersons: number) => apiRequest<{ ok: boolean; maxPersons: number }>('/api/admin/trips-settings', { method: 'POST', body: JSON.stringify({ maxPersons }) });
 export const apiTripCancelBooking = (id: number) => apiRequest<{ ok: boolean }>(`/api/trips/${id}/cancel-booking`, { method: 'POST' });
 export const apiCaptainTrips = () => apiRequest<{ trips: Trip[]; allowed?: boolean }>('/api/captain/trips');
 export const apiCaptainTripCreate = (b: { dest: string; fromText?: string; departAt: string; seats: number; price: number; note?: string }) => apiRequest<{ trip: Trip; notified: number }>('/api/captain/trips', { method: 'POST', body: JSON.stringify(b) });
