@@ -1008,3 +1008,6 @@ CREATE TABLE IF NOT EXISTS courier_vehicles (
   mime TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- intercity trips per captain: 'type' (follow the vehicle type) | 'always' | 'never'; trips_max = most persons per booking (NULL = the general limit)
+ALTER TABLE captain_profiles ADD COLUMN IF NOT EXISTS trips_mode TEXT NOT NULL DEFAULT 'type';
+ALTER TABLE captain_profiles ADD COLUMN IF NOT EXISTS trips_max INT;

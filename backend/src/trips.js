@@ -48,8 +48,12 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   /** the owner chooses which vehicle types run intercity trips; while none is chosen every captain may (as before) */
   const tripsAllowed = async uid => {
     const r = await pool.query(`SELECT (SELECT COUNT(*) FROM ride_types WHERE trips_enabled AND active)::int AS n,
-      COALESCE((SELECT t.trips_enabled FROM captain_profiles p JOIN ride_types t ON t.id=p.type_id WHERE p.user_id=$1), FALSE) AS mine`, [uid]);
-    return r.rows[0].n === 0 || r.rows[0].mine === true;
+      COALESCE((SELECT t.trips_enabled FROM captain_profiles p JOIN ride_types t ON t.id=p.type_id WHERE p.user_id=$1), FALSE) AS mine,
+      COALESCE((SELECT trips_mode FROM captain_profiles WHERE user_id=$1), 'type') AS mode`, [uid]);
+    const x = r.rows[0];
+    if (x.mode === 'always') return true;
+    if (x.mode === 'never') return false;
+    return x.n === 0 || x.mine === true;
   };
   const needCaptain = async req => {
     await needOn();
@@ -69,7 +73,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     booked: seatRows.map(s => s.seat_no), free: t.seats - seatRows.length,
     vehicle: t.vtype_id ? { id: Number(t.vtype_id), name: t.vtype_name } : null,
   });
-  const TRIP_SQL = `SELECT t.*, u.name AS driver_name, p.model, p.color, p.plate, rt.id AS vtype_id, rt.name AS vtype_name FROM trips t JOIN users u ON u.id=t.driver_id LEFT JOIN captain_profiles p ON p.user_id=t.driver_id LEFT JOIN ride_types rt ON rt.id=p.type_id`;
+  const TRIP_SQL = `SELECT t.*, u.name AS driver_name, p.model, p.color, p.plate, p.trips_max, rt.id AS vtype_id, rt.name AS vtype_name FROM trips t JOIN users u ON u.id=t.driver_id LEFT JOIN captain_profiles p ON p.user_id=t.driver_id LEFT JOIN ride_types rt ON rt.id=p.type_id`;
 
   /* ================= captain ================= */
   app.post('/api/captain/trips', auth, roles('courier'), guard(async (req, res) => {
@@ -124,6 +128,12 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     try { const r = await pool.query("SELECT sub FROM service_meta WHERE key='trips_max_persons'"); const n = Number(r.rows[0] && r.rows[0].sub); return Number.isInteger(n) && n >= 1 && n <= MAX_SEATS_PER_CUSTOMER ? n : DEFAULT_MAX_PERSONS; }
     catch { return DEFAULT_MAX_PERSONS; }
   }
+  /** the most persons per booking on this captain's trips: his own limit, else the owner's general one */
+  async function limitFor(driverId) {
+    const g = await maxPersons();
+    try { const r = await pool.query('SELECT trips_max FROM captain_profiles WHERE user_id=$1', [driverId]); const v = Number(r.rows[0] && r.rows[0].trips_max); return Number.isInteger(v) && v >= 1 && v <= MAX_SEATS_PER_CUSTOMER ? v : g; }
+    catch { return g; }
+  }
   app.get('/api/trips', auth, roles('customer'), guard(async (req, res) => {
     await needOn();
     const r = await pool.query(`${TRIP_SQL} WHERE t.status='open' AND t.depart_at > NOW() ORDER BY t.depart_at LIMIT 60`);
@@ -131,7 +141,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     const maxP = await maxPersons();
     res.json({ maxPersons: maxP, trips: r.rows.map(t => {
       const rows = sm.get(Number(t.id)) || [];
-      return { ...baseOut(t, rows), mine: rows.filter(s => Number(s.customer_id) === me(req)).map(s => s.seat_no),
+      return { ...baseOut(t, rows), maxPersons: t.trips_max ? Math.min(Number(t.trips_max), 7) : maxP, mine: rows.filter(s => Number(s.customer_id) === me(req)).map(s => s.seat_no),
         driver: { name: String(t.driver_name || '').split(' ').slice(0, 2).join(' '), model: t.model || '', color: t.color || '', plate: t.plate || '' } };
     }) });
   }));
@@ -154,7 +164,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       await c.query('BEGIN');
       const t = await c.query("SELECT * FROM trips WHERE id=$1 AND status='open' AND depart_at > NOW() FOR UPDATE", [id]);
       if (!t.rowCount) { await c.query('ROLLBACK'); throw fail(404, 'الرحلة لم تعد متاحة'); }
-      const lim = await maxPersons();
+      const lim = await limitFor(t.rows[0].driver_id);
       const bb = req.body || {};
       const total = t.rows[0].seats;
       const mine = await c.query('SELECT COUNT(*)::int AS n FROM trip_seats WHERE trip_id=$1 AND customer_id=$2', [id, me(req)]);

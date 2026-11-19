@@ -606,7 +606,7 @@ export const apiAdminRideTypeSave = (id: number | null, b: any) => apiRequest<{ 
 export const apiAdminRideTypeDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/ride-types/${id}`, { method: 'DELETE' });
 export const apiAdminRideTypeImage = (id: number, image: string) => apiRequest<{ type: RideType }>(`/api/admin/ride-types/${id}/image`, { method: 'PUT', body: JSON.stringify({ image }) });
 export const apiAdminRideTypeCommission = (id: number, commissionPct: number | null) => apiRequest<{ ok: boolean }>(`/api/admin/ride-types/${id}/commission`, { method: 'PATCH', body: JSON.stringify({ commissionPct }) });
-export type AdminCaptain = { id: number; name: string; phone: string; status: string; note: string; typeName: string; model: string; color: string; plate: string; balance: number; commissionPct: number | null; autoReceive: boolean; photos: string[] };
+export type AdminCaptain = { id: number; name: string; phone: string; status: string; note: string; typeName: string; model: string; color: string; plate: string; balance: number; commissionPct: number | null; autoReceive: boolean; tripsMode: string; tripsMax: number | null; photos: string[] };
 export const apiAdminCaptains = (status?: string) => apiRequest<{ captains: AdminCaptain[] }>(`/api/admin/captains${status ? `?status=${status}` : ''}`);
 export const apiAdminCaptainSet = (id: number, b: any) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminCaptainBalance = (id: number, amount: number, note?: string) => apiRequest<{ ok: boolean; balance: number }>(`/api/admin/captains/${id}/balance`, { method: 'POST', body: JSON.stringify({ amount, note }) });
@@ -632,7 +632,7 @@ export const apiAdminGateSave = (key: string, b: { closed: boolean; message?: st
 
 /* intercity trips with seats */
 export type TripDriver = { name: string; model: string; color: string; plate: string };
-export type Trip = { id: number; dest: string; fromText: string; departAt: number; seats: number; price: number; note: string; status: string; booked: number[]; free: number; mine?: number[]; driver?: TripDriver; passengers?: { seat: number; name: string; phone: string }[]; vehicle?: { id: number; name: string } | null };
+export type Trip = { id: number; dest: string; fromText: string; departAt: number; seats: number; price: number; note: string; status: string; booked: number[]; free: number; mine?: number[]; driver?: TripDriver; passengers?: { seat: number; name: string; phone: string }[]; vehicle?: { id: number; name: string } | null; maxPersons?: number };
 export type MyTrip = { id: number; dest: string; fromText: string; departAt: number; price: number; status: string; mySeats: number[]; driver: TripDriver & { phone: string } };
 export const apiTrips = () => apiRequest<{ trips: Trip[]; maxPersons?: number }>('/api/trips');
 export const apiMyTrips = () => apiRequest<{ trips: MyTrip[] }>('/api/trips/mine');

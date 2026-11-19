@@ -60,7 +60,7 @@ export function TripsScreen({ navigation }: any) {
         <T w="black" size={16}>رحلات متاحة</T>
         {(() => { const vs = Array.from(new Map((list || []).filter((t) => t.vehicle).map((t) => [t.vehicle!.id, t.vehicle!.name])).entries()); return vs.length > 1 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}><Chip label="الكل" active={veh === null} onPress={() => setVeh(null)} />{vs.map(([id, name]) => <Chip key={id} label={String(name)} active={veh === id} onPress={() => setVeh(id)} />)}</ScrollView> : null; })()}
         {list === null ? <Empty title="جاري التحميل..." /> : list.filter((t) => veh === null || t.vehicle?.id === veh).length === 0 ? <Empty title="مفيش رحلات معلنة دلوقتي" /> : list.filter((t) => veh === null || t.vehicle?.id === veh).map((t) => {
-          const sel = pick[t.id] || 0;
+          const sel = pick[t.id] || 0; const lim = t.maxPersons || maxP;
           return (
             <Card key={t.id} style={{ gap: 8 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -74,7 +74,7 @@ export function TripsScreen({ navigation }: any) {
               <T size={13} w="bold">{t.free > 0 ? `فاضل ${t.free} من ${t.seats} أماكن` : 'اكتمل العدد'}</T>
               <T size={12.5} color={C.sub}>عدد الأفراد</T>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {Array.from({ length: maxP }, (_, i) => i + 1).map((n) => {
+                {Array.from({ length: lim }, (_, i) => i + 1).map((n) => {
                   const off = n > t.free, on = sel === n;
                   return (
                     <Pressable key={n} disabled={off} onPress={() => setPick((p) => ({ ...p, [t.id]: n }))} style={{ width: 46, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: off ? '#E3E6E3' : on ? C.green : C.greenSoft, ...(off ? {} : shadow) }}>
@@ -83,7 +83,7 @@ export function TripsScreen({ navigation }: any) {
                   );
                 })}
               </View>
-              <Pressable onPress={() => openWhats(db.settings.supportPhone, `عايز أحجز لأكتر من ${maxP} أفراد في رحلة ${t.dest}`)}><T size={12.5} color={C.green} w="bold">أكتر من {maxP} أفراد؟ كلّمنا على واتساب</T></Pressable>
+              <Pressable onPress={() => openWhats(db.settings.supportPhone, `عايز أحجز لأكتر من ${lim} أفراد في رحلة ${t.dest}`)}><T size={12.5} color={C.green} w="bold">أكتر من {lim} أفراد؟ كلّمنا على واتساب</T></Pressable>
               <Btn title={sel ? `احجز لـ ${sel} ${sel === 1 ? 'فرد' : 'أفراد'} — ${sel * t.price} ج` : 'اختار عدد الأفراد'} icon="checkmark-circle" disabled={!!closed || t.free === 0} loading={busy === t.id} onPress={() => book(t)} />
             </Card>
           );

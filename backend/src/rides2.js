@@ -79,11 +79,11 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   /* ================= admin: review + control the captains ================= */
   app.get('/api/admin/captains', ...admin, guard(async (req, res) => {
     const st = STATUSES.includes(req.query.status) ? req.query.status : null;
-    const r = await pool.query(`SELECT p.user_id, u.name, u.phone, p.status, p.note, p.model, p.color, p.plate, p.balance, p.commission_pct, p.auto_receive, t.name AS type_name,
+    const r = await pool.query(`SELECT p.user_id, u.name, u.phone, p.status, p.note, p.model, p.color, p.plate, p.balance, p.commission_pct, p.auto_receive, p.trips_mode, p.trips_max, t.name AS type_name,
         ARRAY(SELECT kind FROM captain_photos WHERE user_id=p.user_id) AS photos
       FROM captain_profiles p JOIN users u ON u.id=p.user_id LEFT JOIN ride_types t ON t.id=p.type_id
       WHERE ($1::text IS NULL OR p.status=$1) ORDER BY (p.status='pending') DESC, p.updated_at DESC LIMIT 300`, [st]);
-    res.json({ captains: r.rows.map(x => ({ id: Number(x.user_id), name: x.name, phone: x.phone, status: x.status, note: x.note, typeName: x.type_name, model: x.model, color: x.color, plate: x.plate, balance: Number(x.balance), commissionPct: x.commission_pct === null ? null : Number(x.commission_pct), autoReceive: x.auto_receive, photos: x.photos })) });
+    res.json({ captains: r.rows.map(x => ({ id: Number(x.user_id), name: x.name, phone: x.phone, status: x.status, note: x.note, typeName: x.type_name, model: x.model, color: x.color, plate: x.plate, balance: Number(x.balance), commissionPct: x.commission_pct === null ? null : Number(x.commission_pct), autoReceive: x.auto_receive, tripsMode: x.trips_mode, tripsMax: x.trips_max === null ? null : Number(x.trips_max), photos: x.photos })) });
   }));
   /** the owner opens a captain account by hand: a courier user + an approved captain profile */
   app.post('/api/admin/captains', ...admin, guard(async (req, res) => {
@@ -121,6 +121,11 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       else { const v = Number(b.commissionPct); if (!Number.isFinite(v) || v < 0 || v > 100) throw fail(400, 'نسبة العمولة 0–100'); add('commission_pct', v); }
     }
     if (b.autoReceive !== undefined) add('auto_receive', !!b.autoReceive);
+    if (b.tripsMode !== undefined) { if (!['type', 'always', 'never'].includes(b.tripsMode)) throw fail(400, 'اختيار غير صحيح'); add('trips_mode', b.tripsMode); }
+    if (b.tripsMax !== undefined) {
+      if (b.tripsMax === null || b.tripsMax === '') add('trips_max', null);
+      else { const v = Number(b.tripsMax); if (!Number.isInteger(v) || v < 1 || v > 7) throw fail(400, 'الحد من 1 إلى 7'); add('trips_max', v); }
+    }
     if (b.typeId !== undefined) { const t = positiveId(b.typeId); if (!t) throw fail(400, 'نوع غير صالح'); add('type_id', t); }
     for (const [k, col, n] of [['model', 'model', 60], ['color', 'color', 30], ['plate', 'plate', 20]]) if (b[k] !== undefined) add(col, str(b[k], n));
     if (!sets.length) throw fail(400, 'لا يوجد تعديل');

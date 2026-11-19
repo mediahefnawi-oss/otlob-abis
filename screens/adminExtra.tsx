@@ -439,6 +439,18 @@ function CaptainsTab() {
               <Btn title="نفّذ" small variant="soft" onPress={() => run(() => apiAdminCaptainBalance(c.id, num(amt), 'من الإدارة'), 'تم تعديل الرصيد')} />
               <Field label="عمولة هذا الكابتن % (فاضي = العامة)" value={pct} onChangeText={setPct} keyboardType="number-pad" />
               <Btn title="حفظ العمولة" small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { commissionPct: pct.trim() === '' ? null : num(pct) }), 'تم الحفظ')} />
+              <T w="black" size={13}>🚌 رحلات المحافظات</T>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {([['type', 'حسب النوع'], ['always', 'مسموح دايمًا'], ['never', 'ممنوع']] as const).map(([k, l]) => (
+                  <Pressable key={k} onPress={() => run(() => apiAdminCaptainSet(c.id, { tripsMode: k }), 'تم الحفظ')} style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10, backgroundColor: (c.tripsMode || 'type') === k ? C.green : C.greenSoft }}><T w="bold" size={12} color={(c.tripsMode || 'type') === k ? '#fff' : C.green}>{l}</T></Pressable>
+                ))}
+              </View>
+              <T size={12.5} color={C.sub}>أقصى عدد أفراد للعميل في حجز الكابتن ده</T>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {([null, 4, 5, 6, 7] as (number | null)[]).map((v) => (
+                  <Pressable key={String(v)} onPress={() => run(() => apiAdminCaptainSet(c.id, { tripsMax: v }), 'تم الحفظ')} style={{ flex: v === null ? 1.6 : 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10, backgroundColor: (c.tripsMax ?? null) === v ? C.green : C.greenSoft }}><T w="black" size={13} color={(c.tripsMax ?? null) === v ? '#fff' : C.green}>{v === null ? 'افتراضي' : v}</T></Pressable>
+                ))}
+              </View>
               <Btn title={c.autoReceive ? 'خليه يستقبل يدوي' : 'خليه يستقبل تلقائي'} small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { autoReceive: !c.autoReceive }))} />
             </>
           )}

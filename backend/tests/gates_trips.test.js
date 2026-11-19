@@ -105,6 +105,17 @@ const { ok, eq, done } = H.counters();
   eq((await call('GET /api/trips', { as: C1 })).json.maxPersons, 4, 'the customer app receives the limit');
   eq((await call('POST /api/admin/trips-settings', { as: A, body: { maxPersons: 9 } })).status, 400, 'owner limit must be 1..7');
   await call('POST /api/admin/trips-settings', { as: A, body: { maxPersons: 7 } });
+  // per captain: own limit and own switch
+  await q('UPDATE captain_profiles SET trips_max=3 WHERE user_id=$1', [d]);
+  eq((await bk(hc2)(C2, 4)).status, 400, 'captain limit 3: four persons refused');
+  eq((await call('GET /api/trips', { as: C1 })).json.trips.find(t => t.id === hc2).maxPersons, 3, 'the trip carries the captain limit');
+  await q('UPDATE captain_profiles SET trips_max=NULL WHERE user_id=$1', [d]);
+  await q("UPDATE captain_profiles SET trips_mode='never' WHERE user_id=$1", [d]);
+  eq((await call('GET /api/captain/trips', { as: D })).json.allowed, false, 'blocked captain sees allowed=false');
+  eq((await mkTrip(D, {})).status, 403, 'blocked captain cannot announce');
+  await q("UPDATE captain_profiles SET trips_mode='always' WHERE user_id=$1", [d]);
+  eq((await call('GET /api/captain/trips', { as: D })).json.allowed, true, 'always = allowed even with a type that is not ticked');
+  await q("UPDATE captain_profiles SET trips_mode='type' WHERE user_id=$1", [d]);
   await q('DELETE FROM trips WHERE id = ANY($1::bigint[])', [[hc, hc2]]);
   // two customers fight for one seat at the same moment: exactly one wins
   const race = await Promise.all([C1, C2].map(as => call('POST /api/trips/:id/book', { as, params: { id: big }, body: { seats: [9] } })));
