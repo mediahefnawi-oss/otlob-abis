@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, KeyboardAvoidingView, Keyboard, TextInput, findNodeHandle, Platform, Pressable, StyleSheet } from 'react-native';
+import { View, KeyboardAvoidingView, Platform, Pressable, StyleSheet } from 'react-native';
+import { ScrollView } from '../components/KScroll';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,28 +18,6 @@ import { ProviderType } from '../lib/types';
 import { RegionPicker } from '../components/Regions';
 import { loginImageUrl, welcomeLogoUrl, apiPublicRideTypes, rideImageUrl, apiPublicCourierVehicles, courierVehicleImageUrl } from '../lib/api';
 import { Linking } from 'react-native';
-
-/** When the keyboard opens the page lifts: room is left under the form for it and the field being typed in is scrolled into view (so the customer always sees what he types). */
-function useKeyboardLift() {
-  const ref = React.useRef<any>(null);
-  const [kb, setKb] = useState(0);
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-    const show = Keyboard.addListener('keyboardDidShow', (e: any) => {
-      setKb(e?.endCoordinates?.height || 0);
-      setTimeout(() => {
-        try {
-          const input = (TextInput as any).State?.currentlyFocusedInput?.();
-          const node = input && findNodeHandle(input);
-          if (node && ref.current?.scrollResponderScrollNativeHandleToKeyboard) ref.current.scrollResponderScrollNativeHandleToKeyboard(node, 90, true);
-        } catch { /* the page simply stays where it is */ }
-      }, 60);
-    });
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKb(0));
-    return () => { show.remove(); hide.remove(); };
-  }, []);
-  return { ref, pad: Platform.OS === 'ios' ? 0 : kb };
-}
 
 export function WelcomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -103,7 +82,6 @@ export function WelcomeScreen({ navigation }: any) {
 }
 
 export function LoginScreen({ navigation }: any) {
-  const kbl = useKeyboardLift();
   const insets = useSafeAreaInsets();
   const { db } = useStore();
   const supportPhone = (db.settings.supportPhone || '').trim() || '01004379508';
@@ -124,7 +102,7 @@ export function LoginScreen({ navigation }: any) {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: C.dark }}>
-      <ScrollView ref={kbl.ref} contentContainerStyle={{ flexGrow: 1, paddingBottom: kbl.pad }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, alignItems: 'center' }}>
           <View style={{ alignSelf: 'stretch' }}>
             <Pressable onPress={() => navigation.canGoBack() && navigation.goBack()} style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
@@ -167,7 +145,6 @@ export function LoginScreen({ navigation }: any) {
 }
 
 export function RegisterScreen({ navigation, route }: any) {
-  const kbl = useKeyboardLift();
   const insets = useSafeAreaInsets();
   const [role, setRole] = useState<'customer' | 'provider' | 'courier' | 'captain'>(route.params?.role || 'customer');
   const { db } = useStore();
@@ -219,7 +196,7 @@ export function RegisterScreen({ navigation, route }: any) {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: C.dark }}>
-      <ScrollView ref={kbl.ref} contentContainerStyle={{ flexGrow: 1, paddingBottom: kbl.pad }} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <Pressable onPress={() => navigation.goBack()} style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="arrow-forward" size={20} color="#fff" />

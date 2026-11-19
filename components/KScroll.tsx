@@ -9,6 +9,7 @@ import { ScrollView as RNScrollView, Keyboard, Platform, StyleSheet, TextInput, 
 export const ScrollView = forwardRef<any, any>(function KScrollView(props, fwd) {
   const inner = useRef<any>(null);
   const [pad, setPad] = useState(0);
+  const offY = useRef(0);   // where the page is scrolled to now
   const setRef = useCallback((r: any) => {
     inner.current = r;
     if (typeof fwd === 'function') fwd(r); else if (fwd) (fwd as any).current = r;
@@ -22,13 +23,18 @@ export const ScrollView = forwardRef<any, any>(function KScrollView(props, fwd) 
         inner.current?.measureInWindow?.((_x: number, y: number, _w: number, h: number) => {
           const covered = typeof kbTop === 'number' ? Math.max(0, y + h - kbTop) : 0;
           setPad(covered);
+          // once the room under the content exists, move the page so the field being typed in sits just above the keyboard
           setTimeout(() => {
             try {
               const input = (TextInput as any).State?.currentlyFocusedInput?.();
-              const node = input && findNodeHandle(input);
-              if (node && inner.current?.scrollResponderScrollNativeHandleToKeyboard) inner.current.scrollResponderScrollNativeHandleToKeyboard(node, 90, true);
+              if (!input || typeof kbTop !== 'number' || !input.measureInWindow) return;
+              input.measureInWindow((_ix: number, iy: number, _iw: number, ih: number) => {
+                const over = iy + ih + 28 - kbTop;                    // how far the field's bottom is below the free area
+                if (over > 0) inner.current?.scrollTo?.({ y: Math.max(0, offY.current + over), animated: true });
+                else if (iy < y + 8) inner.current?.scrollTo?.({ y: Math.max(0, offY.current + (iy - y - 40)), animated: true });
+              });
             } catch { /* the page simply stays where it is */ }
-          }, 80);
+          }, 140);
         });
       } catch { /* never break typing */ }
     });
@@ -37,6 +43,7 @@ export const ScrollView = forwardRef<any, any>(function KScrollView(props, fwd) 
   }, [horizontal]);
   let cc = props.contentContainerStyle;
   if (pad > 0) { const base = StyleSheet.flatten(cc) || {}; cc = [base, { paddingBottom: (Number((base as any).paddingBottom) || 0) + pad }]; }
-  return <RNScrollView {...props} ref={setRef} contentContainerStyle={cc} />;
+  const onScroll = useCallback((ev: any) => { offY.current = ev?.nativeEvent?.contentOffset?.y || 0; if (props.onScroll) props.onScroll(ev); }, [props.onScroll]);
+  return <RNScrollView scrollEventThrottle={16} {...props} onScroll={horizontal ? props.onScroll : onScroll} ref={setRef} contentContainerStyle={cc} />;
 });
 export type ScrollView = any;

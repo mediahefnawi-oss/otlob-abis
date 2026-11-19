@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, View, Linking, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '../lib/theme';
 import { T, Icon } from './ui';
 import { useStore } from '../lib/store';
@@ -11,6 +12,7 @@ const KEY = 'otlob_abis_update_dismissed_v1';
 /** The owner announced a newer version: everyone (customers, shops, couriers, staff) sees this until they update. */
 export function UpdateBanner() {
   const { db } = useStore();
+  const insets = useSafeAreaInsets();
   const u = db.settings.update;
   const [dismissed, setDismissed] = useState<string | null>(null);
   useEffect(() => { storage.getItem(KEY).then((v) => setDismissed(v || '')).catch(() => setDismissed('')); }, []);
@@ -25,7 +27,7 @@ export function UpdateBanner() {
   const later = () => { setDismissed(u.version); storage.setItem(KEY, u.version).catch(() => {}); };
   const canUpdate = Platform.OS === 'web' || !!apk;
   return (
-    <View style={{ backgroundColor: u.required ? C.red : C.dark, paddingVertical: 10, paddingHorizontal: 14, gap: 8 }}>
+    <View style={{ backgroundColor: u.required ? C.red : C.dark, paddingTop: 10 + (Platform.OS === 'web' ? 0 : insets.top), paddingBottom: 10, paddingHorizontal: 14, gap: 8 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Icon name="cloud-download" size={20} color={C.gold} />
         <View style={{ flex: 1 }}>
