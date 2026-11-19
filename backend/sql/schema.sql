@@ -977,3 +977,5 @@ ALTER TABLE market_products ADD COLUMN IF NOT EXISTS options JSONB NOT NULL DEFA
 -- the owner's home layout (order of the sections, the look of each service)
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS home_layout JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE market_products ADD COLUMN IF NOT EXISTS sold_out BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS by_region BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS from_pin BOOLEAN NOT NULL DEFAULT TRUE;

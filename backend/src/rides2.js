@@ -179,8 +179,8 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   }));
 
   /* ================= rides ================= */
-  const RIDE_COLS = `r.id, r.status, r.type_id, r.from_lat, r.from_lng, r.from_text, r.to_lat, r.to_lng, r.to_text, r.km, r.minutes, r.suggested, r.offered, r.final_price, r.driver_id, r.expires_at, r.created_at, r.bidding, r.text_dest, r.pricing, r.max_fee`;
-  const rideOut = r => ({ id: Number(r.id), status: r.status, textDest: !!r.text_dest, pricing: r.pricing || 'km', maxFee: r.max_fee == null ? null : Number(r.max_fee), typeId: r.type_id, from: { lat: r.from_lat, lng: r.from_lng, text: r.from_text }, to: { lat: r.to_lat, lng: r.to_lng, text: r.to_text }, km: Number(r.km), minutes: r.minutes, suggested: Number(r.suggested), offered: Number(r.offered), finalPrice: r.final_price === null ? null : Number(r.final_price), driverId: r.driver_id && Number(r.driver_id), expiresAt: r.expires_at, bidding: !!r.bidding });
+  const RIDE_COLS = `r.id, r.status, r.type_id, r.from_lat, r.from_lng, r.from_text, r.to_lat, r.to_lng, r.to_text, r.km, r.minutes, r.suggested, r.offered, r.final_price, r.driver_id, r.expires_at, r.created_at, r.bidding, r.text_dest, r.pricing, r.max_fee, r.by_region, r.from_pin`;
+  const rideOut = r => ({ id: Number(r.id), status: r.status, textDest: !!r.text_dest, byRegion: !!r.by_region, fromPin: !r.by_region || !!r.from_pin, pricing: r.pricing || 'km', maxFee: r.max_fee == null ? null : Number(r.max_fee), typeId: r.type_id, from: { lat: r.from_lat, lng: r.from_lng, text: r.from_text }, to: { lat: r.to_lat, lng: r.to_lng, text: r.to_text }, km: Number(r.km), minutes: r.minutes, suggested: Number(r.suggested), offered: Number(r.offered), finalPrice: r.final_price === null ? null : Number(r.final_price), driverId: r.driver_id && Number(r.driver_id), expiresAt: r.expires_at, bidding: !!r.bidding });
 
   /** Captains who may get this ride: approved, right type, online, with enough balance, inside the radius (nearest first). */
   async function eligibleCaptains(ride, s) {
@@ -190,7 +190,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       WHERE p.status='approved' AND p.type_id=$1 AND p.balance >= $2
         AND NOT EXISTS (SELECT 1 FROM rides x WHERE x.driver_id=p.user_id AND x.status IN ('assigned','arrived','started'))`, [ride.type_id, s.ride_min_balance]);
     return r.rows.map(x => ({ id: Number(x.user_id), auto: x.auto_receive, d: lineKm(ride.from_lat, ride.from_lng, x.lat, x.lng) }))
-      .filter(x => x.d <= Number(s.ride_radius_km)).sort((a, b) => a.d - b.d);
+        .filter(x => (ride.by_region && !ride.from_pin) || x.d <= Number(s.ride_radius_km)).sort((a, b) => a.d - b.d);
   }
   async function assign(rideId, driverId, price) {
     const r = await pool.query(`UPDATE rides SET status='assigned', driver_id=$2, final_price=$3, updated_at=NOW()
@@ -202,13 +202,21 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     await needOn();
     await gatesLib.assertOpen(pool, ['ride'], fail);        // the owner closed new rides (switch in the panel)
     const b = req.body || {};
-    const textDest = b.textDest === true;
+    const byRegion = b.byRegion === true;      // fixed price between two areas: no map, only the two areas and optional notes (a shared pin is optional)
+    const textDest = !byRegion && b.textDest === true;
     const fromOk = validPoint(Number((b.from || {}).lat), Number((b.from || {}).lng));
-    if (!fromOk) throw fail(400, 'حدد نقطة التحميل');
-    const toText = str((b.to || {}).text, 200);
+    let fromText = str((b.from || {}).text, 200), toText = str((b.to || {}).text, 200);
+    if (byRegion) {
+      const fr = positiveId(b.fromRegionId), tr = positiveId(b.toRegionId);
+      if (!fr || !tr) throw fail(400, 'اختر منطقتك ومنطقة الوصول');
+      const rg = await pool.query('SELECT id, name FROM regions WHERE id = ANY($1)', [[fr, tr]]);
+      const nm = id => (rg.rows.find(x => Number(x.id) === id) || {}).name;
+      if (!nm(fr) || !nm(tr)) throw fail(400, 'المنطقة غير موجودة');
+      fromText = `${nm(fr)}${fromText ? ' — ' + fromText : ''}`; toText = `${nm(tr)}${toText ? ' — ' + toText : ''}`;
+    } else if (!fromOk) throw fail(400, 'حدد نقطة التحميل');
     // a destination that is not on the map: the customer writes it for the captain (no distance, the captain names the price)
     if (textDest) { if (toText.length < 3) throw fail(400, 'اكتب وجهتك بالتفصيل للكابتن'); }
-    else if (!validPoint(Number((b.to || {}).lat), Number((b.to || {}).lng))) throw fail(400, 'حدد الوجهة على الخريطة أو اكتبها');
+    else if (!byRegion && !validPoint(Number((b.to || {}).lat), Number((b.to || {}).lng))) throw fail(400, 'حدد الوجهة على الخريطة أو اكتبها');
     const typeId = positiveId(b.typeId); if (!typeId) throw fail(400, 'اختر نوع المركبة');
     const t = await pool.query('SELECT * FROM ride_types WHERE id=$1 AND active', [typeId]);
     if (!t.rowCount) throw fail(404, 'النوع غير متاح');
@@ -219,11 +227,12 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     const bidding = pl.bidding, suggested = pl.suggested;
     let offered = suggested;       // bidding: the captains name the price, this is only the reference; zones: the owner's price, never the app's
     if (pl.mode === 'km') { offered = Number(b.price); if (!Number.isFinite(offered) || offered < pl.lo || offered > pl.hi) throw fail(400, `السعر لازم يكون بين ${pl.lo} و${pl.hi}`); }
-    const toLat = textDest ? Number(b.from.lat) : Number(b.to.lat), toLng = textDest ? Number(b.from.lng) : Number(b.to.lng);
-    const ins = await pool.query(`INSERT INTO rides(customer_id, type_id, from_lat, from_lng, from_text, to_lat, to_lng, to_text, km, minutes, suggested, offered, bidding, expires_at, text_dest, pricing, max_fee)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$14, NOW() + ($13 || ' minutes')::interval, $15, $16, $17) RETURNING *`,
-      [me(req), typeId, Number(b.from.lat), Number(b.from.lng), str(b.from.text, 200), toLat, toLng, toText, pl.km, pl.minutes, suggested, offered, String(RIDE_TTL_MIN), bidding, textDest, pl.mode, pl.maxFee]);
-    const d = { km: textDest ? 'وجهة مكتوبة' : pl.km + ' كم' };
+    const fLat = fromOk ? Number(b.from.lat) : 0, fLng = fromOk ? Number(b.from.lng) : 0;
+    const toLat = textDest || byRegion ? fLat : Number(b.to.lat), toLng = textDest || byRegion ? fLng : Number(b.to.lng);
+    const ins = await pool.query(`INSERT INTO rides(customer_id, type_id, from_lat, from_lng, from_text, to_lat, to_lng, to_text, km, minutes, suggested, offered, bidding, expires_at, text_dest, pricing, max_fee, by_region, from_pin)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$14, NOW() + ($13 || ' minutes')::interval, $15, $16, $17, $18, $19) RETURNING *`,
+      [me(req), typeId, fLat, fLng, fromText, toLat, toLng, toText, pl.km, pl.minutes, suggested, offered, String(RIDE_TTL_MIN), bidding, textDest, pl.mode, pl.maxFee, byRegion, fromOk]);
+    const d = { km: textDest ? 'وجهة مكتوبة' : byRegion ? 'بين مناطق' : pl.km + ' كم' };
     const ride = ins.rows[0];
     const cands = await eligibleCaptains(ride, s);
     let assignedTo = null;
@@ -284,7 +293,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   app.get('/api/rides/:id/live', auth, roles('customer', 'courier'), guard(async (req, res) => {
     await needOn();
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
-    const r = await pool.query('SELECT id, status, customer_id, driver_id, from_lat, from_lng, to_lat, to_lng, text_dest FROM rides WHERE id=$1', [id]);
+    const r = await pool.query('SELECT id, status, customer_id, driver_id, from_lat, from_lng, to_lat, to_lng, text_dest, by_region, from_pin FROM rides WHERE id=$1', [id]);
     const x = r.rows[0], uid = Number(req.auth.sub);
     if (!x || (Number(x.customer_id) !== uid && Number(x.driver_id) !== uid)) throw fail(404, 'الرحلة غير موجودة');
     res.set('Cache-Control', 'no-store');
@@ -294,7 +303,10 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     const from = { lat: Number(x.from_lat), lng: Number(x.from_lng) }, to = { lat: Number(x.to_lat), lng: Number(x.to_lng) };
     const out = { active: true, status: x.status, textDest: !!x.text_dest, driver, pickup: null, trip: null, dest: null };
     const spot = p => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`;
-    if (x.text_dest) {
+    if (x.by_region) {
+      // by areas: only the captain's way to the customer, and only when the customer shared a pin
+      if (x.status === 'assigned' && driver && x.from_pin) out.pickup = await leg(`p:${id}:${spot(driver)}`, 12 * 1000, driver, from);
+    } else if (x.text_dest) {
       // the destination is only written: the map shows where the captain is and the way to the customer; the rest is by phone
       if (x.status === 'assigned' && driver) out.pickup = await leg(`p:${id}:${spot(driver)}`, 12 * 1000, driver, from);
     } else if (x.status === 'assigned') {
@@ -323,7 +335,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     const r = await pool.query(`SELECT ${RIDE_COLS}, (SELECT price FROM ride_offers WHERE ride_id=r.id AND driver_id=$2) AS my_offer FROM rides r
       WHERE r.status='searching' AND r.expires_at > NOW() AND r.type_id=$1 ORDER BY r.id DESC LIMIT 30`, [p.type_id, me(req)]);
     const L = loc.rows[0];
-    res.json({ requests: r.rows.map(x => ({ ...rideOut(x), myOffer: x.my_offer === null ? null : Number(x.my_offer), pickupKm: L ? Math.round(lineKm(x.from_lat, x.from_lng, L.lat, L.lng) * 10) / 10 : null })).filter(x => x.pickupKm === null || x.pickupKm <= Number(s.ride_radius_km)), offerSecs: s.ride_offer_secs });
+    res.json({ requests: r.rows.map(x => ({ ...rideOut(x), myOffer: x.my_offer === null ? null : Number(x.my_offer), pickupKm: L && (!x.by_region || x.from_pin) ? Math.round(lineKm(x.from_lat, x.from_lng, L.lat, L.lng) * 10) / 10 : null })).filter(x => x.pickupKm === null || x.pickupKm <= Number(s.ride_radius_km)), offerSecs: s.ride_offer_secs });
   }));
   /** accept at the customer's price (price omitted) or counter-offer another price inside the allowed range */
   app.post('/api/captain/requests/:id/offer', auth, roles('courier'), guard(async (req, res) => {
@@ -334,7 +346,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     if (!r.rowCount) throw fail(404, 'الطلب لم يعد متاحاً');
     const ride = r.rows[0], raw = (req.body || {}).price;
     if (ride.bidding) {   // bidding: no accepting at a fixed price, every captain names his own price (within sane limits)
-      const price = Number(raw), lo = Number(ride.min_fee), hi = ride.max_fee != null ? Number(ride.max_fee) : ride.text_dest ? 1000 : Math.ceil(Number(ride.suggested) * 3);
+      const price = Number(raw), lo = Number(ride.min_fee), hi = ride.max_fee != null ? Number(ride.max_fee) : ride.text_dest || ride.by_region ? 1000 : Math.ceil(Number(ride.suggested) * 3);
       if (raw === undefined || raw === null || raw === '' || !Number.isFinite(price)) throw fail(400, 'اكتب سعرك للمشوار');
       if (price < lo || price > hi) throw fail(400, `السعر لازم يكون بين ${lo} و${hi}`);
       await pool.query(`INSERT INTO ride_offers(ride_id, driver_id, price) VALUES($1,$2,$3)

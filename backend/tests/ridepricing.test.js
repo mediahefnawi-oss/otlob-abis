@@ -109,6 +109,20 @@ globalThis.fetch = async () => ({ ok: true, json: async () => ({ routes: [{ dist
   const cc = (await call('GET /api/captain/current', { as: D })).json.ride; eq([cc.textDest, cc.customer.phone ? true : false], [true, true], 'the captain has the customer phone to call');
   await q("UPDATE rides SET status='completed' WHERE id=$1", [td]);
 
+  /* ---- ordering by areas: no map, optional notes, the pin is optional ---- */
+  await q("UPDATE captain_profiles SET type_id=$2 WHERE user_id=$1", [cap, tuk.id]);
+  r = await call('POST /api/rides', { as: C, body: { typeId: tuk.id, byRegion: true, fromRegionId: rid1 } }); eq(r.status, 400, 'by areas: both areas are needed');
+  r = await call('POST /api/rides', { as: C, body: { typeId: tuk.id, byRegion: true, fromRegionId: rid1, toRegionId: 99999999 } }); eq(r.status, 400, 'by areas: an unknown area is refused');
+  e = await est(C, { typeId: tuk.id, byRegion: true, from: undefined, to: undefined, fromRegionId: rid1, toRegionId: rid2 }); eq([e.status, e.json.mode, e.json.price], [200, 'zones', 15], 'estimate by areas needs no points');
+  r = await call('POST /api/rides', { as: C, body: { typeId: tuk.id, byRegion: true, fromRegionId: rid1, toRegionId: rid2, from: { text: 'قدام الصيدلية' }, to: { text: 'جنب المسجد' } } });
+  const br = r.json.ride; eq([r.status, br && br.byRegion, br && br.fromPin, br && br.offered, br && br.pricing], [200, true, false, 15, 'zones'], 'ordered by areas at the fixed price: ' + JSON.stringify(r.json).slice(0, 160));
+  ok(br.from.text.includes('قدام الصيدلية') && br.to.text.includes('جنب المسجد'), 'the notes travel with the area names');
+  ok((await call('GET /api/captain/requests', { as: D })).json.requests.some(x => x.id === br.id && x.byRegion && x.pickupKm === null), 'the captain sees it without a distance (no pin) even with no location');
+  await q("UPDATE rides SET status='completed' WHERE id=$1", [br.id]);
+  r = await call('POST /api/rides', { as: C, body: { typeId: tuk.id, byRegion: true, fromRegionId: rid1, toRegionId: rid2, from: { lat: 31.2, lng: 29.9 } } });
+  eq([r.status, r.json.ride && r.json.ride.fromPin], [200, true], 'with a shared pin the captain gets the exact place');
+  await q("UPDATE rides SET status='completed' WHERE id=$1", [r.json.ride.id]);
+
   /* ---- the owner closes the rides ---- */
   await q("INSERT INTO order_gates(key, closed, message) VALUES('ride', TRUE, 'مقفول') ON CONFLICT (key) DO UPDATE SET closed=TRUE, message='مقفول'");
   require('../src/gates.js').invalidate();

@@ -77,6 +77,7 @@ const pid = v => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n 
  */
 async function planPrice(db, t, b, globalPricing, fetchFn = globalThis.fetch, withRoute = false) {
   const textDest = b.textDest === true;
+  const byRegion = b.byRegion === true;       // no map at all: only the two areas decide
   let mode = t.pricing_mode || (globalPricing === 'bidding' ? 'captain' : 'km');
   if (textDest) mode = 'captain';
   const fromRegionId = pid(b.fromRegionId), toRegionId = pid(b.toRegionId);
@@ -88,13 +89,13 @@ async function planPrice(db, t, b, globalPricing, fetchFn = globalThis.fetch, wi
     }
     if (zonePrice === null) { mode = 'captain'; zoneMissing = true; }   // a way that is not in the owner's table: the captain names the price
   }
-  const d = textDest ? { km: 0, min: 0, source: 'none' } : await roadDistance(b.from, b.to, fetchFn, withRoute);
+  const d = textDest || byRegion ? { km: 0, min: 0, source: 'none' } : await roadDistance(b.from, b.to, fetchFn, withRoute);
   const maxFee = t.max_fee == null ? null : Number(t.max_fee);
   let suggested, lo, hi;
   if (mode === 'zones') { suggested = lo = hi = zonePrice; }
   else if (mode === 'captain') {
-    suggested = textDest ? Number(t.min_fee || 0) : priceFor(t, d.km);
-    lo = Number(t.min_fee || 0); hi = maxFee !== null ? maxFee : textDest ? 1000 : Math.ceil(suggested * 3);
+    suggested = textDest || byRegion ? Number(t.min_fee || 0) : priceFor(t, d.km);
+    lo = Number(t.min_fee || 0); hi = maxFee !== null ? maxFee : textDest || byRegion ? 1000 : Math.ceil(suggested * 3);
   } else { suggested = priceFor(t, d.km); ({ lo, hi } = bounds(suggested, t.adj_pct)); }
   return { mode, textDest, zoneMissing, km: d.km, minutes: d.min, source: d.source, route: d.route || null, suggested, lo, hi, bidding: mode === 'captain', maxFee, fromRegionId, toRegionId };
 }
@@ -222,8 +223,8 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
   app.post('/api/rides/estimate', auth, roles('customer'), guard(async (req, res) => {
     if (!(await on())) throw fail(404, 'الخدمة غير متاحة الآن');
     const b = req.body || {};
-    if (!okPoint(b.from)) throw fail(400, 'حدد نقطة التحميل');
-    if (b.textDest !== true && !okPoint(b.to)) throw fail(400, 'حدد الوجهة على الخريطة أو اكتبها');
+    if (b.byRegion !== true && !okPoint(b.from)) throw fail(400, 'حدد نقطة التحميل');
+    if (b.byRegion !== true && b.textDest !== true && !okPoint(b.to)) throw fail(400, 'حدد الوجهة على الخريطة أو اكتبها');
     const id = positiveId(b.typeId); if (!id) throw fail(400, 'اختر نوع المركبة');
     const t = await pool.query('SELECT * FROM ride_types WHERE id=$1 AND active', [id]);
     if (!t.rowCount) throw fail(404, 'النوع غير متاح');

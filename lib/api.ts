@@ -571,13 +571,15 @@ export type RidePricingMode = 'km' | 'zones' | 'captain';
 export type RideType = { id: number; name: string; baseFee: number; perKm: number; minFee: number; adjPct: number; sort: number; active: boolean; image: string | null; pricingMode?: RidePricingMode | null; maxFee?: number | null };
 export type RidePoint = { lat: number; lng: number; text?: string };
 export type RideOffer = { id: number; price: number; status: string; driver: { id: number; name: string; model: string; color: string; plate: string } };
-export type Ride = { id: number; status: string; typeId: number; from: RidePoint; to: RidePoint; km: number; minutes: number; suggested: number; offered: number; finalPrice: number | null; driverId: number | null; expiresAt: string; bidding?: boolean; textDest?: boolean; pricing?: RidePricingMode; maxFee?: number | null };
+export type Ride = { id: number; status: string; typeId: number; from: RidePoint; to: RidePoint; km: number; minutes: number; suggested: number; offered: number; finalPrice: number | null; driverId: number | null; expiresAt: string; bidding?: boolean; textDest?: boolean; byRegion?: boolean; fromPin?: boolean; pricing?: RidePricingMode; maxFee?: number | null };
 export const rideImageUrl = (t: { image: string | null }) => (t.image ? `${API_BASE}${t.image}` : '');
 export const apiRideTypes = () => apiRequest<{ types: RideType[] }>('/api/ride-types');
 export type RideEstimate = { mode?: RidePricingMode; textDest?: boolean; zoneMissing?: boolean; km: number; minutes: number; source: string; route?: [number, number][] | null; bidding?: boolean; price: number; lo: number; hi: number; maxFee?: number | null };
-export type RideExtra = { textDest?: boolean; fromRegionId?: number; toRegionId?: number };
-export const apiRideEstimate = (from: RidePoint, to: RidePoint | null, typeId: number, extra: RideExtra = {}) => apiRequest<RideEstimate>('/api/rides/estimate', { method: 'POST', body: JSON.stringify({ from, ...(to ? { to } : {}), typeId, ...extra }) });
+export type RideExtra = { textDest?: boolean; byRegion?: boolean; fromRegionId?: number; toRegionId?: number };
+export const apiRideEstimate = (from: RidePoint | null, to: RidePoint | null, typeId: number, extra: RideExtra = {}) => apiRequest<RideEstimate>('/api/rides/estimate', { method: 'POST', body: JSON.stringify({ ...(from ? { from } : {}), ...(to ? { to } : {}), typeId, ...extra }) });
 export const apiRideCreate = (from: RidePoint, to: RidePoint, typeId: number, price: number, extra: RideExtra = {}) => apiRequest<{ ride: Ride; notified: number }>('/api/rides', { method: 'POST', body: JSON.stringify({ from, to, typeId, price, ...extra }) });
+/** fixed price between two areas: no map; the notes (and the pin, if he shares it) are optional */
+export const apiRideCreateByRegion = (b: { typeId: number; fromRegionId: number; toRegionId: number; fromNote: string; toNote: string; pin?: { lat: number; lng: number } | null }) => apiRequest<{ ride: Ride; notified: number }>('/api/rides', { method: 'POST', body: JSON.stringify({ typeId: b.typeId, byRegion: true, fromRegionId: b.fromRegionId, toRegionId: b.toRegionId, from: { ...(b.pin || {}), text: b.fromNote }, to: { text: b.toNote } }) });
 export type RideDriver = { id: number; name: string; phone: string; model: string; color: string; plate: string };
 export type RideLeg = { km: number; minutes: number; route: [number, number][] };
 /** the map of a trip in progress: where the captain is and the ways to draw */
