@@ -1,4 +1,4 @@
-import { apiPushSubscribeDevice, apiPushUnsubscribe } from './api';
+import { apiPushSubscribeDevice, apiPushUnsubscribe, hasApiToken } from './api';
 import { quiet } from './report';
 import { storage } from './storage';
 
@@ -77,6 +77,7 @@ let askedThisRun = false;
 export async function autoEnablePush(): Promise<void> {
   try {
     if (await storage.getItem(OPTOUT)) return;
+    if (!(await hasApiToken())) return;   // not signed in (yet): nothing to attach this phone to, try again on the next round
     const n = await setup();
     let p = await n.getPermissionsAsync();
     if (p.status !== 'granted') {
@@ -86,7 +87,7 @@ export async function autoEnablePush(): Promise<void> {
       if (p.status !== 'granted') return;
     }
     await register();
-  } catch (e) { quiet('push-enable')(e); }
+  } catch (e: any) { if (e && e.status === 401) return; quiet('push-enable')(e); }
 }
 
 /** Opens the phone's own settings page of this app (for a blocked notification permission). */
