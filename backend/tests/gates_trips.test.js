@@ -5,6 +5,7 @@ const G = require('../src/gates.js'), T = require('../src/trips.js'), services =
 const { ok, eq, done } = H.counters();
 (async () => {
   const pool = new Pool(); const q = (t, p) => pool.query(t, p);
+  await q('UPDATE ride_types SET trips_enabled=FALSE');   // a previous run on the same database must not leave types ticked
   await q('DELETE FROM order_gates'); await q('DELETE FROM trip_seats'); await q('DELETE FROM trips');
   const pushes = [];
   const extrasLib = { featureOn: async () => true };

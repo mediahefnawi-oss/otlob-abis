@@ -45,7 +45,22 @@ type Confirm = { title: string; message?: string; confirmText?: string; danger?:
 let toastListener: ((t: ToastMsg) => void) | null = null;
 let confirmListener: ((c: Confirm) => void) | null = null;
 let tid = 0;
-export const toast = (text: string, type: ToastMsg['type'] = 'ok') => toastListener?.({ id: ++tid, text, type });
+/** a message the customer can act on is shown as is; anything that looks technical (English error text, stack words) becomes one calm Arabic line */
+const TECH = /undefined|null|NaN|TypeError|ReferenceError|SyntaxError|JSON|Unexpected|Network|fetch|ECONN|timeout|abort|stack|Cannot|is not|\[object|<\/?[a-z]+>|Error:/i;
+export const friendlyError = (text: string) => {
+  const t = String(text || '').trim();
+  if (!t || TECH.test(t) || !/[\u0600-\u06FF]/.test(t)) return 'حصلت مشكلة بسيطة، حاول مرة أخرى';
+  return t.length > 140 ? t.slice(0, 140) + '…' : t;
+};
+const recentErr = new Map<string, number>();
+export const toast = (text: string, type: ToastMsg['type'] = 'ok') => {
+  if (type === 'err') {
+    text = friendlyError(text);
+    const now = Date.now(); if ((recentErr.get(text) || 0) > now - 4000) return;   // the same error is never shown twice in a row
+    recentErr.set(text, now);
+  }
+  toastListener?.({ id: ++tid, text, type });
+};
 export const confirmDialog = (c: Confirm) => confirmListener?.(c);
 
 export function Overlays() {

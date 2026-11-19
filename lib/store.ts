@@ -143,7 +143,7 @@ const uid = (db: DB, p: string) => `${p}${++db.seq}`;
 
 /* ---------- central sync helpers ---------- */
 const isServerId = (id: string) => /^\d+$/.test(id);
-const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : `حدث خطأ غير متوقع. حاول مرة أخرى${e && (e as any).message ? ` (${String((e as any).message).slice(0, 80)})` : ''}`);
+const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'حصلت مشكلة بسيطة، حاول مرة أخرى');
 
 const fromServer = (s: ServerUser, old?: User): User => ({
   baseRole: (s.baseRole as Role | undefined) || undefined,
