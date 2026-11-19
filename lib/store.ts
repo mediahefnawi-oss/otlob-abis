@@ -101,9 +101,10 @@ const GUEST_ADDR_KEY = 'abis_guest_addr';
 let guestAddrCache: string | null | undefined; // the visitor's saved address, once read (then entering as a guest is instant, no blank screen)
 try { storage.getItem(GUEST_ADDR_KEY).then((a) => { if (guestAddrCache === undefined) guestAddrCache = a; }, () => {}); } catch { /* read again when needed */ }
 export function enterGuest() {
-  if (state.userId) return;
+  // already a guest AND his record is there: nothing to do. (A guest whose record was lost is put back below, not left on the welcome page.)
+  if (state.userId && !(state.userId === GUEST_ID && !state.db.users.some((u) => u.id === GUEST_ID))) return;
   const open = (addr: string | null) => {
-    if (state.userId) return;
+    if (state.userId && state.userId !== GUEST_ID) return;
     const g: User = { id: GUEST_ID, name: 'ضيف', phone: '', pass: '', role: 'customer', address: addr || '', status: 'active', regionId: null, createdAt: Date.now() } as User;
     setState({ db: { ...state.db, users: [...state.db.users.filter((u) => u.id !== GUEST_ID), g] }, userId: GUEST_ID });
   };
@@ -320,7 +321,7 @@ function stripDemo(db: DB): DB {
     regions: db.regions || [],
     ads: db.ads || [],
     bookedSlots: db.bookedSlots || [],
-    users: db.users.filter((u) => isServerId(u.id)),
+    users: db.users.filter((u) => isServerId(u.id) || u.id === GUEST_ID),   // the visitor (guest) is not a server record but must survive every catalog refresh
     providers: db.providers.filter((p) => isServerId(p.id)),
     products: db.products.filter((p) => isServerId(p.providerId) && isServerId(p.id)),
     orders: db.orders.filter((o) => isServerId(o.id)),

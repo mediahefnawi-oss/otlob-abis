@@ -7,6 +7,7 @@
 const SECTIONS = ['ads', 'today', 'favorites', 'announce', 'services', 'marketOffers', 'makers', 'market', 'rides', 'trips', 'active', 'errand', 'nearby', 'top'];
 const SHAPES = ['tile', 'rect', 'wide', 'round', 'text'];
 const MODES = ['grid', 'row'];
+const VIEWS = ['row', 'g3', 'g4', 'full'];   // how the service icons are laid out: swipe row / 3 per row / 4 per row / one per line
 const BLOCK_ID = /^ban:[a-z0-9]{4,16}$/;
 const SVC_KEY = /^[a-z0-9_]{1,40}$/;
 
@@ -25,6 +26,7 @@ function cleanLayout(raw) {
     out.hidden = [...new Set(raw.hidden.filter(okId))];
   }
   if (raw.mode !== undefined) { if (!MODES.includes(raw.mode)) return null; out.mode = raw.mode; }
+  if (raw.view !== undefined) { if (!VIEWS.includes(raw.view)) return null; out.view = raw.view; }
   if (raw.svc !== undefined) {
     if (!raw.svc || typeof raw.svc !== 'object' || Array.isArray(raw.svc)) return null;
     const keys = Object.keys(raw.svc);
@@ -55,4 +57,4 @@ function register(app, { pool, auth, roles, asyncRoute, clearCaches }) {
     res.json({ layout: c });
   }));
 }
-module.exports = { cleanLayout, SECTIONS, SHAPES, MODES, register };
+module.exports = { cleanLayout, SECTIONS, SHAPES, MODES, VIEWS, register };

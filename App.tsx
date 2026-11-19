@@ -28,7 +28,7 @@ import { setUiScale, setScaleConfig } from './lib/scale';
 import { TabHost, TabDef } from './components/Tabs';
 import { WelcomeScreen, LoginScreen, RegisterScreen, PendingScreen, MaintenanceScreen } from './screens/auth';
 import {
-  HomeScreen, CategoryScreen, ProviderScreen, CartScreen, CustomOrderScreen, RequestOrderScreen, LabRequestScreen, BookingScreen, CustomerOrdersScreen,
+  HomeScreen, HomeEditScreen, CategoryScreen, ProviderScreen, CartScreen, CustomOrderScreen, RequestOrderScreen, LabRequestScreen, BookingScreen, CustomerOrdersScreen,
 } from './screens/customer';
 import { OrderDetailScreen, ApptDetailScreen, InvoiceScreen, ChatScreen, SupportScreen, ProfileScreen } from './screens/shared';
 import { ProviderOrdersScreen, ProviderCatalogScreen, ProviderInvoicesScreen, ProviderProfileScreen } from './screens/provider';
@@ -49,7 +49,7 @@ import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 import { GroupCartScreen, MarketScreen } from './screens/extra';
 import { RideHomeScreen, CaptainScreen } from './screens/rides';
-import { AdminGatesScreen, AdminHomeLayoutScreen, DispatchScreen } from './screens/adminControl';
+import { AdminGatesScreen, DispatchScreen } from './screens/adminControl';
 import { TripsScreen, CaptainTripsScreen } from './screens/trips';
 import { AdminMarketScreen, AdminRidesScreen, AdminBroadcastScreen } from './screens/adminExtra';
 
@@ -212,7 +212,7 @@ function Root() {
         <Stack.Screen name="AdminRides" component={AdminRidesScreen} />
         <Stack.Screen name="AdminGates" component={AdminGatesScreen} />
         <Stack.Screen name="Dispatch" component={DispatchScreen} />
-        <Stack.Screen name="AdminHomeLayout" component={AdminHomeLayoutScreen} />
+        <Stack.Screen name="AdminHomeLayout" component={HomeEditScreen} />
         <Stack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} />
         <Stack.Screen name="Provider" component={ProviderScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />

@@ -70,6 +70,7 @@ const { ok, eq, done } = H.counters();
   /* ================= home layout ================= */
   eq(L.cleanLayout(null), null, 'nothing'); eq(L.cleanLayout([]), null, 'an array is not a layout'); eq(L.cleanLayout({}), {}, 'an empty layout = the original home');
   eq(L.cleanLayout({ order: ['top', 'ads', 'ads', 'bogus', 'ban:abcd1234', 'ban:../x'] }), { order: ['top', 'ads', 'ban:abcd1234'] }, 'order: known ids only, no duplicates');
+  eq(L.cleanLayout({ view: 'g3' }), { view: 'g3' }, 'service view: 3 per row'); eq(L.cleanLayout({ view: 'zig' }), null, 'an unknown view is refused');
   eq(L.cleanLayout({ order: 'x' }), null, 'order must be a list'); eq(L.cleanLayout({ hidden: ['rides', 'zzz'] }), { hidden: ['rides'] }, 'hidden: known ids only');
   eq(L.cleanLayout({ mode: 'row' }), { mode: 'row' }, 'row mode'); eq(L.cleanLayout({ mode: 'diagonal' }), null, 'unknown mode');
   eq(L.cleanLayout({ svc: { pharmacy: { shape: 'wide' }, store: { shape: 'round' } } }), { svc: { pharmacy: { shape: 'wide' }, store: { shape: 'round' } } }, 'service shapes');

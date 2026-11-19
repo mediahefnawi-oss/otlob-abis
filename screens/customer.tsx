@@ -9,7 +9,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { C, R, shadow } from '../lib/theme';
 import {
   T, Icon, Logo, SearchBar, Card, Chip, Btn, Appear, EmojiBubble, Empty, Segmented, Stepper, Header, Field, SectionTitle,
-  toast, IconBtn, Pill, openWhats,
+  toast, IconBtn, Pill, openWhats, Sheet,
 } from '../components/ui';
 import { ProviderCard, OrderCard, ApptCard } from '../components/Cards';
 import { AreaTag } from '../components/Cards';
@@ -21,7 +21,9 @@ import {
   useStore, useMe, placeRequestOrder, labRequest, cartAdd, cartDetails, placeOrder, placeCustomOrder, refresh, slotTaken, bookAppointment, requestClinicSlot, deliveryOpen, feeFor, kmInfoFor, premiumEstimate } from '../lib/store';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import { catIconUrl, providerCoverUrl, homeCoverUrl, apiGates } from '../lib/api';
-import { HomeBlocksView } from '../components/HomeBlocks';
+import { HomeBlocksView, BlocksManager } from '../components/HomeBlocks';
+import { saveHomeLayout } from '../lib/store';
+import type { HomeShape } from '../lib/api';
 import { PremiumBar } from '../components/Premium';
 import { AdsCarousel } from '../components/Ads';
 import { FavoritesRow, HeartButton } from '../components/Favorites';
@@ -89,7 +91,7 @@ function WideCard({ emoji, art, imageUri, title, sub, onPress, tint }: { emoji: 
 const HOME_NAMES: Record<string, { from: string; short: string }> = { clinic: { from: 'حجز العيادات', short: 'العيادات' }, lab: { from: 'المعامل والتحاليل', short: 'المعامل والتحاليل' } };
 const homeName = (k: string, label: string) => (HOME_NAMES[k] && HOME_NAMES[k].from === label ? HOME_NAMES[k].short : label);
 /** one service icon of the grid, in the shape the owner chose: tile (default), rect, wide, round or text */
-function SvcIcon({ k, i, shape, row, closed, onPress }: { k: string; i: number; shape: string; row?: boolean; closed?: boolean; onPress: () => void }) {
+function SvcIcon({ k, i, shape, row, closed, cols, onPress }: { k: string; i: number; shape: string; row?: boolean; closed?: boolean; cols?: 3 | 4; onPress: () => void }) {
   const { db } = useStore();
   const def = serviceDefs().find((x) => x.key === k);
   const sz = def?.size || 'small';
@@ -102,7 +104,7 @@ function SvcIcon({ k, i, shape, row, closed, onPress }: { k: string; i: number; 
     : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><View style={{ height: '97%', aspectRatio: 1, borderRadius: 999, backgroundColor: '#FFF1CC', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: fill ? 40 : 24 }}>{TYPES[k].emoji}</Text></View></View>;
   const lock = closed ? <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: C.red, borderRadius: 9, paddingHorizontal: 6, paddingVertical: 1 }}><T size={9.5} w="black" color="#fff">مقفول</T></View> : null;
   const pressStyle = ({ pressed }: any) => pressed && { transform: [{ scale: 0.96 }] };
-  const wrapW: any = row ? { width: shape === 'wide' ? 250 : shape === 'rect' ? 150 : shape === 'round' ? 82 : shape === 'text' ? undefined : 112 } : { width: shape === 'wide' ? '100%' : shape === 'rect' ? '48%' : shape === 'round' ? '22%' : shape === 'text' ? undefined : sz === 'large' ? '21%' : sz === 'medium' ? '26%' : '31.2%' };
+  const wrapW: any = row ? { width: shape === 'wide' ? 250 : shape === 'rect' ? 150 : shape === 'round' ? 82 : shape === 'text' ? undefined : 112 } : { width: shape === 'wide' ? '100%' : shape === 'rect' ? '48%' : shape === 'round' ? '22%' : shape === 'text' ? undefined : cols === 4 ? '22.6%' : cols === 3 ? '31.2%' : sz === 'large' ? '21%' : sz === 'medium' ? '26%' : '31.2%' };
   let body: React.ReactNode;
   if (shape === 'round') body = (
     <Pressable onPress={onPress} style={(p) => [{ alignItems: 'center', gap: 4 }, pressStyle(p)]}>
@@ -156,7 +158,14 @@ export function HomeScreen({ navigation }: any) {
   // the owner's design is now the only customer home (the "homeNew" layout was removed)
   return <HomeOld navigation={navigation} />;
 }
-function HomeOld({ navigation }: any) {
+/** The owner edits the home on the real home screen (tap a section: move, hide, change the icons' look, add an ad). */
+export function HomeEditScreen({ navigation }: any) {
+  return <HomeOld navigation={navigation} edit />;
+}
+const EDIT_LABEL: Record<string, string> = { ads: 'الإعلانات الرئيسية', today: 'عروض النهاردة', favorites: 'المفضلة', announce: 'الإعلان النصي', services: 'أيقونات الخدمات', marketOffers: 'عروض ماركت', makers: 'صنايعية', market: 'طلبات ماركت', rides: 'توصيلة', trips: 'رحلات المحافظات', active: 'طلباتك الجارية', errand: 'اطلب أي حاجة', nearby: 'بالقرب منك', top: 'الأعلى تقييماً' };
+const EDIT_SHAPES: { k: HomeShape; label: string }[] = [{ k: 'tile', label: 'مربع' }, { k: 'rect', label: 'مستطيل' }, { k: 'wide', label: 'عريض' }, { k: 'round', label: 'دايرة' }, { k: 'text', label: 'كلمة' }];
+const EDIT_VIEWS: { k: string; label: string }[] = [{ k: 'row', label: 'سحب بالجنب' }, { k: 'g3', label: 'شبكة 3×3' }, { k: 'g4', label: 'شبكة 4 في الصف' }, { k: 'full', label: 'عرض كامل' }, { k: '', label: 'الأصلي' }];
+function HomeOld({ navigation, edit }: any) {
   useGroupLink(navigation); // a shared-cart link opened on the web goes straight to that cart
   const svc = useSvcMeta();
   const rc = useRC();
@@ -192,7 +201,19 @@ function HomeOld({ navigation }: any) {
   const top = provs.filter((p) => p.featured).sort((a, b) => b.rating - a.rating).slice(0, 12);
 
   /* ---- the home is a list of sections; the owner's design (order / hidden / shapes) decides which show and in what order ---- */
-  const layout = db.settings.homeLayout || {};
+  const saved = (db.settings.homeLayout || {}) as any;
+  // edit mode: the owner's unsaved changes live here, the real home below is drawn from them
+  const [eo, setEo] = useState<string[] | null>(null);
+  const [eh, setEh] = useState<string[] | null>(null);
+  const [ev, setEv] = useState<string | null>(null);
+  const [es, setEs] = useState<Record<string, { shape: HomeShape }> | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
+  const [shapeFor, setShapeFor] = useState<string | null>(null);
+  const [adsSlot, setAdsSlot] = useState<string | null>(null);
+  const [known, setKnown] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const layout = (edit ? { order: eo ?? saved.order, hidden: eh ?? saved.hidden, view: ev ?? saved.view ?? (saved.mode === 'row' ? 'row' : ''), svc: es ?? saved.svc } : saved) as any;
+  const view: string = edit ? (layout.view || '') : (saved.view || (saved.mode === 'row' ? 'row' : ''));
   const hiddenSet = new Set<string>(layout.hidden ?? ['trips']);
   const svcSorted = [
     { k: 'market', sort: svc.market?.sort || 1 },
@@ -200,7 +221,8 @@ function HomeOld({ navigation }: any) {
   ].sort((x, y) => x.sort - y.sort).map((x) => x.k);
   const DEFAULT_ORDER = ['ads', 'today', 'favorites', 'announce', 'services', 'marketOffers', 'makers', ...svcSorted, 'active', 'errand', 'nearby', 'top', 'trips'];
   const blockIds = (db.settings.homeBlocks || []).filter((b) => b.active).map((b) => `ban:${b.id}`);
-  const order = [...(layout.order || []).filter((id) => DEFAULT_ORDER.includes(id) || blockIds.includes(id)), ...DEFAULT_ORDER.filter((id) => !(layout.order || []).includes(id))].filter((id) => !hiddenSet.has(id));
+  const fullOrder: string[] = [...(layout.order || []).filter((id: string) => DEFAULT_ORDER.includes(id) || blockIds.includes(id)), ...DEFAULT_ORDER.filter((id) => !(layout.order || []).includes(id)), ...blockIds.filter((id) => !(layout.order || []).includes(id))];
+  const order = edit ? fullOrder : fullOrder.filter((id) => !hiddenSet.has(id));
   const gateClosed = useGates();
   const sec: Record<string, React.ReactNode> = {
     ads: (
@@ -229,13 +251,13 @@ function HomeOld({ navigation }: any) {
     ) : null,
     services: (
       <View style={{ gap: 10 }} onLayout={(e) => setGridW(e.nativeEvent.layout.width)}>
-        {layout.mode === 'row' ? (
+        {view === 'row' ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 4 }}>
-            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => <SvcIcon key={k} k={k} i={i} shape={layout.svc?.[k]?.shape || 'tile'} row closed={!!gateClosed[k]} onPress={() => navigation.navigate('Category', { type: k })} />)}
+            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => <SvcIcon key={k} k={k} i={i} shape={layout.svc?.[k]?.shape || 'tile'} row closed={!!gateClosed[k]} onPress={() => (edit ? setShapeFor(k) : navigation.navigate('Category', { type: k }))} />)}
           </ScrollView>
         ) : (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
-            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => <SvcIcon key={k} k={k} i={i} shape={layout.svc?.[k]?.shape || 'tile'} closed={!!gateClosed[k]} onPress={() => navigation.navigate('Category', { type: k })} />)}
+            {cats.filter((k) => !isMakerTpl(k)).map((k, i) => <SvcIcon key={k} k={k} i={i} shape={view === 'full' ? 'wide' : layout.svc?.[k]?.shape || 'tile'} cols={view === 'g3' ? 3 : view === 'g4' ? 4 : undefined} closed={!!gateClosed[k]} onPress={() => (edit ? setShapeFor(k) : navigation.navigate('Category', { type: k }))} />)}
           </View>
         )}
       </View>
@@ -333,6 +355,61 @@ function HomeOld({ navigation }: any) {
   };
   for (const id of blockIds) sec[id] = <HomeBlocksView navigation={navigation} tw={tw} only={id.slice(4)} />;
 
+  /* ---- edit mode: the same home, every section can be tapped, moved, hidden; ads can be added between sections ---- */
+  const hid = (layout.hidden ?? ['trips']) as string[];
+  const label = (id: string) => (id.startsWith('ban:') ? (db.settings.homeBlocks || []).find((b) => `ban:${b.id}` === id)?.title || 'إعلان' : EDIT_LABEL[id] || id);
+  const moveId = (id: string, d: number) => { const i = fullOrder.indexOf(id), j = i + d; if (i < 0 || j < 0 || j >= fullOrder.length) return; const n = [...fullOrder]; [n[i], n[j]] = [n[j], n[i]]; setEo(n); };
+  const toggleId = (id: string) => setEh(hid.includes(id) ? hid.filter((x) => x !== id) : [...hid, id]);
+  const openAds = (after: string) => { setAdsSlot(after); setKnown(blockIds); };
+  const closeAds = () => {
+    // a banner / list made in the sheet joins the home right after the section the owner chose
+    const fresh = blockIds.filter((id) => !known.includes(id));
+    if (fresh.length && adsSlot) { const rest = fullOrder.filter((id) => !fresh.includes(id)); const at = rest.indexOf(adsSlot); rest.splice(at < 0 ? rest.length : at + 1, 0, ...fresh); setEo(rest); }
+    setAdsSlot(null);
+  };
+  const addSlot = (after: string, text: string) => (
+    <Pressable key={`slot-${after}`} onPress={() => openAds(after)} style={{ borderWidth: 2, borderStyle: 'dashed', borderColor: C.gold, borderRadius: 14, paddingVertical: 10, marginTop: 8, alignItems: 'center', backgroundColor: C.goldSoft }}>
+      <T w="black" size={12.5} color={C.goldDeep}>＋ {text}</T>
+    </Pressable>
+  );
+  const frame = (id: string, node: React.ReactNode) => {
+    if (!edit) return node;
+    const on = sel === id, off = hid.includes(id);
+    const i = fullOrder.indexOf(id);
+    return (
+      <View key={id} style={{ marginTop: 6 }}>
+        {on && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.dark, borderRadius: 14, padding: 6, marginBottom: 6 }}>
+            <T w="black" size={12} color={C.gold} style={{ flex: 1 }} numberOfLines={1}>{label(id)}</T>
+            <Pressable onPress={() => moveId(id, -1)} disabled={i <= 0} hitSlop={6} style={{ opacity: i <= 0 ? 0.3 : 1 }}><Icon name="arrow-up-circle" size={26} color="#fff" /></Pressable>
+            <Pressable onPress={() => moveId(id, 1)} disabled={i >= fullOrder.length - 1} hitSlop={6} style={{ opacity: i >= fullOrder.length - 1 ? 0.3 : 1 }}><Icon name="arrow-down-circle" size={26} color="#fff" /></Pressable>
+            <Pressable onPress={() => toggleId(id)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: off ? C.green : '#ffffff22', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 }}><Icon name={off ? 'eye' : 'eye-off'} size={15} color="#fff" /><T size={11.5} w="bold" color="#fff">{off ? 'إظهار' : 'إخفاء'}</T></Pressable>
+          </View>
+        )}
+        <View style={{ borderRadius: 16, borderWidth: 3, borderColor: on ? C.gold : 'transparent', opacity: off ? 0.4 : 1, padding: on ? 3 : 0 }}>
+          <View pointerEvents={on && id === 'services' ? 'auto' : 'none'}>{node}</View>
+          {!(on && id === 'services') && <Pressable onPress={() => setSel(on ? null : id)} style={StyleSheet.absoluteFill} />}
+        </View>
+        {on && id === 'services' && (
+          <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: 10, gap: 8, marginTop: 6, ...shadow }}>
+            <T w="black" size={12.5}>شكل عرض الخدمات</T>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>{EDIT_VIEWS.map((x) => <Chip key={x.k || 'def'} label={x.label} active={view === x.k} onPress={() => setEv(x.k)} />)}</ScrollView>
+            <T size={11.5} color={C.sub}>دوس على أي أيقونة عشان تغيّر شكلها لوحدها.</T>
+          </View>
+        )}
+        {on && addSlot(id, 'أضف إعلان بعد هذا القسم')}
+      </View>
+    );
+  };
+  const saveEdit = async () => {
+    setSaving(true);
+    const cleanSvc = Object.fromEntries(Object.entries(layout.svc || {}).filter(([k]) => cats.includes(k as any)));
+    const r = await saveHomeLayout({ order: fullOrder, hidden: hid, mode: view === 'row' ? 'row' : 'grid', ...(view ? { view } : {}), svc: cleanSvc });
+    setSaving(false);
+    if (r.ok) { toast('تم حفظ شكل الرئيسية ✅'); navigation.goBack(); } else toast(r.error, 'err');
+  };
+  const resetEdit = async () => { setSaving(true); const r = await saveHomeLayout({}); setSaving(false); if (r.ok) { setEo(null); setEh(null); setEv(null); setEs(null); toast('رجع الشكل الأصلي'); } else toast(r.error, 'err'); };
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       {/* the header: the owner's artwork as the background (green, light-green shape, gold swoosh), the content drawn over it at the same places */}
@@ -353,7 +430,8 @@ function HomeOld({ navigation }: any) {
           <Icon name="chevron-down" size={Math.max(14, hw * 0.033)} color={C.gold} />
         </Pressable>
       </View>
-      <View style={{ paddingHorizontal: 16, marginTop: 4 }}>
+      {edit && <View style={{ backgroundColor: C.gold, paddingVertical: 6, paddingHorizontal: 12 }}><T w="black" size={12} color={C.dark} align="center">وضع التعديل — دوس على أي قسم عشان تحرّكه أو تخفيه أو تغيّر شكله</T></View>}
+      <View pointerEvents={edit ? 'none' : 'auto'} style={{ paddingHorizontal: 16, marginTop: 4 }}>
         <SearchBar value={q} onChange={setQ} placeholder="ابحث عن مطعم أو متجر أو خدمة ..." />
       </View>
 
@@ -369,12 +447,14 @@ function HomeOld({ navigation }: any) {
         />
       ) : (
         <ScrollView refreshControl={rc} contentContainerStyle={{ padding: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
-          {order.map((id) => { const node = sec[id]; return node ? <React.Fragment key={id}>{node}</React.Fragment> : null; })}
+          {order.map((id) => { const node = sec[id]; return node ? <React.Fragment key={id}>{frame(id, node)}</React.Fragment> : null; })}
+          {edit && addSlot(order[order.length - 1] || 'ads', 'أضف إعلان أسفل الصفحة')}
+          {edit && <View style={{ height: 90 }} />}
         </ScrollView>
       )}
 
-      <PremiumBar navigation={navigation} bottom={cartCount > 0 && !q ? 82 : 12} />
-      {cartCount > 0 && !q && (
+      {!edit && <PremiumBar navigation={navigation} bottom={cartCount > 0 && !q ? 82 : 12} />}
+      {!edit && cartCount > 0 && !q && (
         <Pressable
           onPress={() => navigation.navigate('Cart')}
           style={{ position: 'absolute', bottom: 14, left: 16, right: 16, backgroundColor: C.dark, borderRadius: 18, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, ...shadow }}
@@ -386,7 +466,27 @@ function HomeOld({ navigation }: any) {
           <T w="black" color={C.gold}>{money(cartDetails(db, cart).subtotal)}</T>
         </Pressable>
       )}
-      {addrOn && <AddressSheet visible={addrOpen} onClose={() => setAddrOpen(false)} />}
+      {addrOn && !edit && <AddressSheet visible={addrOpen} onClose={() => setAddrOpen(false)} />}
+      {edit && (
+        <>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#fff', padding: 12, paddingBottom: insets.bottom + 12, flexDirection: 'row', gap: 10, ...shadow }}>
+            <Btn title="إلغاء" variant="soft" onPress={() => navigation.goBack()} style={{ flex: 1 }} />
+            <Btn title="رجوع للأصلي" variant="soft" onPress={resetEdit} style={{ flex: 1.3 }} />
+            <Btn title="حفظ" icon="checkmark" onPress={saveEdit} loading={saving} style={{ flex: 1.2 }} />
+          </View>
+          <Sheet visible={!!shapeFor} onClose={() => setShapeFor(null)} title={shapeFor ? `شكل «${homeName(shapeFor, TYPES[shapeFor as ProviderType].label)}»` : ''}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {EDIT_SHAPES.map((x) => <Chip key={x.k} label={x.label} active={((layout.svc || {})[shapeFor || '']?.shape || 'tile') === x.k} onPress={() => shapeFor && setEs({ ...(layout.svc || {}), [shapeFor]: { shape: x.k } })} />)}
+            </View>
+            <Btn title="تم" onPress={() => setShapeFor(null)} />
+          </Sheet>
+          <Sheet visible={!!adsSlot} onClose={closeAds} title="إضافة إعلان">
+            <T size={12.5} color={C.sub}>اعمل لوحة إعلانية (صورة + رابط) أو قايمة محلات، واضغط حفظ الترتيب. هتظهر في المكان اللي اخترته.</T>
+            <BlocksManager />
+            <Btn title="تم" onPress={closeAds} />
+          </Sheet>
+        </>
+      )}
     </View>
   );
 }
