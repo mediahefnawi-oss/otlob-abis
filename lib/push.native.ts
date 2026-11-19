@@ -56,7 +56,11 @@ export async function enablePush(): Promise<{ ok: boolean; error?: string }> {
     await register();
     return { ok: true };
   } catch (e: any) {
-    return { ok: false, error: 'تعذر تفعيل الإشعارات. تأكد أن النسخة مبنية مع ملف Firebase.' };
+    const msg = String((e && e.message) || e || '');
+    if (e && e.status === 401) return { ok: false, error: 'سجّل دخولك الأول وبعدين فعّل الإشعارات.' };
+    if (e && e.status === 0 || /network|timeout|abort|SERVICE_NOT_AVAILABLE|TIMEOUT/i.test(msg)) return { ok: false, error: 'تعذر الاتصال بالإنترنت، حاول مرة أخرى بعد شوية.' };
+    quiet('push-enable-tap')(e);   // the real reason reaches the owner's "أخطاء التطبيق" screen
+    return { ok: false, error: 'تعذر تفعيل الإشعارات الآن، حاول مرة أخرى بعد شوية.' };
   }
 }
 
