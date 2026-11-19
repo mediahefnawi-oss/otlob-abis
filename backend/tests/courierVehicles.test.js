@@ -5,7 +5,7 @@ const CV = require('../src/courierVehicles.js');
 const { ok, eq, done } = H.counters();
 (async () => {
   const pool = new Pool(); const q = (t, p) => pool.query(t, p);
-  await q('DELETE FROM courier_vehicles'); await q("DELETE FROM service_meta WHERE key='courier_vehicles_seeded'");
+  await q("DELETE FROM users WHERE role='courier' AND name IN ('مندوب1','مندوب2','مندوب3')"); await q('DELETE FROM courier_vehicles'); await q("DELETE FROM service_meta WHERE key='courier_vehicles_seeded'");
   const { app, asyncRoute, positiveId, auth, roles, call } = H;
   CV.register(app, { pool, auth, roles, asyncRoute, positiveId });
   const mk = async (n, role, veh) => Number((await q("INSERT INTO users(name, phone, password_hash, role, status, vehicle) VALUES($1,'01'||floor(random()*1e9)::bigint::text,'x',$2,'active',$3) RETURNING id", [n, role, veh || ''])).rows[0].id);
