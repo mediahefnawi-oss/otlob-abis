@@ -293,13 +293,13 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
 
 
   /* ---------- phone notifications (Web Push); a failed push never fails the request ---------- */
-  const notify = (ids, title, body, tag) => {
+  const notify = (ids, title, body, tag, ring) => {
     const list = (ids || []).filter(Boolean);
     if (!pushToUsers || !list.length) return Promise.resolve();
     // The customer must not wait for phones to be notified: give the push at most 1.5s, then answer (it keeps going on its own).
     let t;
     const slow = new Promise(r => { t = setTimeout(r, 1500); });
-    const job = pushToUsers(list, { title, body, tag, url: '/', requireInteraction: true }).catch(() => {});
+    const job = pushToUsers(list, { title, body, tag, url: '/', requireInteraction: true, ...(ring ? { ring: true } : {}) }).catch(() => {});
     return Promise.race([job, slow]).finally(() => clearTimeout(t));
   };
   async function onlineCourierIds() {
@@ -310,12 +310,12 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     try {
       const rows = all.filter(x => !holdsCouriers(x));
       const jobs = [];
-      for (const r of rows.filter(x => x.courier_user_id)) jobs.push(notify([r.courier_user_id], 'تم تعيين طلب لك 🛵', `${(r.data || {}).providerName || ''} — ${(r.data || {}).regionName || (r.data || {}).address || ''}`, `order-${r.id}`));
+      for (const r of rows.filter(x => x.courier_user_id)) jobs.push(notify([r.courier_user_id], 'تم تعيين طلب لك 🛵', `${(r.data || {}).providerName || ''} — ${(r.data || {}).regionName || (r.data || {}).address || ''}`, `order-${r.id}`, true));
       const open = rows.filter(x => !x.courier_user_id);
       if (open.length) {
         const ids = await onlineCourierIds();
         const d = open[0].data || {};
-        jobs.push(notify(ids, open.length > 1 ? `${open.length} طلبات توصيل جديدة 🛵` : 'طلب توصيل جديد 🛵', `${d.regionName ? `منطقة ${d.regionName}` : d.address || ''} — ${d.providerName || ''}`, `offer-${open[0].id}`));
+        jobs.push(notify(ids, open.length > 1 ? `${open.length} طلبات توصيل جديدة 🛵` : 'طلب توصيل جديد 🛵', `${d.regionName ? `منطقة ${d.regionName}` : d.address || ''} — ${d.providerName || ''}`, `offer-${open[0].id}`, true));
       }
       await Promise.allSettled(jobs);
     } catch (e) { console.error('notifyCouriers failed:', e.message); }
@@ -338,7 +338,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'go': jobs.push(notify(cust, 'المندوب في الطريق إليك 🚀', '', tag)); break;
         case 'arrive': jobs.push(notify(cust, 'وصل المندوب إلى مكانك 📍', 'تفضّل بالاستلام', tag)); break;
         case 'deliver': jobs.push(notify(cust, 'تم تسليم طلبك 💚', 'بالهناء والشفاء', tag), notify(shop, 'تم تسليم الطلب للعميل', `#${row.order_number}`, tag)); break;
-        case 'ready': jobs.push(notify(row.courier_user_id ? [row.courier_user_id] : [], 'الطلب جاهز للاستلام ✅', d.providerName || '', tag)); break;
+        case 'ready': jobs.push(notify(row.courier_user_id ? [row.courier_user_id] : [], 'الطلب جاهز للاستلام ✅', d.providerName || '', tag, true)); break;
         case 'reject': jobs.push(notify(cust, 'اعتذر المتجر عن طلبك', d.rejectReason || '', tag)); break;
         case 'cancel': jobs.push(actorRole === 'customer' ? notify([...shop, row.courier_user_id], 'ألغى العميل الطلب', `#${row.order_number}`, tag) : notify(cust, 'تم إلغاء طلبك', (d.rejectReason || '') + (d.giftCode ? ` 🎁 كود خصم لك: ${d.giftCode}` : ''), tag)); break;
         case 'decline_quote': jobs.push(d.providerType === 'custom' ? notifyCouriers([row]) : notify(shop, 'رفض العميل السعر', `#${row.order_number}`, tag)); break;
@@ -585,7 +585,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     });
     await Promise.allSettled([
       ...out.poolChanges.map(c => notify([c.row.customer_user_id], 'جار قرّب طلب من نفس المحل 🤝', `رسوم توصيلك بقت ${c.to} ج.م بدل ${c.from} ج.م`, `order-${c.row.id}`)),
-      ...out.orders.map(r => notify([(r.data || {}).providerOwnerId], (r.data || {}).scheduledFor ? 'طلب مجدول جديد ⏰' : 'طلب جديد 🔔', `${name} — ${Number(r.total)} ج.م${(r.data || {}).scheduledFor ? ' — ' + schedText(r.data.scheduledFor) : ''}`, `order-${r.id}`)),
+      ...out.orders.map(r => notify([(r.data || {}).providerOwnerId], (r.data || {}).scheduledFor ? 'طلب مجدول جديد ⏰' : 'طلب جديد 🔔', `${name} — ${Number(r.total)} ج.م${(r.data || {}).scheduledFor ? ' — ' + schedText(r.data.scheduledFor) : ''}`, `order-${r.id}`, true)),
       notifyCouriers(out.orders.filter(r => r.status !== 'pending')),
     ]);
     res.status(201).json({ invoice: invoiceJson(out.invoice), orders: out.orders.map(orderJson), address: out.user.address });
@@ -903,7 +903,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return { next, prev: row.courier_user_id };
     });
     await Promise.allSettled([
-      notify([cid], 'تم تعيين طلب لك 🛵', `${(out.next.data || {}).providerName || ''} — ${(out.next.data || {}).regionName || (out.next.data || {}).address || ''}`, `order-${id}`),
+      notify([cid], 'تم تعيين طلب لك 🛵', `${(out.next.data || {}).providerName || ''} — ${(out.next.data || {}).regionName || (out.next.data || {}).address || ''}`, `order-${id}`, true),
       notify([out.next.customer_user_id], `المندوب ${(out.next.data || {}).courierName || ''} سيوصّل طلبك 🛵`, '', `order-${id}`),
       out.prev && Number(out.prev) !== cid ? notify([out.prev], 'تم سحب الطلب منك', `#${out.next.order_number}`, `order-${id}`) : Promise.resolve(),
       // the order's shop is told too, in case the courier had already collected from it
@@ -947,7 +947,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return { done, courier: c.rows[0] };
     });
     await Promise.allSettled([
-      notify([cid], out.done.length > 1 ? `تم ربط ${out.done.length} أوردرات بيك 🛵` : 'تم تعيين طلب لك 🛵', out.done.map(x => `#${x.next.order_number}`).join(' + '), `dispatch-${batchId}`),
+      notify([cid], out.done.length > 1 ? `تم ربط ${out.done.length} أوردرات بيك 🛵` : 'تم تعيين طلب لك 🛵', out.done.map(x => `#${x.next.order_number}`).join(' + '), `dispatch-${batchId}`, true),
       ...out.done.filter(x => !x.same).map(x => notify([x.next.customer_user_id], `المندوب ${out.courier.name} سيوصّل طلبك 🛵`, '', `order-${x.next.id}`)),
       ...out.done.filter(x => x.prev && Number(x.prev) !== cid).map(x => notify([x.prev], 'تم سحب الطلب منك', `#${x.next.order_number}`, `order-${x.next.id}`)),
     ]);
@@ -1004,7 +1004,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return { next: r.rows[0], oldOwner, isReq };
     });
     await Promise.allSettled([
-      notify([out.next.data.providerOwnerId], out.isReq ? 'طلب مكتوب جديد 📝' : 'طلب جديد 🔔', out.isReq ? `${out.next.data.customerName || ''} — يحتاج تسعير` : `${out.next.data.customerName || ''} — ${Number(out.next.total)} ج.م`, `order-${id}`),
+      notify([out.next.data.providerOwnerId], out.isReq ? 'طلب مكتوب جديد 📝' : 'طلب جديد 🔔', out.isReq ? `${out.next.data.customerName || ''} — يحتاج تسعير` : `${out.next.data.customerName || ''} — ${Number(out.next.total)} ج.م`, `order-${id}`, true),
       notify([out.next.customer_user_id], 'تم تحويل طلبك لمتجر آخر 🔁', out.next.data.providerName || '', `order-${id}`),
       out.oldOwner ? notify([out.oldOwner], 'تم تحويل الطلب لمتجر آخر', `#${out.next.order_number}`, `order-${id}`) : Promise.resolve(),
     ]);

@@ -48,7 +48,7 @@ jobs:
           const e=a.expo;
           e.plugins=[...(e.plugins||[]),
             ['expo-image-picker',{photosPermission:'نحتاج صورك لرفع الروشتة وصور المنتجات والشعارات',cameraPermission:'نحتاج الكاميرا لتصوير الروشتة والمنتجات'}],
-            ['expo-notifications',{color:'#F2B51D'}],
+            ['expo-notifications',{color:'#F2B51D',sounds:['./assets/sounds/order_ring.wav']}],
             ['expo-location',{locationAlwaysAndWhenInUsePermission:'نستخدم موقعك ليتابع العميل طلبه على الخريطة',locationWhenInUsePermission:'نستخدم موقعك لتحديد مكان التوصيل',isAndroidBackgroundLocationEnabled:true,isAndroidForegroundServiceEnabled:true}]];
           if(fs.existsSync('google-services.json')){e.android.googleServicesFile='./google-services.json';console.log('Firebase file found: notifications enabled');}
           else console.log('No google-services.json: the app is built without phone notifications');

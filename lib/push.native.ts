@@ -20,6 +20,10 @@ async function setup() {
   try {
     await n.setNotificationChannelAsync('orders', { name: 'الطلبات', importance: n.AndroidImportance.MAX, vibrationPattern: [0, 400, 200, 400, 200, 400], sound: 'default', lockscreenVisibility: 1 });
   } catch {}
+  // a long (about 25 s) ring for new orders while the app is in the background: a channel's sound can not be changed once made, so it is a new channel
+  try {
+    await n.setNotificationChannelAsync('orders2', { name: 'طلبات جديدة (رنة طويلة)', importance: n.AndroidImportance.MAX, vibrationPattern: [0, 600, 300, 600, 300, 600], sound: 'order_ring.wav', lockscreenVisibility: 1, bypassDnd: false });
+  } catch {}
   return n;
 }
 
