@@ -1,21 +1,14 @@
-The MIT License (MIT)
+Copyright (c) 2026 Eng. Ahmed El-Hefnawy (المهندس أحمد الحفناوي). All Rights Reserved.
 
-Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)
+"أطلب أبيس" (Otlob Abis) — the application, its source code, server code, database design,
+design, text, images, logos, names and all related materials are the exclusive property of
+the copyright holder named above.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This is proprietary software. No license is granted to any person. Without the prior written
+permission of the copyright holder, you may not copy, modify, merge, publish, distribute,
+sublicense, sell, rent, reverse engineer, or create derivative works from any part of it,
+and you may not use the name "أطلب أبيس" or its logos.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Third-party open-source components used by this project remain under their own licenses.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
