@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, ScrollView, KeyboardAvoidingView, Platform, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, ScrollView, KeyboardAvoidingView, Keyboard, TextInput, findNodeHandle, Platform, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,8 +15,30 @@ import { TYPES, DEFAULT_CREDITS, isBooking, typeKeys } from '../lib/format';
 import { ProviderType } from '../lib/types';
 
 import { RegionPicker } from '../components/Regions';
-import { loginImageUrl, welcomeLogoUrl } from '../lib/api';
+import { loginImageUrl, welcomeLogoUrl, apiPublicRideTypes, rideImageUrl } from '../lib/api';
 import { Linking } from 'react-native';
+
+/** When the keyboard opens the page lifts: room is left under the form for it and the field being typed in is scrolled into view (so the customer always sees what he types). */
+function useKeyboardLift() {
+  const ref = React.useRef<any>(null);
+  const [kb, setKb] = useState(0);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const show = Keyboard.addListener('keyboardDidShow', (e: any) => {
+      setKb(e?.endCoordinates?.height || 0);
+      setTimeout(() => {
+        try {
+          const input = (TextInput as any).State?.currentlyFocusedInput?.();
+          const node = input && findNodeHandle(input);
+          if (node && ref.current?.scrollResponderScrollNativeHandleToKeyboard) ref.current.scrollResponderScrollNativeHandleToKeyboard(node, 90, true);
+        } catch { /* the page simply stays where it is */ }
+      }, 60);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKb(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  return { ref, pad: Platform.OS === 'ios' ? 0 : kb };
+}
 
 export function WelcomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -81,6 +103,7 @@ export function WelcomeScreen({ navigation }: any) {
 }
 
 export function LoginScreen({ navigation }: any) {
+  const kbl = useKeyboardLift();
   const insets = useSafeAreaInsets();
   const { db } = useStore();
   const supportPhone = (db.settings.supportPhone || '').trim() || '01004379508';
@@ -100,8 +123,8 @@ export function LoginScreen({ navigation }: any) {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: C.dark }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: C.dark }}>
+      <ScrollView ref={kbl.ref} contentContainerStyle={{ flexGrow: 1, paddingBottom: kbl.pad }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, alignItems: 'center' }}>
           <View style={{ alignSelf: 'stretch' }}>
             <Pressable onPress={() => navigation.canGoBack() && navigation.goBack()} style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
@@ -144,6 +167,7 @@ export function LoginScreen({ navigation }: any) {
 }
 
 export function RegisterScreen({ navigation, route }: any) {
+  const kbl = useKeyboardLift();
   const insets = useSafeAreaInsets();
   const [role, setRole] = useState<'customer' | 'provider' | 'courier' | 'captain'>(route.params?.role || 'customer');
   const { db } = useStore();
@@ -155,6 +179,12 @@ export function RegisterScreen({ navigation, route }: any) {
   const [address, setAddress] = useState('');
   const [regionId, setRegionId] = useState('');
   const [vehicle, setVehicle] = useState('موتوسيكل');
+  // a ride captain picks from the vehicle types the owner created (توكتوك، عربية نقل...), not from a fixed list
+  const [rideTypes, setRideTypes] = useState<{ id: number; name: string; image: string | null }[] | null>(null);
+  useEffect(() => {
+    if (role !== 'captain') return;
+    apiPublicRideTypes().then((r) => { setRideTypes(r.types); if (r.types.length) setVehicle((v) => (r.types.some((t) => t.name === v) ? v : r.types[0].name)); }).catch(() => setRideTypes([]));
+  }, [role]);
   const [ptype, setPtype] = useState<ProviderType>('restaurant');
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
@@ -182,8 +212,8 @@ export function RegisterScreen({ navigation, route }: any) {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: C.dark }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: C.dark }}>
+      <ScrollView ref={kbl.ref} contentContainerStyle={{ flexGrow: 1, paddingBottom: kbl.pad }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <Pressable onPress={() => navigation.goBack()} style={{ width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="arrow-forward" size={20} color="#fff" />
@@ -213,7 +243,24 @@ export function RegisterScreen({ navigation, route }: any) {
           <Field label="كلمة المرور" icon="lock-closed" value={pass} onChangeText={setPass} secureTextEntry placeholder="8 أحرف على الأقل" />
           {(kind === 'customer' || kind === 'provider') && <RegionPicker value={regionId} onChange={setRegionId} label={kind === 'provider' ? 'منطقة مكانك (تظهر للعملاء والمندوب)' : 'اسم المنطقة'} />}
           <Field label={kind === 'provider' ? 'عنوان النشاط بالتفصيل' : 'العنوان التفصيلي'} icon="location" value={address} onChangeText={setAddress} placeholder="رقم العمارة، الشارع، علامة مميزة" />
-          {kind === 'courier' && (
+          {role === 'captain' && !!rideTypes?.length && (
+            <View style={{ gap: 6 }}>
+              <T w="semi" size={13} color={C.dark3}>اختار المركبة اللي معاك</T>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 4, paddingHorizontal: 2 }} keyboardShouldPersistTaps="handled">
+                {rideTypes.map((t) => {
+                  const on = vehicle === t.name;
+                  return (
+                    <Pressable key={t.id} onPress={() => setVehicle(t.name)} style={{ width: 108, alignItems: 'center', gap: 4, paddingVertical: 8, paddingHorizontal: 6, borderRadius: 18, backgroundColor: C.card, borderWidth: 2.5, borderColor: on ? C.gold : 'transparent' }}>
+                      {t.image ? <Image source={{ uri: rideImageUrl(t) }} style={{ width: 90, height: 56 }} contentFit="contain" /> : <View style={{ height: 56, justifyContent: 'center' }}><Icon name="car" size={30} color={C.dark3} /></View>}
+                      <T w="black" size={12.5} align="center" numberOfLines={1}>{t.name}</T>
+                      {on && <View style={{ position: 'absolute', top: 4, start: 4 }}><Icon name="checkmark-circle" size={20} color={C.green} /></View>}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+          {kind === 'courier' && !(role === 'captain' && !!rideTypes?.length) && (
             <View style={{ gap: 6 }}>
               <T w="semi" size={13} color={C.dark3}>وسيلة التوصيل</T>
               <View style={{ flexDirection: 'row', gap: 8 }}>

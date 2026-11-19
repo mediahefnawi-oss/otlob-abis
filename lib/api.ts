@@ -573,6 +573,7 @@ export type RidePoint = { lat: number; lng: number; text?: string };
 export type RideOffer = { id: number; price: number; status: string; driver: { id: number; name: string; model: string; color: string; plate: string } };
 export type Ride = { id: number; status: string; typeId: number; from: RidePoint; to: RidePoint; km: number; minutes: number; suggested: number; offered: number; finalPrice: number | null; driverId: number | null; expiresAt: string; bidding?: boolean; textDest?: boolean; byRegion?: boolean; fromPin?: boolean; pricing?: RidePricingMode; maxFee?: number | null };
 export const rideImageUrl = (t: { image: string | null }) => (t.image ? `${API_BASE}${t.image}` : '');
+export const apiPublicRideTypes = () => apiRequest<{ types: { id: number; name: string; image: string | null }[] }>('/api/public/ride-types', {}, false);
 export const apiRideTypes = () => apiRequest<{ types: RideType[] }>('/api/ride-types');
 export type RideEstimate = { mode?: RidePricingMode; textDest?: boolean; zoneMissing?: boolean; km: number; minutes: number; source: string; route?: [number, number][] | null; bidding?: boolean; price: number; lo: number; hi: number; maxFee?: number | null };
 export type RideExtra = { textDest?: boolean; byRegion?: boolean; fromRegionId?: number; toRegionId?: number };

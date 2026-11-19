@@ -192,6 +192,12 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, c
     const r = await pool.query(`SELECT ${COLS} FROM ride_types WHERE active ORDER BY sort_order, id`);
     res.json({ types: r.rows.map(out) });
   }));
+  /* the sign-up screen of a ride captain lists the active vehicle types before any account exists: names and pictures only, no prices */
+  app.get('/api/public/ride-types', guard(async (_req, res) => {
+    if (!(await on())) return res.json({ types: [] });
+    const r = await pool.query(`SELECT ${COLS} FROM ride_types WHERE active ORDER BY sort_order, id`);
+    res.json({ types: r.rows.map(x => { const o = out(x); return { id: o.id, name: o.name, image: o.image }; }) });
+  }));
   /* ----- the owner: the fixed price between two areas, per vehicle type ----- */
   app.get('/api/admin/ride-types/:id/zones', ...admin, guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');

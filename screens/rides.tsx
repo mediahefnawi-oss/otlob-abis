@@ -8,7 +8,7 @@ import type { MapLine } from '../lib/mapHtml';
 import { getPosition } from '../lib/location';
 import { reverseAddress, searchPlace } from '../lib/revgeo';
 import { pickImage, canPickImage } from '../lib/pickImage';
-import { useStore } from '../lib/store';
+import { useStore, useMe } from '../lib/store';
 import { alertNewOrder } from '../lib/alerts';
 import {
   RideType, RidePoint, Ride, RideOffer, RideEstimate, rideImageUrl, apiRideTypes, apiRideEstimate, apiRideCreate, apiRideCreateByRegion, apiRideCurrent, apiRideAcceptOffer, apiRideCancel,
@@ -459,7 +459,9 @@ export function CaptainScreen({ navigation }: any) {
   const seen = useRef<Record<number, number>>({});   // when each request first reached this captain
   const skipped = useRef<Record<number, true>>({});
   const load = useCallback(async () => { try { setMe((await apiCaptainMe()).profile); } catch { setMe(null); } }, []);
-  useEffect(() => { load(); apiRideTypes().then((r) => setTypes(r.types)).catch(() => {}); }, [load]);
+  const account = useMe();
+  // the vehicle the captain chose when signing up is ticked for him (only until he picks another)
+  useEffect(() => { load(); apiRideTypes().then((r) => { setTypes(r.types); const v = String((account as any)?.vehicle || ''); const hit = r.types.find((t) => t.name === v); if (hit) setTypeId((cur) => cur ?? hit.id); }).catch(() => {}); }, [load]);
   const approved = me?.status === 'approved';
   useEffect(() => {
     if (!approved) return;
