@@ -688,3 +688,13 @@ export async function apiClientError(body: { message: string; where: string; sta
 export type ClientErrorRow = { id: string; where: string; message: string; stack: string; platform: string; version: string; userId: string | null; count: number; first: number; last: number };
 export const apiAdminClientErrors = () => apiRequest<{ errors: ClientErrorRow[] }>('/api/admin/client-errors');
 export const apiAdminClientErrorsClear = () => apiRequest<{ ok: boolean }>('/api/admin/client-errors', { method: 'DELETE' });
+
+/* delivery means a courier picks when signing up (the owner manages them from the panel) */
+export type CourierVehicle = { id: number; name: string; sort: number; active: boolean; image: string | null; couriers?: number };
+export const apiPublicCourierVehicles = () => apiRequest<{ vehicles: { id: number; name: string; image: string | null }[] }>('/api/public/courier-vehicles', {}, false);
+export const courierVehicleImageUrl = (v: { image: string | null }) => (v.image ? `${API_BASE}${v.image}` : '');
+export const apiAdminCourierVehicles = () => apiRequest<{ vehicles: CourierVehicle[] }>('/api/admin/courier-vehicles');
+export const apiAdminCourierVehicleAdd = (name: string) => apiRequest<{ vehicle: CourierVehicle }>('/api/admin/courier-vehicles', { method: 'POST', body: JSON.stringify({ name }) });
+export const apiAdminCourierVehicleSave = (id: number, b: { name?: string; active?: boolean; sort?: number }) => apiRequest<{ vehicle: CourierVehicle }>(`/api/admin/courier-vehicles/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
+export const apiAdminCourierVehicleDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/courier-vehicles/${id}`, { method: 'DELETE' });
+export const apiAdminCourierVehicleImage = (id: number, image: string) => apiRequest<{ vehicle: CourierVehicle }>(`/api/admin/courier-vehicles/${id}/image`, { method: 'PUT', body: JSON.stringify({ image }) });

@@ -49,6 +49,7 @@ import { inStaffQueue, isBooking, isLab, isRequestOnly } from './lib/format';
 import { ErrorBoundary, rememberCrash } from './components/ErrorBoundary';
 import { reportError } from './lib/report';
 import { AdminErrorsScreen } from './components/AdminErrors';
+import { AdminCourierVehiclesScreen } from './components/AdminCourierVehicles';
 import { GroupCartScreen, MarketScreen } from './screens/extra';
 import { RideHomeScreen, CaptainScreen } from './screens/rides';
 import { AdminGatesScreen, DispatchScreen } from './screens/adminControl';
@@ -244,6 +245,7 @@ function Root() {
         <Stack.Screen name="Premium" component={PremiumScreen} />
         <Stack.Screen name="AdminLog" component={AdminLogScreen} />
         <Stack.Screen name="AdminErrors" component={AdminErrorsScreen} />
+        <Stack.Screen name="AdminCourierVehicles" component={AdminCourierVehiclesScreen} />
         <Stack.Screen name="AdminRatings" component={AdminRatingsScreen} />
       </>
     );

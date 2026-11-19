@@ -15,7 +15,7 @@ import { TYPES, DEFAULT_CREDITS, isBooking, typeKeys } from '../lib/format';
 import { ProviderType } from '../lib/types';
 
 import { RegionPicker } from '../components/Regions';
-import { loginImageUrl, welcomeLogoUrl, apiPublicRideTypes, rideImageUrl } from '../lib/api';
+import { loginImageUrl, welcomeLogoUrl, apiPublicRideTypes, rideImageUrl, apiPublicCourierVehicles, courierVehicleImageUrl } from '../lib/api';
 import { Linking } from 'react-native';
 
 /** When the keyboard opens the page lifts: room is left under the form for it and the field being typed in is scrolled into view (so the customer always sees what he types). */
@@ -181,6 +181,12 @@ export function RegisterScreen({ navigation, route }: any) {
   const [vehicle, setVehicle] = useState('موتوسيكل');
   // a ride captain picks from the vehicle types the owner created (توكتوك، عربية نقل...), not from a fixed list
   const [rideTypes, setRideTypes] = useState<{ id: number; name: string; image: string | null }[] | null>(null);
+  // a courier picks from the delivery means the owner set up (the three old ones if the server does not answer)
+  const [cvs, setCvs] = useState<{ id: number; name: string; image: string | null }[] | null>(null);
+  useEffect(() => {
+    if (role !== 'courier') return;
+    apiPublicCourierVehicles().then((r) => { setCvs(r.vehicles); if (r.vehicles.length) setVehicle((v) => (r.vehicles.some((t) => t.name === v) ? v : r.vehicles[0].name)); }).catch(() => setCvs([]));
+  }, [role]);
   useEffect(() => {
     if (role !== 'captain') return;
     apiPublicRideTypes().then((r) => { setRideTypes(r.types); if (r.types.length) setVehicle((v) => (r.types.some((t) => t.name === v) ? v : r.types[0].name)); }).catch(() => setRideTypes([]));
@@ -260,7 +266,23 @@ export function RegisterScreen({ navigation, route }: any) {
               </ScrollView>
             </View>
           )}
-          {kind === 'courier' && !(role === 'captain' && !!rideTypes?.length) && (
+          {role === 'courier' && !!cvs?.length && (
+            <View style={{ gap: 6 }}>
+              <T w="semi" size={13} color={C.dark3}>وسيلة التوصيل</T>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {cvs.map((t) => {
+                  const on = vehicle === t.name;
+                  return (
+                    <Pressable key={t.id} onPress={() => setVehicle(t.name)} style={{ flexGrow: 1, flexBasis: '30%', maxWidth: '32%', alignItems: 'center', gap: 2, paddingVertical: 6, paddingHorizontal: 4, borderRadius: 16, backgroundColor: on ? '#FFF8E3' : C.card, borderWidth: 2.5, borderColor: on ? C.gold : 'transparent' }}>
+                      {t.image ? <Image source={{ uri: courierVehicleImageUrl(t) }} style={{ width: 64, height: 36 }} contentFit="contain" /> : <View style={{ height: 36, justifyContent: 'center' }}><Icon name="bicycle" size={24} color={C.dark3} /></View>}
+                      <T w="black" size={12} align="center" numberOfLines={1}>{t.name}</T>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+          {kind === 'courier' && !(role === 'captain' && !!rideTypes?.length) && !(role === 'courier' && !!cvs?.length) && (
             <View style={{ gap: 6 }}>
               <T w="semi" size={13} color={C.dark3}>وسيلة التوصيل</T>
               <View style={{ flexDirection: 'row', gap: 8 }}>

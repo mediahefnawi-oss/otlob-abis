@@ -997,3 +997,14 @@ CREATE TABLE IF NOT EXISTS client_errors (
   last_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_client_errors_last ON client_errors(last_at DESC);
+
+-- the delivery means a courier picks when signing up (the owner adds / renames / hides / deletes them from the panel)
+CREATE TABLE IF NOT EXISTS courier_vehicles (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  image BYTEA,
+  mime TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
