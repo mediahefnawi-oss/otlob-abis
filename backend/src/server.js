@@ -250,6 +250,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 if (pushEnabled) webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
 /** Sends one notification to every device of the given users. Never throws (a failed push must not fail an order). */
 async function pushToUsers(userIds, payload) {
+  try { require('./live').emit(userIds, payload && payload.tag); } catch { /* the instant poke is a bonus: never block a push */ }
   if ((!pushEnabled && !fcm) || !userIds || !userIds.length) return;
   try {
     const subs = (await pool.query('SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1::bigint[])', [[...new Set(userIds.map(Number))]])).rows;
@@ -1138,6 +1139,7 @@ require('./rides').register(app, { pool, auth, roles, asyncRoute, positiveId, ex
 require('./rides2').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers, hashPassword: (p) => bcrypt.hash(p, 12) });
 require('./geo').register(app, { asyncRoute });
 require('./gates').register(app, { pool, auth, roles, asyncRoute, services });
+require('./live').register(app, { auth });
 require('./trips').register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, pushToUsers });
 require('./homelayout').register(app, { pool, auth, roles, asyncRoute, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); } });
 managersLib.register(app, { pool, auth, roles, asyncRoute, positiveId, hashPassword: p => bcrypt.hash(p, 12), clearAuth: () => authMemo.clear(), freePhone, cleanUser });

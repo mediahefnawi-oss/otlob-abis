@@ -36,6 +36,39 @@ export async function clearApiToken(): Promise<void> {
   try { await storage.removeItem(TOKEN_KEY); } catch {}
 }
 
+/**
+ * Instant pokes from the server ("something changed for you"): one long-lived request that the server writes a line to.
+ * XMLHttpRequest is used on purpose: it can read a response while it is still arriving on the phone as well as in the browser.
+ * It reopens by itself (3 s, then slower while the server is away) and every 10 minutes to keep memory flat. Returns a stop function.
+ */
+export function openLive(onPoke: (tag: string) => void): () => void {
+  if (!API_BASE || typeof XMLHttpRequest === 'undefined') return () => {};
+  let stopped = false, xhr: XMLHttpRequest | null = null, retry: any = null, fails = 0;
+  const connect = async () => {
+    if (stopped) return;
+    const token = await getToken();
+    if (!token || stopped) return;
+    const x = new XMLHttpRequest();
+    xhr = x;
+    let seen = 0, opened = false, cut: any = null;
+    const next = (ms: number) => { if (cut) clearTimeout(cut); if (!stopped) retry = setTimeout(connect, ms); };
+    x.open('GET', `${API_BASE}/api/live`);
+    x.setRequestHeader('Authorization', `Bearer ${token}`);
+    x.setRequestHeader('Accept', 'text/event-stream');
+    x.onprogress = () => {
+      const t = x.responseText || '';
+      if (!opened) { opened = true; fails = 0; }
+      const chunk = t.slice(seen); seen = t.length;
+      if (chunk.includes('event: poke')) { const m = /"tag":"([^"]*)"/.exec(chunk); try { onPoke(m ? m[1] : ''); } catch { /* ignore */ } }
+    };
+    x.onloadend = () => { xhr = null; if (x.status === 401 || x.status === 403) { fails = 6; } else if (!opened) fails++; next(Math.min(60000, 3000 * 2 ** Math.min(fails, 5))); };
+    cut = setTimeout(() => { try { x.abort(); } catch { /* ignore */ } }, 10 * 60 * 1000);
+    x.send();
+  };
+  connect();
+  return () => { stopped = true; if (retry) clearTimeout(retry); try { xhr?.abort(); } catch { /* ignore */ } };
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}, authenticated = true): Promise<T> {
   if (!API_BASE) throw new ApiError('لم يتم ضبط عنوان خادم API. أضف EXPO_PUBLIC_API_URL ثم أعد بناء التطبيق.', 0);
   const headers = new Headers(options.headers || {});

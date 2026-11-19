@@ -1,4 +1,5 @@
 import { storage } from './storage';
+import { openLive } from './api';
 import { alertNewOrder, setAlarm } from './alerts';
 import { syncPushSubscription, forgetPushSubscription } from './push';
 import * as SecureStore from 'expo-secure-store';
@@ -575,6 +576,16 @@ export async function initStore() {
     setTimeout(() => syncRemote(withCatalog), Math.floor(Math.random() * 1500));
   }, 4000);
   AppState.addEventListener('change', (st) => { if (st === 'active') syncRemote(); });
+  // Instant pokes: a new order for a shop, "ready" for the couriers, a status change for the customer arrive the moment the server knows,
+  // so the app syncs (and rings) at once instead of waiting for the next 4-second round. The rounds above stay as the safety net.
+  let liveFor: string | null = null, liveStop: (() => void) | null = null, pokeTimer: any = null;
+  setInterval(() => {
+    const uid = state.userId || null;
+    if (uid === liveFor) return;
+    if (liveStop) { liveStop(); liveStop = null; }
+    liveFor = uid;
+    if (uid) liveStop = openLive(() => { if (pokeTimer) return; pokeTimer = setTimeout(() => { pokeTimer = null; syncRemote(false); }, 150); });
+  }, 2000);
 }
 
 /* ---------- session (server-authoritative) ---------- */
