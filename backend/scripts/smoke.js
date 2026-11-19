@@ -36,12 +36,16 @@ async function check(label, method, path, ok = x => true, body) {
     const bl = (cat.j.providers || []).find(p => /بلبن/.test(p.name));
     console.log(`   محلات: ${(cat.j.providers || []).length} • منتجات: ${(cat.j.products || []).length}${bl ? ` • بلبن: ${(cat.j.products || []).filter(p => p.providerId === bl.id).length} منتج` : ''}`);
   }
-  const u = process.env.OWNER_USERNAME, p = process.env.OWNER_PASSWORD;
-  if (!u || !p) { console.log('⚠️ مفيش OWNER_USERNAME/OWNER_PASSWORD في بيئة السيرفر، هكتفي بالفحص العام'); }
-  else {
-    const l = await check('login المالك', 'POST', '/api/auth/login', j => !!j.token, { username: u, password: p });
-    token = (l.j && l.j.token) || '';
-  }
+  // no password needed: the script signs a 10-minute owner token itself with the server's own secret (it never leaves this machine)
+  try {
+    const jwt = require('jsonwebtoken'), { Pool } = require('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'false' ? false : undefined, max: 1 });
+    const r = await pool.query("SELECT id, role FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL ORDER BY id LIMIT 1");
+    await pool.end();
+    if (!r.rowCount) throw new Error('مفيش حساب مالك نشط');
+    token = jwt.sign({ sub: String(r.rows[0].id), role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '10m', issuer: 'otlob-abis-api', audience: 'otlob-abis-app' });
+    console.log('✅ دخول المالك (توكن مؤقت 10 دقايق)');
+  } catch (e) { fails++; console.log('❌ تعذر تجهيز دخول المالك: ' + e.message); }
   if (token) {
     await check('sync (كل بيانات التطبيق)', 'GET', '/api/sync', j => j && typeof j === 'object');
     await check('المناديب', 'GET', '/api/staff/couriers', j => Array.isArray(j.couriers));
