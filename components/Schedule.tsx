@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, ScrollView } from 'react-native';
+import { View } from 'react-native';
+import { ScrollView } from './KScroll';
 import { C } from '../lib/theme';
 import { T, Chip, Field, Card } from './ui';
 import { useStore } from '../lib/store';

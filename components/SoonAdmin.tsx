@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, ScrollView, Pressable, Modal, Platform } from 'react-native';
+import { View, Pressable, Modal, Platform } from 'react-native';
+import { ScrollView } from './KScroll';
 import { Image } from 'expo-image';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Field, Toggle, toast, confirmDialog } from './ui';

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, FlatList, ScrollView, Pressable } from 'react-native';
+import { View, FlatList, Pressable } from 'react-native';
+import { ScrollView } from '../components/KScroll';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, shadow } from '../lib/theme';
 import {

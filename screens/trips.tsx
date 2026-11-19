@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, ScrollView, Pressable, Linking } from 'react-native';
+import { View, Pressable, Linking } from 'react-native';
+import { ScrollView } from '../components/KScroll';
 import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog } from '../components/ui';
 import { Trip, MyTrip, apiTrips, apiMyTrips, apiTripBook, apiTripCancelBooking, apiCaptainTrips, apiCaptainTripCreate, apiCaptainTripStatus, apiCaptainTripCancel, apiGates } from '../lib/api';

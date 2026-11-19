@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, Pressable, ScrollView } from 'react-native';
+import { View, Pressable } from 'react-native';
+import { ScrollView } from './KScroll';
 import { C } from '../lib/theme';
 import { T, Card, Btn, Sheet, Field, Chip, Toggle, toast, confirmDialog } from './ui';
 import { useStore, apptAction, proposeApptTime, acceptApptTime, setClinicBookMode } from '../lib/store';

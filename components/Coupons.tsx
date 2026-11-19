@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, Pressable } from 'react-native';
+import { View, Pressable } from 'react-native';
+import { ScrollView } from './KScroll';
 import { C } from '../lib/theme';
 import { T, Card, Btn, Header, Empty, Field, Icon, Chip, Sheet, toast, confirmDialog } from './ui';
 import { useStore } from '../lib/store';

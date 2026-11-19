@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, ScrollView, FlatList, Pressable, Share, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
+import { View, FlatList, Pressable, Share, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
+import { ScrollView } from '../components/KScroll';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

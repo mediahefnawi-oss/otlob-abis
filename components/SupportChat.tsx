@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Modal } from 'react-native';
+import { View, Pressable, TextInput, KeyboardAvoidingView, Platform, Modal } from 'react-native';
+import { ScrollView } from './KScroll';
 import { C, FONT } from '../lib/theme';
 import { T, Icon, Card, Header, Empty, toast, callPhone, Sheet, Field, Btn } from './ui';
 import { useMe, useStore } from '../lib/store';

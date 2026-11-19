@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, ScrollView, Pressable, Text, Image, TextInput } from 'react-native';
+import { View, Pressable, Text, Image, TextInput } from 'react-native';
+import { ScrollView } from './KScroll';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, shadow } from '../lib/theme';

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, ScrollView, Pressable, Text, Linking, Platform, Image, KeyboardAvoidingView, useWindowDimensions } from 'react-native';
+import { View, Pressable, Text, Linking, Platform, Image, KeyboardAvoidingView, useWindowDimensions } from 'react-native';
+import { ScrollView } from '../components/KScroll';
 import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, Chip, Stepper, Sheet, toast } from '../components/ui';
 import { DeliveryPin } from '../components/Location';

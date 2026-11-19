@@ -1,6 +1,7 @@
 import { SvcCover } from './extra';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, Pressable, Text, Image, Linking, useWindowDimensions } from 'react-native';
+import { View, Pressable, Text, Image, Linking, useWindowDimensions } from 'react-native';
+import { ScrollView } from '../components/KScroll';
 import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Btn, Empty, Header, Field, Chip, Sheet, toast } from '../components/ui';
 import MapView from '../components/MapView';

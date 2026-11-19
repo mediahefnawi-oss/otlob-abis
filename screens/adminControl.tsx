@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, ScrollView, Pressable } from 'react-native';
+import { View, Pressable } from 'react-native';
+import { ScrollView } from '../components/KScroll';
 import { C } from '../lib/theme';
 import { useStore, saveHomeLayout, listStaffCouriers, StaffCourier, dispatchOrders } from '../lib/store';
 import { BlocksManager } from '../components/HomeBlocks';

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Image, Pressable, Linking, Platform, ScrollView } from 'react-native';
+import { View, Image, Pressable, Linking, Platform } from 'react-native';
+import { ScrollView } from './KScroll';
 import { useNavigation } from '@react-navigation/native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { C } from '../lib/theme';

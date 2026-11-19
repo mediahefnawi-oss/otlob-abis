@@ -1,9 +1,7 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import { reportError } from '../lib/report';
-import {
-  View, Text, TextInput, Pressable, StyleSheet, Modal, ActivityIndicator, TextStyle, ViewStyle,
-  TextInputProps, Platform, KeyboardAvoidingView, ScrollView, Linking, StyleProp,
-} from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, Modal, ActivityIndicator, TextStyle, ViewStyle, TextInputProps, Platform, KeyboardAvoidingView, Linking, StyleProp } from 'react-native';
+import { ScrollView } from './KScroll';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

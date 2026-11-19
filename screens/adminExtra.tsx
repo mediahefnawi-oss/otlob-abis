@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, ScrollView, Pressable, Text, Image } from 'react-native';
+import { View, Pressable, Text, Image } from 'react-native';
+import { ScrollView } from '../components/KScroll';
 import { C } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog } from '../components/ui';

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, Pressable, Image } from 'react-native';
+import { View, Pressable, Image } from 'react-native';
+import { ScrollView } from './KScroll';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Chip, Btn, Field, Sheet, SectionTitle, Toggle, toast, confirmDialog } from './ui';

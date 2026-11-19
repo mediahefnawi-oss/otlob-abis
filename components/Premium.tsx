@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, Pressable } from 'react-native';
+import { View, Pressable } from 'react-native';
+import { ScrollView } from './KScroll';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, shadow } from '../lib/theme';
 import { T, Icon, Card, Btn, Field, Header, Pill, toast, confirmDialog, openWhats } from './ui';
