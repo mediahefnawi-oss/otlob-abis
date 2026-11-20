@@ -24,7 +24,7 @@ const ld = {
   '@graph': [
     { '@type': 'WebSite', '@id': SITE + '/#site', url: SITE + '/', name: NAME, alternateName: ALT, inLanguage: 'ar' },
     OWNER, DEV,
-    { '@type': 'Organization', '@id': SITE + '/#org', founder: { '@id': SITE + '/#owner' }, name: NAME, alternateName: ALT, url: SITE + '/', logo: SITE + '/download-icon.png' },
+    { '@type': 'Organization', '@id': SITE + '/#org', founder: { '@id': SITE + '/#owner' }, sameAs: ['https://www.facebook.com/share/1Ej9N2KRaR/'], name: NAME, alternateName: ALT, url: SITE + '/', logo: SITE + '/download-icon.png' },
     {
       '@type': 'MobileApplication', name: NAME, alternateName: ALT, operatingSystem: 'ANDROID',
       applicationCategory: 'ShoppingApplication', inLanguage: 'ar', url: SITE + '/download.html', downloadUrl: APK,
@@ -53,7 +53,8 @@ const noscript =
   '<noscript><main dir="rtl" style="color:#F5F3EA;font-family:Tahoma,Arial,sans-serif;max-width:460px;margin:40px auto;padding:0 20px;text-align:center">' +
   '<h1>أطلب أبيس – Otlob Abis</h1>' +
   '<p>تطبيق أطلب أبيس (اطلب ابيس): اطلب من المطاعم والسوبر ماركت والصيدليات، واحجز عند الدكتور، واطلب من الصنايعية، والتوصيل لحد باب بيتك في أبيس.</p>' +
-  '<p><a style="color:#F2B51D" href="' + SITE + '/download.html">حمّل تطبيق أطلب أبيس للأندرويد</a></p>' +
+  '<p><a style="color:#F2B51D" href="' + SITE + '/download.html">تحميل تطبيق أطلب أبيس للأندرويد</a></p>' +
+  '<p><a style="color:#F2B51D" href="https://www.facebook.com/share/1Ej9N2KRaR/">صفحة أطلب أبيس على فيسبوك</a> • <a style="color:#F2B51D" href="' + SITE + '/privacy.html">سياسة الخصوصية</a></p>' +
   '<p style="font-size:13px;opacity:.8">تصميم وتطوير شركة Ostorya التابعة للمهندس أحمد الحفناوي – © جميع حقوق الملكية محفوظة</p>' +
   '</main></noscript>';
 
