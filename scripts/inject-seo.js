@@ -15,17 +15,21 @@ const ALT = ['اطلب ابيس', 'أطلب ابيس', 'اطلب أبيس', 'Otl
 const TITLE = 'أطلب أبيس | اطلب ابيس – تطبيق الطلبات والتوصيل في أبيس';
 const DESC = 'أطلب أبيس (Otlob Abis): اطلب أكلك ومشترياتك وخدماتك من أبيس بضغطة واحدة. مطاعم وسوبر ماركت وصيدليات وعيادات وصنايعية وتوصيل لحد باب البيت. حمّل التطبيق للأندرويد.';
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const OWNER = { '@type': 'Person', '@id': SITE + '/#owner', name: 'المهندس أحمد الحفناوي', alternateName: 'Eng. Ahmed El-Hefnawy' };
+const DEV = { '@type': 'Organization', '@id': SITE + '/#ostorya', name: 'Ostorya', alternateName: 'أوستوريا', logo: SITE + '/ostorya-logo.png', founder: { '@id': SITE + '/#owner' } };
 const today = new Date().toISOString().slice(0, 10);
 
 const ld = {
   '@context': 'https://schema.org',
   '@graph': [
     { '@type': 'WebSite', '@id': SITE + '/#site', url: SITE + '/', name: NAME, alternateName: ALT, inLanguage: 'ar' },
-    { '@type': 'Organization', '@id': SITE + '/#org', name: NAME, alternateName: ALT, url: SITE + '/', logo: SITE + '/download-icon.png' },
+    OWNER, DEV,
+    { '@type': 'Organization', '@id': SITE + '/#org', founder: { '@id': SITE + '/#owner' }, name: NAME, alternateName: ALT, url: SITE + '/', logo: SITE + '/download-icon.png' },
     {
       '@type': 'MobileApplication', name: NAME, alternateName: ALT, operatingSystem: 'ANDROID',
       applicationCategory: 'ShoppingApplication', inLanguage: 'ar', url: SITE + '/download.html', downloadUrl: APK,
-      image: SITE + '/download-icon.png', description: DESC, publisher: { '@id': SITE + '/#org' },
+      image: SITE + '/download-icon.png', description: DESC, publisher: { '@id': SITE + '/#org' }, author: { '@id': SITE + '/#ostorya' },
+      copyrightHolder: { '@id': SITE + '/#owner' }, copyrightYear: new Date().getFullYear(),
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'EGP' },
     },
   ],
@@ -35,6 +39,8 @@ const head =
   '<meta name="description" content="' + esc(DESC) + '">' +
   '<link rel="canonical" href="' + SITE + '/">' +
   '<meta name="robots" content="index,follow">' +
+  '<meta name="author" content="شركة Ostorya التابعة للمهندس أحمد الحفناوي">' +
+  '<meta name="copyright" content="© أطلب أبيس – جميع الحقوق محفوظة لشركة Ostorya التابعة للمهندس أحمد الحفناوي">' +
   '<meta property="og:type" content="website"><meta property="og:locale" content="ar_EG">' +
   '<meta property="og:site_name" content="' + NAME + '">' +
   '<meta property="og:title" content="' + esc(TITLE) + '">' +
@@ -48,6 +54,7 @@ const noscript =
   '<h1>أطلب أبيس – Otlob Abis</h1>' +
   '<p>تطبيق أطلب أبيس (اطلب ابيس): اطلب من المطاعم والسوبر ماركت والصيدليات، واحجز عند الدكتور، واطلب من الصنايعية، والتوصيل لحد باب بيتك في أبيس.</p>' +
   '<p><a style="color:#F2B51D" href="' + SITE + '/download.html">حمّل تطبيق أطلب أبيس للأندرويد</a></p>' +
+  '<p style="font-size:13px;opacity:.8">تصميم وتطوير شركة Ostorya التابعة للمهندس أحمد الحفناوي – © جميع حقوق الملكية محفوظة</p>' +
   '</main></noscript>';
 
 // index.html
