@@ -36,6 +36,7 @@ const ld = {
 };
 
 const head =
+  '<meta name="google-site-verification" content="Bw9nKcY0NhGcD--98-sgrwGpt3auKO-AkkiZIvVpxy8">' +
   '<meta name="description" content="' + esc(DESC) + '">' +
   '<link rel="canonical" href="' + SITE + '/">' +
   '<meta name="robots" content="index,follow">' +
