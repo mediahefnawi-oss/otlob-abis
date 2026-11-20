@@ -572,6 +572,7 @@ export async function initStore() {
     const me = state.db.users.find((u) => u.id === state.userId);
     const fast = !!me && (me.role === 'provider' || me.role === 'courier' || me.role === 'supervisor');
     const hidden = typeof document !== 'undefined' && document.hidden;
+    if (!fast && AppState.currentState && AppState.currentState !== 'active') return;   // a customer's phone in the pocket does not poll (saves battery and data); coming back syncs at once, see below
     if (!fast && (syncTick % 2 !== 0 || (hidden && syncTick % 8 !== 0))) return;
     // A little random delay so thousands of phones do not all ask at the same instant.
     const withCatalog = syncTick % 8 === 0;
