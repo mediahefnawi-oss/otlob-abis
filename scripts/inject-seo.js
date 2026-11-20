@@ -4,11 +4,11 @@
 //   block (the app itself is JavaScript, which Google reads late and badly).
 // - dist/download.html: points its canonical / og:url / og:image at SITE_URL.
 // - dist/robots.txt + dist/sitemap.xml.
-// SITE_URL = the public address of the site. Change it (Vercel env var) when otlobabis.com points at this site.
+// SITE_URL = the public address of the site. Override with the SITE_URL env var if the site moves.
 const fs = require('fs');
 const path = require('path');
 const dist = path.join(__dirname, '..', 'dist');
-const SITE = (process.env.SITE_URL || 'https://otlob-abis-app.vercel.app').replace(/\/$/, '');
+const SITE = (process.env.SITE_URL || 'https://otlobabis.com').replace(/\/$/, '');
 const APK = 'https://github.com/mediahefnawi-oss/otlob-abis/releases/latest/download/otlob-abis.apk';
 const NAME = 'أطلب أبيس';
 const ALT = ['اطلب ابيس', 'أطلب ابيس', 'اطلب أبيس', 'Otlob Abis', 'OtlobAbis'];
