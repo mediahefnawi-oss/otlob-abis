@@ -36,6 +36,11 @@ const ld = {
 };
 
 const head =
+  '<link rel="icon" href="/favicon.ico" sizes="any">' +
+  '<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png">' +
+  '<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">' +
+  '<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">' +
+  '<link rel="apple-touch-icon" href="/apple-touch-icon.png">' +
   '<meta name="google-site-verification" content="Bw9nKcY0NhGcD--98-sgrwGpt3auKO-AkkiZIvVpxy8">' +
   '<meta name="description" content="' + esc(DESC) + '">' +
   '<link rel="canonical" href="' + SITE + '/">' +
@@ -70,7 +75,7 @@ if (html.includes('application/ld+json')) {
   html = /<title>[\s\S]*?<\/title>/i.test(html)
     ? html.replace(/<title>[\s\S]*?<\/title>/i, '<title>' + esc(TITLE) + '</title>')
     : html.replace(/<\/head>/i, '<title>' + esc(TITLE) + '</title></head>');
-  html = html.replace(/<meta\s+name="description"[^>]*>/gi, '');
+  html = html.replace(/<meta\s+name="description"[^>]*>/gi, '').replace(/<link\s+rel="(shortcut )?icon"[^>]*>/gi, '');
   html = html.replace(/<\/head>/i, head + '</head>').replace(/<body[^>]*>/i, (m) => m + noscript);
   fs.writeFileSync(idx, html);
 }
