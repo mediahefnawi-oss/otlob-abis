@@ -56,6 +56,7 @@ if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
 app.use(cors({ origin(origin, cb) { if (!origin || allowedOrigins.includes(origin)) return cb(null, true); return cb(new Error('Origin not allowed')); }, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'], allowedHeaders: ['Content-Type','Authorization'] }));
 app.use(require('./adminlog').middleware(pool));
 app.use(express.json({ limit: '2mb' })); // a request photo is shrunk by the app to well under 600 KB
+require('./dedupe').install(app);   // the same order sent twice (double tap / retry after a timeout) is created once
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false }));
 // Creating orders / uploading pictures is never needed in bursts: a generous cap per address stops abuse without bothering real users.
 const writeLimiter = rateLimit({ windowMs: 10 * 60 * 1000, limit: 400, standardHeaders: true, legacyHeaders: false, skip: req => req.method === 'GET' || req.method === 'OPTIONS', message: { error: 'طلبات كثيرة جداً. انتظر قليلاً ثم حاول مرة أخرى' } });
@@ -186,7 +187,7 @@ const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
-const SCHEMA_VERSION = 20261231;
+const SCHEMA_VERSION = 20261232;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
