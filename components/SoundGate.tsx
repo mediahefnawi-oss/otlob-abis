@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { toast } from './ui';
 import { CenterNotice } from './CenterNotice';
-import { useMe } from '../lib/store';
+import { useMe, isGuestId } from '../lib/store';
 import { soundReady, soundSupported, subscribeSound, enableSound, playNewOrderSound } from '../lib/alerts';
 import { PushState, pushState, enablePush, autoEnablePush, openPushSettings } from '../lib/push';
 
@@ -26,7 +26,7 @@ export function SoundGate() {
     return () => { dead = true; clearInterval(t); };
   }, [native, me?.id, refresh]);
 
-  if (!me) return null;
+  if (!me || isGuestId(me.id)) return null; // a visitor has no account to attach this phone to: ask after he signs in, never show an error before
   const staff = ['provider', 'courier'].includes(me.role);
   const needSound = staff && soundSupported() && !ready;
   const needPush = push === 'off' || (native && push === 'denied');
