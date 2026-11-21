@@ -13,6 +13,7 @@ export function reportError(where: string, e: any): void {
     const message = String((e && (e.message || e)) || 'unknown').slice(0, 400);
     if (!message || /^Network request failed$|Failed to fetch|AbortError|timeout/i.test(message)) return;   // a weak connection is not a bug
     if ((e && e.status === 401) || /^يلزم تسجيل الدخول/.test(message)) return;   // signed out / session ended: expected, not a bug
+    if ((e && e.status === 0) || /^تعذر الاتصال/.test(message)) return;   // offline / weak connection (the app's own "no connection" error): not a bug, never worth the owner's attention
     const key = where + '|' + message;
     const now = Date.now();
     if ((last.get(key) || 0) > now - 60000 || sent >= 25) return;

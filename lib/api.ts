@@ -100,7 +100,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, aut
       try { response = await fetch(`${API_BACKUP}${rel}`, { ...options, headers, signal: ctl?.signal }); } catch {}
     }
   }
-  catch { throw new ApiError('تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى.', 0); }
+  catch { throw new ApiError('الإنترنت ضعيف دلوقتي. جرّب تاني بعد لحظات.', 0); }
   finally { if (timer) clearTimeout(timer); }
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => ({}));
