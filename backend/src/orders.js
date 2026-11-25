@@ -1177,6 +1177,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return next;
     });
     await notifyAction(action, out, role);
+    if (app.bellsAfterAction) await app.bellsAfterAction(id, me, action); // a ringing bell ends when the person it rings decides (accept / refuse)
     res.json({ order: orderJsonFor(out, role) });
   }));
 

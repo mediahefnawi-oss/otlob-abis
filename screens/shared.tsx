@@ -20,6 +20,7 @@ import { Order, OrderStatus } from '../lib/types';
 import { QuoteButtons, MakerOrderButtons, RequestPhoto, ErrandQuoteButton } from '../components/Quote';
 import { PushCard } from '../components/PushCard';
 import { OrderStaffTools } from '../components/StaffTools';
+import { OrderBellPanel } from '../components/Bell';
 import { LabDetail } from '../components/Lab';
 import { SupportChatCard } from '../components/SupportChat';
 import { OrderMapCard, MyLocationCard } from '../components/Location';
@@ -227,6 +228,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             </View>
           )}
           {isStaff && <OrderStaffTools o={o} />}
+          {isStaff && <OrderBellPanel o={o} />}
           {((me.role === 'provider' && o.providerOwnerId === me.id) || staffOpen) && (
             <>
               <QuoteButtons o={o} />

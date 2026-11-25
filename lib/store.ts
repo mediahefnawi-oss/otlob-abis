@@ -996,6 +996,14 @@ export async function transferOrder(orderId: string, providerId: string): Promis
 }
 
 /** Owner / supervisor on an order the shop refused: end it for good (the customer is told the reason), or mark it "handled" so it leaves the needs-attention list. */
+/** Answer a ringing bell straight from the server (the order may not be in the local list yet): accept or refuse, then keep what the server says. */
+export async function bellOrderAction(orderId: string, action: 'courier_accept' | 'accept' | 'reject'): Promise<Result> {
+  try {
+    const r = await apiOrderAction(orderId, action);
+    mutate((db) => { db.orders = upsertById(db.orders, [r.order]); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
 export async function staffOrderAction(orderId: string, action: 'cancel' | 'dismiss', reason?: string, gift?: { kind: 'amount' | 'percent'; value: number; days: number }): Promise<Result> {
   try {
     const r = await apiOrderAction(orderId, action, reason, gift ? { gift } : undefined);

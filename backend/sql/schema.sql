@@ -1066,3 +1066,20 @@ CREATE TABLE IF NOT EXISTS captain_change_requests (
   decided_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS captain_change_requests_pending_idx ON captain_change_requests(status, id DESC);
+
+-- bells: the owner rings a courier / a shop about one order until they accept or refuse it (backend/src/bells.js)
+CREATE TABLE IF NOT EXISTS bells (
+  id BIGSERIAL PRIMARY KEY,
+  order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  target_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ringing',
+  started_by BIGINT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at TIMESTAMPTZ,
+  reason TEXT,
+  sends INT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS bells_ringing_idx ON bells(status, target_id);
+CREATE INDEX IF NOT EXISTS bells_order_idx ON bells(order_id);

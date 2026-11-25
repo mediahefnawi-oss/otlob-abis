@@ -22,6 +22,7 @@ import { UpdateBanner } from './components/UpdateBanner';
 import { InstallBanner } from './components/InstallBanner';
 import { navigationRef } from './lib/nav';
 import { RxAutoOpen } from './components/Rx';
+import { BellRinger } from './components/Bell';
 import { SideNav } from './components/SideNav';
 import { useWide, useNav } from './lib/wide';
 import { setUiScale, setScaleConfig } from './lib/scale';
@@ -262,6 +263,7 @@ function Root() {
         {screens}
       </Stack.Navigator>
       <RxAutoOpen />
+      <BellRinger />
       {!!me && isGuestId(me.id) && <GuestLoginSheet />}
     </NavigationContainer>
   );

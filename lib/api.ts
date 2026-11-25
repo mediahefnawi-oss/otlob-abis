@@ -745,3 +745,16 @@ export const apiAdminCourierVehicleAdd = (name: string) => apiRequest<{ vehicle:
 export const apiAdminCourierVehicleSave = (id: number, b: { name?: string; active?: boolean; sort?: number }) => apiRequest<{ vehicle: CourierVehicle }>(`/api/admin/courier-vehicles/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminCourierVehicleDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/courier-vehicles/${id}`, { method: 'DELETE' });
 export const apiAdminCourierVehicleImage = (id: number, image: string) => apiRequest<{ vehicle: CourierVehicle }>(`/api/admin/courier-vehicles/${id}/image`, { method: 'PUT', body: JSON.stringify({ image }) });
+
+/* ---------- الجرس (الإدارة ترنّ على مندوب/مقدّم خدمة لحد ما يرد) ---------- */
+export type BellInfo = { id: number; orderId: number; targetId: number; role: 'courier' | 'shop'; status: string; startedAt: number; sends: number; name?: string; reason?: string };
+export type MyBell = BellInfo & { order: { id: number; number: number | string; status: string; shop: string; address: string; region: string; total: number; customer: string; mine: boolean } };
+export const apiBellStart = (orderId: string | number, role: 'courier' | 'shop', targetId: string | number) =>
+  apiRequest<{ bell: BellInfo; already?: boolean }>(`/api/admin/orders/${encodeURIComponent(String(orderId))}/bell`, { method: 'POST', body: JSON.stringify({ role, targetId: Number(targetId) }) });
+export const apiBellStop = (orderId: string | number) =>
+  apiRequest<{ ok: boolean; stopped: number }>(`/api/admin/orders/${encodeURIComponent(String(orderId))}/bell`, { method: 'DELETE' });
+export const apiBellList = (orderId: string | number) =>
+  apiRequest<{ bells: BellInfo[] }>(`/api/admin/orders/${encodeURIComponent(String(orderId))}/bells`);
+export const apiMyBells = () => apiRequest<{ bells: MyBell[] }>('/api/me/bells');
+export const apiBellRespond = (orderId: string | number, decision: 'accept' | 'reject') =>
+  apiRequest<{ ok: boolean }>(`/api/orders/${encodeURIComponent(String(orderId))}/bell/respond`, { method: 'POST', body: JSON.stringify({ decision }) });
