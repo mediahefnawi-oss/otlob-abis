@@ -43,19 +43,33 @@ function Conversation({ load, send, hint }: { load: () => Promise<ChatMsg[] | nu
 }
 
 /** Customer: "ask the shop" on the shop's page. Hidden unless the owner switched chat on (and did not close it for this shop). */
-export function ShopChatButton({ providerId, chatOff, bottom = 22 }: { providerId: string; chatOff?: boolean; bottom?: number }) {
+export function ShopChatButton({ providerId, chatOff, bottom = 22, onOrder }: { providerId: string; chatOff?: boolean; bottom?: number; onOrder?: () => void }) {
   const { db } = useStore();
   const [open, setOpen] = useState(false);
-  if (!db.settings.features?.chat || chatOff) return null;
+  const chatOn = !!db.settings.features?.chat && !chatOff;
+  if (!chatOn && !onOrder) return null;
   const load = () => apiShopChat(providerId).then((r) => (r.enabled ? r.messages : null));
   return (
     <>
+      {onOrder ? (
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 20, backgroundColor: '#fff', paddingHorizontal: 12, paddingTop: 10, paddingBottom: Math.max(bottom - 8, 14), flexDirection: 'row', gap: 8, borderTopWidth: 1, borderTopColor: C.line }}>
+          {chatOn && (
+            <Pressable onPress={() => setOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#E9ECE6', borderRadius: 14, paddingVertical: 12 }}>
+              <Icon name="chatbubbles" size={18} color={C.dark} /><T w="black" size={13} color={C.dark}>اسأل المحل</T>
+            </Pressable>
+          )}
+          <Pressable onPress={onOrder} style={{ flex: 1.3, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.gold, borderRadius: 14, paddingVertical: 12 }}>
+            <Icon name="create" size={18} color={C.dark} /><T w="black" size={13} color={C.dark}>اطلب من المنيو</T>
+          </Pressable>
+        </View>
+      ) : (
       <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom, alignItems: 'center', zIndex: 20 }}>
         <Pressable onPress={() => setOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.gold, borderRadius: 30, paddingHorizontal: 22, paddingVertical: 12, shadowColor: C.gold, shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 }}>
           <Icon name="chatbubbles" size={20} color={C.dark} />
           <T w="black" size={14} color={C.dark}>اسأل المحل قبل ما تطلب</T>
         </Pressable>
       </View>
+      )}
       <Sheet visible={open} onClose={() => setOpen(false)} title="محادثة مع المحل">
         {open && <Conversation load={load} send={(t) => apiShopChatSend(providerId, t).then((r) => r.message)} hint="اكتب سؤالك للمحل" />}
         <Btn variant="soft" icon="cart" title="اطلب دلوقتي" onPress={() => setOpen(false)} />

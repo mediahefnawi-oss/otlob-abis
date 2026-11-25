@@ -2,7 +2,7 @@
  * The map is a small Leaflet page over free OpenStreetMap tiles (no key, no cost). It is shown inside a WebView on the phone
  * and an iframe on the web. The page receives new markers and route lines through window.setMarkers([...], refit, lines) so the map never reloads.
  */
-export type MapMarker = { lat: number; lng: number; kind: 'courier' | 'shop' | 'dest' | 'me'; label?: string };
+export type MapMarker = { lat: number; lng: number; kind: 'courier' | 'shop' | 'dest' | 'me'; label?: string; emoji?: string; tone?: 'free' | 'busy' | 'stale' };
 /** base = the whole planned route (faint), done = the part already travelled, todo = what is left. */
 export type MapLine = { kind: 'base' | 'done' | 'todo' | 'trip'; pts: [number, number][] };
 const ICON: Record<MapMarker['kind'], string> = { courier: '🛵', shop: '🏪', dest: '🏠', me: '📍' };
@@ -21,6 +21,7 @@ export function mapHtml(markers: MapMarker[], opts: { pickable?: boolean; lines?
 <style>html,body,#m{margin:0;height:100%;width:100%;background:#EEEDE6}
 .pin{font-size:26px;line-height:30px;text-align:center;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
 .pc{width:46px;height:46px;border-radius:50%;background:#00211A;border:2.5px solid #F2B51D;display:flex;align-items:center;justify-content:center;margin:0 auto;box-shadow:0 0 0 7px rgba(14,122,79,.2),0 3px 8px rgba(0,0,0,.35)}
+.pc.busy{border-color:#E8761E;box-shadow:0 0 0 7px rgba(232,118,30,.22),0 3px 8px rgba(0,0,0,.35)}.pc.stale{border-color:#999;opacity:.6;box-shadow:0 3px 8px rgba(0,0,0,.25)}.pc.em{font-size:23px;line-height:1}
 .ps{width:32px;height:32px;border-radius:50%;background:#fff;border:2.5px solid #0E7A4F;display:flex;align-items:center;justify-content:center;margin:4px auto 0;box-shadow:0 2px 6px rgba(0,0,0,.3)}
 .pd{width:44px;height:44px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#F2B51D;border:3px solid #fff;margin:0 auto;animation:pl 1.8s ease-out infinite;box-shadow:0 3px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center}
 .pd>div{transform:rotate(45deg);display:flex}
@@ -41,7 +42,7 @@ function doFocus(f){if(!f)return;var k=f.lat+','+f.lng;if(k===lastFocus)return;l
 function esc(s){return String(s).replace(/[<>&"]/g,'')}
 function pinHtml(m){
   var lbl=m.label?'<div class="lbl">'+esc(m.label)+'</div>':'';
-  if(m.kind==='courier')return '<div class="pc">'+SV.courier+'</div>'+lbl;
+  if(m.kind==='courier')return '<div class="pc'+(m.tone==='busy'?' busy':m.tone==='stale'?' stale':'')+(m.emoji?' em':'')+'">'+(m.emoji?esc(m.emoji):SV.courier)+'</div>'+lbl;
   if(m.kind==='shop')return '<div class="ps">'+SV.shop+'</div>'+lbl;
   if(m.kind==='dest')return '<div class="pd"><div>'+SV.dest+'</div></div>'+lbl;
   return '<div class="pin">'+ICON[m.kind]+'</div>'+lbl;

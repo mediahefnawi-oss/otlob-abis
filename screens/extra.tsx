@@ -21,7 +21,7 @@ const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مر�
 /* ---------------- group order ---------------- */
 
 /** The strip on a shop page: opens (or reuses) the owner's shared cart for this shop. */
-export function GroupOrderButton({ navigation, providerId }: { navigation: any; providerId: string }) {
+export function GroupOrderButton({ navigation, providerId, compact }: { navigation: any; providerId: string; compact?: boolean }) {
   const { db } = useStore();
   const [busy, setBusy] = useState(false);
   const prov = db.providers.find((x) => String(x.id) === String(providerId));
@@ -33,6 +33,18 @@ export function GroupOrderButton({ navigation, providerId }: { navigation: any; 
     catch (e) { toast(errText(e), 'err'); }
     finally { setBusy(false); }
   };
+  if (compact) {
+    return (
+      <View style={{ marginHorizontal: 16, marginTop: 8, gap: 4 }}>
+        <Pressable onPress={go} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: C.line }}>
+          <Text style={{ fontSize: 18 }}>👥</Text>
+          <T w="bold" size={13} color={C.green} style={{ flex: 1 }}>{busy ? 'جاري الفتح...' : 'طلب جماعي (ادعو صحابك)'}</T>
+          <Icon name="chevron-back" size={16} color={C.sub} />
+        </Pressable>
+        <GroupJoinCard navigation={navigation} />
+      </View>
+    );
+  }
   return (
     <View style={{ marginHorizontal: 16, marginTop: 12 }}>
     <Pressable onPress={go}>

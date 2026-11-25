@@ -72,7 +72,7 @@ async function call(key, { as, body, query, params } = {}) {
   await q('UPDATE users SET sup_regions=$1 WHERE id=$2', ['9', sup]);
   r = await call('GET /api/orders/:id/tracking', { as: S1, params: { id: oLive } }); eq(r.status, 403, 'supervisor of another area refused');
   r = await call('GET /api/staff/courier-locations', { as: S1 }); eq(r.json.couriers.length, 0, 'supervisor list limited to his areas');
-  r = await call('GET /api/staff/courier-locations', { as: A }); eq(r.json.couriers.length, 1, 'owner list'); eq(r.json.couriers[0].busy, 2, 'busy count');
+  r = await call('GET /api/staff/courier-locations', { as: A }); eq(r.json.couriers.length, 1, 'owner list'); eq(r.json.couriers[0].busy, 2, 'busy count'); ok(r.json.couriers[0].order && r.json.couriers[0].order.id && typeof r.json.couriers[0].order.address === 'string', 'courier carries his current order'); ok(r.json.couriers[0].order.dest === null || (isFinite(r.json.couriers[0].order.dest.lat) && isFinite(r.json.couriers[0].order.dest.lng)), 'order destination is a valid point or null');
   r = await call('GET /api/staff/courier-locations', { as: C1 }); eq(r.status, 403, 'customer refused list');
   await call('DELETE /api/courier/location', { as: CO });
   r = await call('GET /api/orders/:id/tracking', { as: C1, params: { id: oLive } }); eq(r.json.courier, null, 'no marker after courier stops sharing');

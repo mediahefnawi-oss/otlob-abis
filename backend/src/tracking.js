@@ -100,11 +100,15 @@ module.exports = function registerTrackingRoutes(app, { pool, auth, roles, async
     }
     const r = await pool.query(
       `SELECT u.id, u.name, u.phone, u.vehicle, u.available, u.region_id, c.lat, c.lng, c.heading, c.updated_at,
-         (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1)) AS busy
+         (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1)) AS busy,
+         ao.id AS oid, ao.status AS ostatus, ao.data->>'destLat' AS dlat, ao.data->>'destLng' AS dlng, ao.data->>'address' AS daddr, ao.pname
        FROM courier_locations c JOIN users u ON u.id=c.courier_id
+       LEFT JOIN LATERAL (SELECT o.id, o.status, o.data, p.name AS pname FROM orders o LEFT JOIN providers p ON p.id=o.provider_id
+                          WHERE o.courier_user_id=u.id AND o.status = ANY($1) ORDER BY o.id DESC LIMIT 1) ao ON TRUE
        WHERE u.role='courier' AND u.status='active' AND u.deleted_at IS NULL AND (u.available=TRUE OR EXISTS (SELECT 1 FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1)))${regionSql}
        ORDER BY u.name LIMIT 300`, params);
-    res.json({ couriers: r.rows.map(x => ({ id: String(x.id), name: x.name, phone: x.phone, vehicle: x.vehicle || '', available: !!x.available, busy: Number(x.busy), ...posJson(x) })) });
+    res.json({ couriers: r.rows.map(x => ({ id: String(x.id), name: x.name, phone: x.phone, vehicle: x.vehicle || '', available: !!x.available, busy: Number(x.busy), ...posJson(x),
+      order: x.oid ? { id: String(x.oid), status: x.ostatus, shop: x.pname || '', address: x.daddr || '', dest: x.dlat != null && x.dlng != null && isFinite(Number(x.dlat)) && isFinite(Number(x.dlng)) ? { lat: Number(x.dlat), lng: Number(x.dlng) } : null } : null })) });
   }));
 
   /* ---------- one order: courier + shop + destination ---------- */

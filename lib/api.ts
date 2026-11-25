@@ -415,7 +415,7 @@ export const apiSupervisorSupport = (id: string, enabled: boolean) => apiRequest
 export type GeoPoint = { lat: number; lng: number };
 export type CourierPos = GeoPoint & { at: number; fresh: boolean; heading?: number };
 export type OrderTracking = { status: string; courier: CourierPos | null; shop: GeoPoint | null; dest: GeoPoint | null; distanceKm: number | null; etaMin: number | null };
-export type StaffCourierPos = CourierPos & { id: string; name: string; phone: string; vehicle: string; available: boolean; busy: number };
+export type StaffCourierPos = CourierPos & { id: string; name: string; phone: string; vehicle: string; available: boolean; busy: number; order?: { id: string; status: string; shop: string; address: string; dest: GeoPoint | null } | null };
 export const apiMyLocation = () => apiRequest<{ location: GeoPoint | null }>('/api/me/location');
 export const apiSetMyLocation = (p: GeoPoint | null) => apiRequest<{ location: GeoPoint | null }>('/api/me/location', { method: 'PUT', body: JSON.stringify(p ? p : { clear: true }) });
 export const apiSetShopLocation = (p: GeoPoint | null) => apiRequest<{ location: GeoPoint | null }>('/api/provider/location', { method: 'PUT', body: JSON.stringify(p ? p : { clear: true }) });

@@ -441,7 +441,7 @@ function HomeOld({ navigation, edit }: any) {
           data={results}
           keyExtractor={(p) => p.id}
           contentContainerStyle={{ padding: 16, gap: 12 }}
-          ListEmptyComponent={<Empty icon="search" title="لا توجد نتائج" text="جرّب كلمات بحث أخرى" />}
+          ListEmptyComponent={menuOnly ? null : <Empty icon="search" title="لا توجد نتائج" text="جرّب كلمات بحث أخرى" />}
           renderItem={({ item, index }) => (
             <Appear i={index}><ProviderCard p={item} onPress={() => navigation.navigate('Provider', { id: item.id })} /></Appear>
           )}
@@ -598,6 +598,7 @@ export function ProviderScreen({ navigation, route }: any) {
   const blocked = closed || noRoute;
   const mineArea = !!p.regionId && meUser?.regionId === p.regionId;
   const manualMode = p.orderMode === 'request';
+  const menuOnly = (p.menuCount || 0) > 0 && !products.length && !isBooking(p.type);   // a menu in pictures, no cart products
   const requestOnly = (isRequestOnly(p.type) && p.orderMode !== 'cart') || manualMode;   // the owner can switch one supermarket/pharmacy to «سلة بمنتجات»
 
   return (
@@ -663,7 +664,7 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13} style={{ flex: 1 }}>التوصيل من منطقة هذا المكان إلى منطقتك غير متاح حالياً</T>
         </View>
       )}
-      {!blocked && !requestOnly && !isBooking(p.type) && <GroupOrderButton navigation={navigation} providerId={p.id} />}
+      {!blocked && !requestOnly && !isBooking(p.type) && <GroupOrderButton navigation={navigation} providerId={p.id} compact={(p.menuCount || 0) > 0} />}
       {(p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} />}
       {!blocked && (requestOnly || isMakerTpl(p.type)) && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
@@ -690,7 +691,7 @@ export function ProviderScreen({ navigation, route }: any) {
         keyExtractor={(x) => x.id}
         contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 100 }}
         ListHeaderComponent={
-          !isBooking(p.type) ? (
+          menuOnly ? null : !isBooking(p.type) ? (
             nu ? (
               <View style={{ marginHorizontal: -16, marginTop: -6, marginBottom: 4, borderBottomWidth: 1.5, borderBottomColor: C.line }}>
                 <FlatList horizontal data={cats} keyExtractor={(x) => x} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 22, paddingHorizontal: 16 }} renderItem={({ item }) => (
@@ -760,7 +761,7 @@ export function ProviderScreen({ navigation, route }: any) {
           <T w="black" color={C.gold}>{money(det.subtotal)}</T>
         </Pressable>
       )}
-      <ShopChatButton providerId={p.id} chatOff={p.chatOff} bottom={insets.bottom + (cartCount > 0 && !isBooking(p.type) ? 84 : 22)} />
+      <ShopChatButton providerId={p.id} chatOff={p.chatOff} bottom={insets.bottom + (cartCount > 0 && !isBooking(p.type) ? 84 : 22)} onOrder={p.orderMode === 'menu' && !blocked && !requestOnly && !isBooking(p.type) && cartCount === 0 ? () => navigation.navigate('RequestOrder', { id: p.id }) : undefined} />
     </View>
   );
 }

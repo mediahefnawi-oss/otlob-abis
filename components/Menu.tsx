@@ -14,10 +14,10 @@ export function MenuGallery({ providerId, count }: { providerId: string; count?:
   const [full, setFull] = useState<number | null>(null);
   useEffect(() => { apiMenuList(providerId).then((r) => setIds(r.images)).catch(() => {}); }, [providerId, count]);
   if (!ids.length) return null;
-  const h = Math.max(120, Math.round(w * 0.42));
+  const h = Math.max(110, Math.min(170, Math.round(w * 0.34)));
   return (
-    <View style={{ marginHorizontal: 16, marginTop: 14 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      <T w="black" size={15} style={{ marginBottom: 8 }}>📄 المنيو</T>
+    <View style={{ marginHorizontal: 16, marginTop: 8 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+      <T w="black" size={14} style={{ marginBottom: 6 }}>📄 المنيو</T>
       {w > 0 && (
         <View style={{ height: h, borderRadius: 20, overflow: 'hidden', backgroundColor: C.line }}>
           <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onMomentumScrollEnd={(e) => setI(Math.round(Math.abs(e.nativeEvent.contentOffset.x) / w))}>
@@ -28,7 +28,7 @@ export function MenuGallery({ providerId, count }: { providerId: string; count?:
             ))}
           </ScrollView>
           <View pointerEvents="none" style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 2 }}>
-            <T size={11} color="#fff">{Math.min(i, ids.length - 1) + 1} / {ids.length}</T>
+            <T size={11} color="#fff">{`الصفحة ${Math.min(i, ids.length - 1) + 1} من ${ids.length}`}</T>
           </View>
           <View pointerEvents="none" style={{ position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 2 }}>
             <T size={10.5} color="#fff">🔍 اضغط لعرض الصفحة كاملة</T>
@@ -40,7 +40,6 @@ export function MenuGallery({ providerId, count }: { providerId: string; count?:
           {ids.map((id, k) => <View key={id} style={{ width: k === i ? 18 : 7, height: 7, borderRadius: 4, backgroundColor: k === i ? C.gold : C.line }} />)}
         </View>
       )}
-      <T size={11.5} color={C.sub} align="center" style={{ marginTop: 6 }}>اسحب يمين أو شمال لباقي الصفحات، واضغط على الصفحة لعرضها كاملة</T>
       <MenuViewer ids={ids} start={full ?? 0} visible={full !== null} onClose={() => setFull(null)} />
     </View>
   );

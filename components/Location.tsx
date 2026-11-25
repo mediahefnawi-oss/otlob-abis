@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { View, ScrollView, Text } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Card, Btn, Header, Empty, toast, callPhone, IconBubble, IconBtn, Toggle } from './ui';
 import MapView from './MapView';
@@ -188,27 +188,74 @@ export function useCourierTracking(isCourier: boolean, on: boolean) {
 }
 
 /** Owner / supervisor: every working courier on one map. */
+/** The icon follows the courier's own means of transport (a photo of his own can replace it later). */
+export function vehicleEmoji(v: string): string {
+  const t = String(v || '');
+  if (/توكتوك|تكتك/.test(t)) return '🛺';
+  if (/عجل|دراج(?!ة نار)/.test(t)) return '🚲';
+  if (/موتوسيكل|دراجة نارية|بخاري|سكوتر/.test(t)) return '🏍️';
+  if (/ميكروباص|ربع نقل|نقل|تروسيكل|شاحنة/.test(t)) return '🚚';
+  if (/سيارة|عربية|ملاكي|تاكسي|كارة/.test(t)) return '🚗';
+  return '🛵';
+}
+const gmDir = (lat: number, lng: number) => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+const gmPlace = (lat: number, lng: number) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+
 export function CouriersMapScreen({ navigation }: any) {
   const [list, setList] = useState<StaffCourierPos[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [selId, setSelId] = useState<string | null>(null);
   usePoll(async () => { setList((await apiStaffCourierLocations()).couriers); setLoaded(true); }, 10000, []);
-  const markers: MapMarker[] = list.map((c) => ({ lat: c.lat, lng: c.lng, kind: 'courier', label: c.name }));
+  const sel = list.find((c) => c.id === selId) || null;
+  const tone = (c: StaffCourierPos): 'free' | 'busy' | 'stale' => (!c.fresh ? 'stale' : c.busy ? 'busy' : 'free');
+  const markers: MapMarker[] = list.map((c) => ({ lat: c.lat, lng: c.lng, kind: 'courier', label: c.name, emoji: vehicleEmoji(c.vehicle), tone: tone(c) }));
+  const nBusy = list.filter((c) => c.fresh && c.busy).length, nFree = list.filter((c) => c.fresh && !c.busy).length, nOld = list.filter((c) => !c.fresh).length;
+  const openUrl = (u: string) => { Linking.openURL(u).catch(() => toast('تعذر فتح الخرائط', 'err')); };
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title="المناديب على الخريطة" subtitle={`${list.length} مندوب ظاهر الآن`} onBack={() => navigation.goBack()} />
-      <View style={{ padding: 16, gap: 12, flex: 1 }}>
-        {loaded && !list.length ? <Empty title="لا يوجد مناديب ظاهرون الآن" text="يظهر المندوب هنا وهو متاح أو معه طلب ومفعّل الموقع" /> : <MapView markers={markers} height={330} />}
-        {list.map((c) => (
-          <Card key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: c.fresh ? (c.busy ? C.orange : C.green) : C.sub }} />
-            <View style={{ flex: 1 }}>
-              <T w="bold" size={14}>{c.name}</T>
-              <T size={11.5} color={C.sub}>{c.busy ? `معه ${c.busy} طلب` : 'متاح'} • {ago(c.at)}</T>
+      <Header title="المناديب على الخريطة" subtitle={list.length ? `${list.length} مندوب • ${nBusy} معاهم طلبات • ${nFree} متاح${nOld ? ` • ${nOld} موقعهم قديم` : ''}` : 'لا يوجد مناديب ظاهرون الآن'} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
+        {loaded && !list.length ? <Empty title="لا يوجد مناديب ظاهرون الآن" text="يظهر المندوب هنا وهو متاح أو معه طلب ومفعّل الموقع" /> : (
+          <>
+            <MapView markers={markers} height={330} fitKey={`${list.length}`} focus={sel ? { lat: sel.lat, lng: sel.lng } : null} />
+            <Btn title="فتح في خرائط جوجل (الشوارع والمعالم كاملة)" icon="map" small variant="soft" onPress={() => { const c = sel || list[0]; if (c) openUrl(gmPlace(c.lat, c.lng)); }} />
+          </>
+        )}
+        {sel && (
+          <Card style={{ gap: 8, borderWidth: 1.5, borderColor: C.gold }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={{ fontSize: 28 }}>{vehicleEmoji(sel.vehicle)}</Text>
+              <View style={{ flex: 1 }}>
+                <T w="black" size={15}>{sel.name}</T>
+                <T size={12} color={C.sub}>{sel.vehicle || 'مندوب'} • {sel.fresh ? 'آخر تحديث' : 'آخر ظهور'} {ago(sel.at)}</T>
+              </View>
+              <Pressable onPress={() => setSelId(null)} hitSlop={10}><T size={20} color={C.sub}>✕</T></Pressable>
             </View>
-            <IconBtn icon="call" bg={C.greenSoft} color={C.green} onPress={() => callPhone(c.phone)} />
+            {sel.order ? (
+              <View style={{ gap: 3, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+                <T w="bold" size={13}>معه الطلب #{sel.order.id}{sel.order.shop ? ` • ${sel.order.shop}` : ''}</T>
+                {!!sel.order.address && <T size={12.5} color={C.sub}>رايح لـ: {sel.order.address}</T>}
+              </View>
+            ) : <T size={12.5} color={C.sub}>مفيش طلب معاه دلوقتي</T>}
+            <Btn title="اتجاهات للمندوب (لو عطل أو وقف)" icon="navigate" onPress={() => openUrl(gmDir(sel.lat, sel.lng))} />
+            {sel.order?.dest && <Btn title="اتجاهات لوجهة الطلب" icon="location" small variant="soft" onPress={() => openUrl(gmDir(sel.order!.dest!.lat, sel.order!.dest!.lng))} />}
+            <Btn title="اتصل بالمندوب" icon="call" small variant="soft" onPress={() => callPhone(sel.phone)} />
           </Card>
+        )}
+        {list.map((c) => (
+          <Pressable key={c.id} onPress={() => setSelId(c.id === selId ? null : c.id)}>
+            <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, opacity: c.fresh ? 1 : 0.7, borderWidth: c.id === selId ? 1.5 : 0, borderColor: C.gold }}>
+              <Text style={{ fontSize: 24 }}>{vehicleEmoji(c.vehicle)}</Text>
+              <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: c.fresh ? (c.busy ? C.orange : C.green) : C.sub }} />
+              <View style={{ flex: 1 }}>
+                <T w="bold" size={14}>{c.name}</T>
+                <T size={11.5} color={C.sub}>{c.vehicle ? `${c.vehicle} • ` : ''}{c.busy ? `معه ${c.busy} طلب` : 'متاح'} • {ago(c.at)}</T>
+              </View>
+              <IconBtn icon="call" bg={C.greenSoft} color={C.green} onPress={() => callPhone(c.phone)} />
+            </Card>
+          </Pressable>
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
