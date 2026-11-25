@@ -39,6 +39,8 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     || { ride_commission_pct: 15, ride_commission_min: 5, ride_min_balance: -50, ride_auto_dispatch: false, ride_offer_secs: 25, ride_radius_km: 5, ride_pricing: 'fixed' };
 
   /* ================= captain: profile + photos ================= */
+  /** direct edits only while the captain is being registered (pending / needs_photo / rejected); after that the owner decides */
+  const needsApproval = async uid => { const r = await pool.query('SELECT status FROM captain_profiles WHERE user_id=$1', [uid]); return !!r.rowCount && !['pending', 'needs_photo', 'rejected'].includes(r.rows[0].status); };
   app.put('/api/captain/profile', auth, roles('courier'), guard(async (req, res) => {
     await needOn();
     const b = req.body || {};
@@ -47,7 +49,13 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     if (!t.rowCount) throw fail(404, 'النوع غير متاح');
     const model = str(b.model, 60), color = str(b.color, 30), plate = str(b.plate, 20), nid = str(b.nationalId, 20);
     if (!model || !color || !plate) throw fail(400, 'اكتب الموديل واللون ورقم اللوحة');
-    // editing an approved profile sends it back for review so the owner sees the change
+    // a captain who is already accepted (or suspended) cannot change his data: it becomes a request the owner approves
+    if (await needsApproval(me(req))) {
+      await pool.query("DELETE FROM captain_change_requests WHERE user_id=$1 AND kind='profile' AND status='pending'", [me(req)]);
+      await pool.query("INSERT INTO captain_change_requests(user_id, kind, data) VALUES($1,'profile',$2)", [me(req), JSON.stringify({ typeId, model, color, plate, nationalId: nid })]);
+      alertOwner('طلب تعديل بيانات كابتن', 'كابتن طلب تعديل بيانات عربيته وبانتظار موافقتك', `owner-capreq-${me(req)}`);
+      return res.json({ ok: true, pending: true });
+    }
     const r = await pool.query(
       `INSERT INTO captain_profiles(user_id, type_id, model, color, plate, national_id) VALUES($1,$2,$3,$4,$5,$6)
        ON CONFLICT (user_id) DO UPDATE SET type_id=$2, model=$3, color=$4, plate=$5, national_id=$6,
@@ -63,6 +71,12 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     if (!m || s.length > 1500000) throw fail(400, 'ارفع صورة صالحة (JPG أو PNG أو WebP) بحجم أصغر');
     const p = await pool.query('SELECT status FROM captain_profiles WHERE user_id=$1', [me(req)]);
     if (!p.rowCount) throw fail(409, 'سجّل بيانات المركبة أولاً');
+    if (await needsApproval(me(req))) {
+      await pool.query("DELETE FROM captain_change_requests WHERE user_id=$1 AND kind='photo' AND photo_kind=$2 AND status='pending'", [me(req), kind]);
+      await pool.query("INSERT INTO captain_change_requests(user_id, kind, photo_kind, photo, mime) VALUES($1,'photo',$2,$3,$4)", [me(req), kind, Buffer.from(m[2], 'base64'), m[1]]);
+      alertOwner('طلب تعديل صورة كابتن', 'كابتن طلب تغيير إحدى صوره وبانتظار موافقتك', `owner-capreq-${me(req)}`);
+      return res.json({ ok: true, pending: true });
+    }
     await pool.query(`INSERT INTO captain_photos(user_id, kind, image, mime) VALUES($1,$2,$3,$4)
       ON CONFLICT (user_id, kind) DO UPDATE SET image=$3, mime=$4, updated_at=NOW()`, [me(req), kind, Buffer.from(m[2], 'base64'), m[1]]);
     if (p.rows[0].status === 'needs_photo') await pool.query("UPDATE captain_profiles SET status='pending', updated_at=NOW() WHERE user_id=$1", [me(req)]);
@@ -73,7 +87,53 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       FROM captain_profiles p LEFT JOIN ride_types t ON t.id=p.type_id WHERE p.user_id=$1`, [me(req)]);
     if (!r.rowCount) return res.json({ profile: null });
     const p = r.rows[0], s = await settings();
-    res.json({ profile: { status: p.status, note: p.note, typeId: p.type_id, typeName: p.type_name, model: p.model, color: p.color, plate: p.plate, balance: Number(p.balance), photos: p.photos, autoReceive: p.auto_receive, tripsAllowed: await (async () => { const q = await pool.query('SELECT (SELECT COUNT(*) FROM ride_types WHERE trips_enabled AND active)::int AS n, COALESCE((SELECT trips_enabled FROM ride_types WHERE id=$1), FALSE) AS mine', [p.type_id]); return q.rows[0].n === 0 || q.rows[0].mine === true; })(), canReceive: p.status === 'approved' && canReceive(p.balance, s.ride_min_balance) } });
+    res.json({ profile: { status: p.status, note: p.note, typeId: p.type_id, typeName: p.type_name, model: p.model, color: p.color, plate: p.plate, balance: Number(p.balance), photos: p.photos, pending: (await pool.query("SELECT kind, photo_kind FROM captain_change_requests WHERE user_id=$1 AND status='pending'", [me(req)])).rows.map(x => x.kind === 'photo' ? x.photo_kind : 'profile'), autoReceive: p.auto_receive, tripsAllowed: await (async () => { const q = await pool.query('SELECT (SELECT COUNT(*) FROM ride_types WHERE trips_enabled AND active)::int AS n, COALESCE((SELECT trips_enabled FROM ride_types WHERE id=$1), FALSE) AS mine', [p.type_id]); return q.rows[0].n === 0 || q.rows[0].mine === true; })(), canReceive: p.status === 'approved' && canReceive(p.balance, s.ride_min_balance) } });
+  }));
+
+  /* ================= admin: captains' change requests ================= */
+  const KIND_AR = { car: 'صورة العربية', selfie: 'صورة الكابتن', license: 'رخصة المركبة', driver: 'رخصة القيادة' };
+  app.get('/api/admin/captain-requests', ...admin, guard(async (req, res) => {
+    const r = await pool.query(`SELECT q.id, q.user_id, q.kind, q.photo_kind, q.data, q.created_at, u.name, u.phone, p.model, p.color, p.plate, p.national_id, p.type_id, t.name AS type_name, nt.name AS new_type_name
+      FROM captain_change_requests q JOIN users u ON u.id=q.user_id LEFT JOIN captain_profiles p ON p.user_id=q.user_id LEFT JOIN ride_types t ON t.id=p.type_id
+      LEFT JOIN ride_types nt ON nt.id = NULLIF(q.data->>'typeId','')::bigint
+      WHERE q.status='pending' ORDER BY q.id DESC`);
+    res.json({ requests: r.rows.map(x => ({ id: Number(x.id), captainId: Number(x.user_id), name: x.name, phone: x.phone, kind: x.kind, photoKind: x.photo_kind, photoLabel: KIND_AR[x.photo_kind] || '', createdAt: new Date(x.created_at).getTime(),
+      current: { typeName: x.type_name || '', model: x.model || '', color: x.color || '', plate: x.plate || '', nationalId: x.national_id || '' },
+      next: x.kind === 'profile' ? { typeName: x.new_type_name || '', model: x.data.model || '', color: x.data.color || '', plate: x.data.plate || '', nationalId: x.data.nationalId || '' } : null })) });
+  }));
+  app.get('/api/admin/captain-requests/:id/photo', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) return res.status(404).end();
+    const r = await pool.query("SELECT photo, mime FROM captain_change_requests WHERE id=$1 AND kind='photo'", [id]);
+    if (!r.rowCount || !r.rows[0].photo) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime); res.set('Cache-Control', 'private, no-store'); res.send(r.rows[0].photo);
+  }));
+  app.post('/api/admin/captain-requests/:id/approve', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const q = (await c.query("SELECT * FROM captain_change_requests WHERE id=$1 AND status='pending' FOR UPDATE", [id])).rows[0];
+      if (!q) { await c.query('ROLLBACK'); throw fail(404, 'الطلب غير موجود أو اتحسم قبل كده'); }
+      if (q.kind === 'profile') {
+        const d = q.data || {};
+        await c.query('UPDATE captain_profiles SET type_id=$2, model=$3, color=$4, plate=$5, national_id=$6, updated_at=NOW() WHERE user_id=$1', [q.user_id, positiveId(d.typeId), str(d.model, 60), str(d.color, 30), str(d.plate, 20), str(d.nationalId, 20)]);
+      } else {
+        await c.query(`INSERT INTO captain_photos(user_id, kind, image, mime) VALUES($1,$2,$3,$4) ON CONFLICT (user_id, kind) DO UPDATE SET image=$3, mime=$4, updated_at=NOW()`, [q.user_id, q.photo_kind, q.photo, q.mime]);
+      }
+      await c.query("UPDATE captain_change_requests SET status='approved', decided_at=NOW(), photo=NULL WHERE id=$1", [id]);
+      await c.query('COMMIT');
+      await auditCap(req, 'captain.request.approve', q.user_id, null, { kind: q.kind, photoKind: q.photo_kind });
+      push([Number(q.user_id)], 'تم قبول طلب التعديل', q.kind === 'photo' ? `تم اعتماد ${KIND_AR[q.photo_kind] || 'الصورة'}` : 'تم اعتماد بيانات عربيتك الجديدة', 'captain-req');
+      res.json({ ok: true });
+    } catch (e) { try { await c.query('ROLLBACK'); } catch { /* already */ } throw e; } finally { c.release(); }
+  }));
+  app.post('/api/admin/captain-requests/:id/reject', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const r = await pool.query("UPDATE captain_change_requests SET status='rejected', note=$2, decided_at=NOW(), photo=NULL WHERE id=$1 AND status='pending' RETURNING user_id, kind, photo_kind", [id, str((req.body || {}).note, 200)]);
+    if (!r.rowCount) throw fail(404, 'الطلب غير موجود أو اتحسم قبل كده');
+    await auditCap(req, 'captain.request.reject', r.rows[0].user_id, null, { kind: r.rows[0].kind });
+    push([Number(r.rows[0].user_id)], 'تم رفض طلب التعديل', str((req.body || {}).note, 120) || 'الإدارة رفضت طلب التعديل', 'captain-req');
+    res.json({ ok: true });
   }));
 
   /* ================= admin: review + control the captains ================= */
@@ -312,6 +372,14 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     alertOwner('طلب توصيلة جديد', `${fromText || 'نقطة التحميل'}${toText ? ' ← ' + toText : ''} (${money(offered)} ج)`, `owner-ride-${ride.id}`);
     res.json({ ride: rideOut(fresh.rows[0]), notified: cands.length });
   }));
+  /** the customer sees only the captain's own photo and his car, and only for his own ride that has that captain */
+  app.get('/api/rides/:id/driver-photo/:kind', auth, roles('customer'), guard(async (req, res) => {
+    const id = positiveId(req.params.id), kind = String(req.params.kind);
+    if (!id || !['selfie', 'car'].includes(kind)) return res.status(404).end();
+    const r = await pool.query(`SELECT i.image, i.mime FROM rides r JOIN captain_photos i ON i.user_id=r.driver_id AND i.kind=$3 WHERE r.id=$1 AND r.customer_id=$2 AND r.status = ANY($4)`, [id, me(req), kind, ['assigned', 'arrived', 'started']]);
+    if (!r.rowCount) return res.status(404).end();
+    res.set('Content-Type', r.rows[0].mime); res.set('Cache-Control', 'private, max-age=300'); res.send(r.rows[0].image);
+  }));
   app.get('/api/rides/current', auth, roles('customer'), guard(async (req, res) => {
     const r = await pool.query(`SELECT ${RIDE_COLS} FROM rides r WHERE customer_id=$1 AND (status = ANY($2) OR updated_at > NOW() - INTERVAL '2 minutes') ORDER BY id DESC LIMIT 1`, [me(req), ACTIVE]);
     if (!r.rowCount) return res.json({ ride: null, offers: [] });
@@ -320,7 +388,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     let driver = null;
     if (r.rows[0].driver_id && ['assigned', 'arrived', 'started'].includes(r.rows[0].status)) {
       const dr = await pool.query('SELECT u.name, u.phone, p.model, p.color, p.plate FROM users u LEFT JOIN captain_profiles p ON p.user_id=u.id WHERE u.id=$1', [r.rows[0].driver_id]);
-      if (dr.rowCount) driver = { id: Number(r.rows[0].driver_id), name: String(dr.rows[0].name || '').split(' ').slice(0, 2).join(' '), phone: dr.rows[0].phone, model: dr.rows[0].model || '', color: dr.rows[0].color || '', plate: dr.rows[0].plate || '' };
+      if (dr.rowCount) driver = { id: Number(r.rows[0].driver_id), name: String(dr.rows[0].name || '').split(' ').slice(0, 2).join(' '), phone: dr.rows[0].phone, model: dr.rows[0].model || '', color: dr.rows[0].color || '', plate: dr.rows[0].plate || '', photos: (await pool.query("SELECT kind FROM captain_photos WHERE user_id=$1 AND kind IN ('selfie','car')", [r.rows[0].driver_id])).rows.map(x => x.kind) };
     }
     res.json({ ride: rideOut(r.rows[0]), driver, offers: o.rows.map(x => ({ id: Number(x.id), price: Number(x.price), status: x.status, driver: { id: Number(x.driver_id), name: x.name, model: x.model, color: x.color, plate: x.plate } })) });
   }));

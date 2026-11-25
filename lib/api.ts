@@ -581,7 +581,7 @@ export const apiRideEstimate = (from: RidePoint | null, to: RidePoint | null, ty
 export const apiRideCreate = (from: RidePoint, to: RidePoint, typeId: number, price: number, extra: RideExtra = {}) => apiRequest<{ ride: Ride; notified: number }>('/api/rides', { method: 'POST', body: JSON.stringify({ from, to, typeId, price, ...extra }) });
 /** fixed price between two areas: no map; the notes (and the pin, if he shares it) are optional */
 export const apiRideCreateByRegion = (b: { typeId: number; fromRegionId: number; toRegionId: number; fromNote: string; toNote: string; pin?: { lat: number; lng: number } | null }) => apiRequest<{ ride: Ride; notified: number }>('/api/rides', { method: 'POST', body: JSON.stringify({ typeId: b.typeId, byRegion: true, fromRegionId: b.fromRegionId, toRegionId: b.toRegionId, from: { ...(b.pin || {}), text: b.fromNote }, to: { text: b.toNote } }) });
-export type RideDriver = { id: number; name: string; phone: string; model: string; color: string; plate: string };
+export type RideDriver = { id: number; name: string; phone: string; model: string; color: string; plate: string; photos?: string[] };
 export type RideLeg = { km: number; minutes: number; route: [number, number][] };
 /** the map of a trip in progress: where the captain is and the ways to draw */
 export type RideLive = { active: boolean; status: string; driver?: { lat: number; lng: number; heading: number | null; ageSec: number } | null; pickup?: RideLeg | null; trip?: RideLeg | null; dest?: RideLeg | null; textDest?: boolean };
@@ -590,10 +590,10 @@ export const apiRideCurrent = () => apiRequest<{ ride: Ride | null; driver?: Rid
 export const apiRideAcceptOffer = (id: number, offerId: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/accept-offer`, { method: 'POST', body: JSON.stringify({ offerId }) });
 export const apiRideCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/rides/${id}/cancel`, { method: 'POST' });
 // the captain
-export type CaptainMe = { status: string; note: string; typeId: number; typeName: string; model: string; color: string; plate: string; balance: number; photos: string[]; autoReceive: boolean; canReceive: boolean; tripsAllowed?: boolean };
+export type CaptainMe = { status: string; note: string; typeId: number; typeName: string; model: string; color: string; plate: string; balance: number; photos: string[]; pending?: string[]; autoReceive: boolean; canReceive: boolean; tripsAllowed?: boolean };
 export const apiCaptainMe = () => apiRequest<{ profile: CaptainMe | null }>('/api/captain/me');
-export const apiCaptainProfile = (b: { typeId: number; model: string; color: string; plate: string; nationalId?: string }) => apiRequest<{ ok: boolean; status: string }>('/api/captain/profile', { method: 'PUT', body: JSON.stringify(b) });
-export const apiCaptainPhoto = (kind: 'car' | 'license' | 'driver' | 'selfie', image: string) => apiRequest<{ ok: boolean }>(`/api/captain/photos/${kind}`, { method: 'PUT', body: JSON.stringify({ image }) });
+export const apiCaptainProfile = (b: { typeId: number; model: string; color: string; plate: string; nationalId?: string }) => apiRequest<{ ok: boolean; status?: string; pending?: boolean }>('/api/captain/profile', { method: 'PUT', body: JSON.stringify(b) });
+export const apiCaptainPhoto = (kind: 'car' | 'license' | 'driver' | 'selfie', image: string) => apiRequest<{ ok: boolean; pending?: boolean }>(`/api/captain/photos/${kind}`, { method: 'PUT', body: JSON.stringify({ image }) });
 export type CaptainReq = Ride & { myOffer: number | null; pickupKm: number | null };
 export const apiCaptainRequests = () => apiRequest<{ requests: CaptainReq[]; offerSecs: number }>('/api/captain/requests');
 export const apiCaptainOffer = (id: number, price?: number) => apiRequest<{ ok: boolean; accepted: boolean }>(`/api/captain/requests/${id}/offer`, { method: 'POST', body: JSON.stringify(price === undefined ? {} : { price }) });
@@ -647,6 +647,18 @@ export async function apiAdminCaptainPhotoData(id: number, kind: string): Promis
   const blob = await res.blob();
   return await new Promise<string>((ok) => { const fr = new FileReader(); fr.onloadend = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(blob); });
 }
+/** any protected image (needs the sign-in header): a data URI, or '' */
+export async function apiAuthImage(path: string): Promise<string> {
+  const token = await getToken();
+  const res = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) return '';
+  const blob = await res.blob();
+  return await new Promise<string>((ok) => { const fr = new FileReader(); fr.onloadend = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(blob); });
+}
+export type CaptainRequest = { id: number; captainId: number; name: string; phone: string; kind: 'profile' | 'photo'; photoKind: string; photoLabel: string; createdAt: number; current: { typeName: string; model: string; color: string; plate: string; nationalId: string }; next: { typeName: string; model: string; color: string; plate: string; nationalId: string } | null };
+export const apiAdminCaptainRequests = () => apiRequest<{ requests: CaptainRequest[] }>('/api/admin/captain-requests');
+export const apiAdminCaptainRequestApprove = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/captain-requests/${id}/approve`, { method: 'POST' });
+export const apiAdminCaptainRequestReject = (id: number, note?: string) => apiRequest<{ ok: boolean }>(`/api/admin/captain-requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) });
 export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
 
 /* zones: the owner's fixed price between two areas, per vehicle */

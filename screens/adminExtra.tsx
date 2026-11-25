@@ -6,19 +6,18 @@ import { C } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog, callPhone } from '../components/ui';
 import { pickImage, canPickImage } from '../lib/pickImage';
+import { AuthImage } from '../components/AuthImage';
 import {
   MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketImportDefaults, apiAdminMarketSetOfferText, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
   RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission, RideZone, apiAdminRideZones, apiAdminRideZonesSave,
   SvcKey, SvcCoverKind, apiAdminSvcImage, apiAdminSvcSub, apiAdminSvcMeta, apiSvcMeta, svcImageUrl,
   Broadcast, BroadcastAud, SupportBroadcast, apiAdminSupportBroadcasts, apiAdminSupportBroadcastSend, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
-  AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, apiAdminCaptainPhotoData, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
+  AdminCaptain, CaptainRequest, apiAdminCaptainRequests, apiAdminCaptainRequestApprove, apiAdminCaptainRequestReject, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, apiAdminCaptainPhotoData, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
   RideDetails, apiAdminRideDetails, apiAdminCaptainPhotoSet, apiAdminCaptainPhotoDelete, apiAdminCaptainPassword, RideCaptainPick, RideOfferRow, apiAdminRideCaptains, apiAdminRideOffers, apiAdminRidePrice, apiAdminRideAcceptOffer, apiAdminRideReopen, apiAdminTrips, apiAdminTripCancel, apiAdminTripEdit, apiAdminTripBook, apiAdminTripUnbook,
 } from '../lib/api';
 
 function AuthPhoto({ id, kind, v }: { id: number; kind: string; v: number }) {
-  const [src, setSrc] = useState('');
-  useEffect(() => { let on = true; setSrc(''); apiAdminCaptainPhotoData(id, kind).then((x) => { if (on) setSrc(x); }).catch(() => {}); return () => { on = false; }; }, [id, kind, v]);
-  return src ? <Image source={{ uri: src }} style={{ width: '100%', height: 96 }} resizeMode="cover" /> : <T size={11.5} color={C.sub}>جاري التحميل...</T>;
+  return <AuthImage path={`/api/admin/captains/${id}/photo/${kind}`} v={v} style={{ width: '100%', height: 96 }} />;
 }
 const askConfirm = (title: string, message: string, onConfirm: () => void) => confirmDialog({ title, message, confirmText: 'تأكيد', onConfirm });
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
@@ -246,18 +245,22 @@ export function AdminMarketScreen({ navigation }: any) {
 }
 
 /* ---------------- rides: types / captains / settings / rides ---------------- */
-type Tab = 'types' | 'captains' | 'settings' | 'rides' | 'trips';
+type Tab = 'types' | 'captains' | 'requests' | 'settings' | 'rides' | 'trips';
 export function AdminRidesScreen({ navigation }: any) {
   const [tab, setTab] = useState<Tab>('captains');
+  const [reqN, setReqN] = useState(0);
+  const pollReq = useCallback(() => { apiAdminCaptainRequests().then((r) => setReqN(r.requests.length)).catch(() => {}); }, []);
+  useEffect(() => { pollReq(); const t = setInterval(pollReq, 20000); return () => clearInterval(t); }, [pollReq]);
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="التوصيلة" subtitle="الأنواع والأسعار، الكباتن، العمولة، الرحلات" onBack={() => navigation.goBack()} />
       <View style={{ flexDirection: 'row', gap: 8, padding: 12, flexWrap: 'wrap' }}>
-        {([['captains', 'الكباتن'], ['types', 'الأنواع والأسعار'], ['settings', 'العمولة والتحكم'], ['rides', 'الرحلات'], ['trips', 'رحلات المحافظات']] as [Tab, string][]).map(([k, l]) => <Chip key={k} label={l} active={tab === k} onPress={() => setTab(k)} />)}
+        {([['captains', 'الكباتن'], ['requests', reqN ? `طلبات تعديل (${reqN})` : 'طلبات تعديل'], ['types', 'الأنواع والأسعار'], ['settings', 'العمولة والتحكم'], ['rides', 'الرحلات'], ['trips', 'رحلات المحافظات']] as [Tab, string][]).map(([k, l]) => <Chip key={k} label={l} active={tab === k} onPress={() => setTab(k)} />)}
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 4, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         {tab === 'types' && <><SvcLookCard svc="rides" title="توصيلة في الرئيسية" withName /><TypesTab /></>}
         {tab === 'captains' && <CaptainsTab />}
+        {tab === 'requests' && <RequestsTab onChanged={pollReq} />}
         {tab === 'settings' && <SettingsTab />}
         {tab === 'rides' && <RidesTab />}
         {tab === 'trips' && <TripsAdminTab />}
@@ -416,8 +419,8 @@ const CAP_MODE_HELP: Record<string, string> = { captain: 'يستقبل رحلا�
 const CAP_PHOTOS: [string, string][] = [['car', 'صورة العربية'], ['selfie', 'صورة الكابتن'], ['license', 'رخصة المركبة'], ['driver', 'رخصة القيادة']];
 
 /** One captain's whole card: account data, vehicle data, the four photos, the kind of work, and the status buttons that fit his state. */
-function CaptainCard({ c, types, onChanged }: { c: AdminCaptain; types: RideType[]; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
+function CaptainForm({ c, types, onChanged }: { c: AdminCaptain; types: RideType[]; onChanged: () => void }) {
+  const open = true;
   const [f, setF] = useState({ name: c.name, phone: c.phone, model: c.model || '', color: c.color || '', plate: c.plate || '', typeId: c.typeId ?? null as number | null });
   const [note, setNote] = useState(''); const [amt, setAmt] = useState(''); const [pct, setPct] = useState(''); const [pw, setPw] = useState('');
   const [bump, setBump] = useState(0);
@@ -430,10 +433,6 @@ function CaptainCard({ c, types, onChanged }: { c: AdminCaptain; types: RideType
   const mode = c.mode || 'none';
   return (
     <Card style={{ gap: 8 }}>
-      <Pressable onPress={() => setOpen(!open)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={{ flex: 1 }}><T w="black">{c.name} • {c.phone}</T><T size={12} color={C.sub}>{c.typeName || '—'} • {c.model} • {c.color} • {c.plate}</T></View>
-        <T size={12} w="bold" color={c.status === 'approved' ? C.green : c.status === 'pending' ? C.goldDeep : C.red}>{mode === 'courier' ? 'مندوب توصيل فقط' : CAP_ST[c.status]}</T>
-      </Pressable>
       {open && (
         <>
           <T size={12.5}>الرصيد: {c.balance} ج • عمولته: {c.commissionPct == null ? 'العامة' : c.commissionPct + '%'} • الاستقبال: {c.autoReceive ? 'تلقائي' : 'يدوي'}</T>
@@ -531,16 +530,101 @@ function CaptainCard({ c, types, onChanged }: { c: AdminCaptain; types: RideType
 }
 
 function CaptainsTab() {
+  const nav: any = useNavigation();
   const [list, setList] = useState<AdminCaptain[] | null>(null);
-  const [types, setTypes] = useState<RideType[]>([]);
   const load = useCallback(async () => { try { setList((await apiAdminCaptains()).captains); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
-  useEffect(() => { load(); apiAdminRideTypes().then((r) => setTypes(r.types)).catch(() => {}); }, [load]);
+  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
+  const run = async (fn: () => Promise<any>, ok: string) => { try { await fn(); toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
   if (list === null) return <Empty title="جاري التحميل..." />;
-  if (!list.length) return <><AddCaptainCard onDone={load} /><Empty title="لا يوجد كباتن بعد" /></>;
   return (
     <>
       <AddCaptainCard onDone={load} />
-      {list.map((c) => <CaptainCard key={c.id} c={c} types={types} onChanged={load} />)}
+      {!list.length && <Empty title="لا يوجد كباتن بعد" />}
+      {list.map((c) => {
+        const mode = c.mode || 'none';
+        return (
+          <Card key={c.id} style={{ gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ flex: 1 }}><T w="black">{c.name} • {c.phone}</T><T size={12} color={C.sub}>{[c.typeName, c.model, c.color, c.plate].filter(Boolean).join(' • ') || '—'}</T></View>
+              <T size={12} w="bold" color={c.status === 'approved' ? C.green : c.status === 'pending' ? C.goldDeep : C.red}>{mode === 'courier' ? 'مندوب توصيل فقط' : CAP_ST[c.status]}</T>
+            </View>
+            <T size={12} color={C.sub}>الشغل: {mode === 'captain' ? 'كابتن فقط' : mode === 'courier' ? 'مندوب فقط' : mode === 'both' ? 'الاتنين' : '—'} • رصيد {c.balance} ج</T>
+            {(c.status === 'pending' || c.status === 'needs_photo') && (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn title="قبول" small style={{ flex: 1 }} onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'approved' }), 'تم القبول')} />
+                <Btn title="رفض" small variant="soft" style={{ flex: 1 }} onPress={() => askConfirm('رفض', `رفض طلب ${c.name}؟`, () => run(() => apiAdminCaptainSet(c.id, { status: 'rejected' }), 'تم الرفض'))} />
+              </View>
+            )}
+            <Btn title="فتح بيانات الكابتن والتحكم" icon="document-text" small variant="soft" onPress={() => nav.navigate('AdminCaptain', { id: c.id })} />
+          </Card>
+        );
+      })}
+    </>
+  );
+}
+
+/** Owner: one captain on his own screen (account, vehicle, photos, work mode, status, money). */
+export function AdminCaptainScreen({ navigation, route }: any) {
+  const id = Number(route?.params?.id);
+  const [c, setC] = useState<AdminCaptain | null | undefined>(undefined);
+  const [types, setTypes] = useState<RideType[]>([]);
+  const load = useCallback(async () => { try { setC((await apiAdminCaptains()).captains.find((x) => x.id === id) || null); } catch (e) { toast(errText(e), 'err'); } }, [id]);
+  useEffect(() => { load(); apiAdminRideTypes().then((r) => setTypes(r.types)).catch(() => {}); }, [load]);
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title={c ? c.name : 'الكابتن'} subtitle={c ? `كابتن #${c.id} • ${CAP_ST[c.status]}` : ''} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 80 }} keyboardShouldPersistTaps="handled">
+        {c === undefined ? <Empty title="جاري التحميل..." /> : c === null ? <Empty title="الكابتن غير موجود" /> : <CaptainForm key={c.id + ':' + (c.model || '') + (c.plate || '') + (c.name || '')} c={c} types={types} onChanged={load} />}
+      </ScrollView>
+    </View>
+  );
+}
+
+/** Owner: what accepted captains asked to change; old next to new, accept or refuse. */
+function RequestsTab({ onChanged }: { onChanged: () => void }) {
+  const [list, setList] = useState<CaptainRequest[] | null>(null);
+  const [ver, setVer] = useState(0);
+  const load = useCallback(async () => { try { setList((await apiAdminCaptainRequests()).requests); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
+  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
+  const run = async (fn: () => Promise<any>, ok: string) => { try { await fn(); toast(ok); setVer((x) => x + 1); await load(); onChanged(); } catch (e) { toast(errText(e), 'err'); await load(); } };
+  if (list === null) return <Empty title="جاري التحميل..." />;
+  if (!list.length) return <Empty title="مفيش طلبات تعديل" />;
+  return (
+    <>
+      {list.map((q) => (
+        <Card key={q.id} style={{ gap: 8 }}>
+          <T w="black">{q.name} • {q.phone}</T>
+          <T size={12} color={C.sub}>{q.kind === 'photo' ? `طلب تغيير: ${q.photoLabel}` : 'طلب تعديل بيانات العربية'} • {fmtT(q.createdAt)}</T>
+          {q.kind === 'profile' && q.next ? (
+            <View style={{ gap: 4 }}>
+              {([['النوع', 'typeName'], ['الموديل', 'model'], ['اللون', 'color'], ['رقم اللوحة', 'plate']] as const).map(([l, k]) => {
+                const changed = (q.current[k] || '') !== (q.next![k] || '');
+                return (
+                  <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: changed ? '#FFF6DC' : '#F6F8F6', borderRadius: 10, padding: 8 }}>
+                    <T size={12} color={C.sub}>{l}</T>
+                    <T size={12.5} w="bold">{q.current[k] || '—'}{changed ? `  ←  ${q.next![k] || '—'}` : ''}</T>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <View style={{ height: 120, borderRadius: 12, backgroundColor: '#EEF1EC', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}><AuthImage path={`/api/admin/captains/${q.captainId}/photo/${q.photoKind}`} v={ver} style={{ width: '100%', height: 120 }} empty={<T size={12} color={C.sub}>مفيش صورة قديمة</T>} /></View>
+                <T size={11.5} w="bold" style={{ textAlign: 'center' }}>الحالية</T>
+              </View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <View style={{ height: 120, borderRadius: 12, backgroundColor: '#EEF1EC', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}><AuthImage path={`/api/admin/captain-requests/${q.id}/photo`} v={ver} style={{ width: '100%', height: 120 }} /></View>
+                <T size={11.5} w="bold" style={{ textAlign: 'center' }}>الجديدة</T>
+              </View>
+            </View>
+          )}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn title="قبول التعديل" small variant="green" style={{ flex: 1 }} onPress={() => askConfirm('قبول التعديل', `اعتماد التعديل وتطبيقه على ${q.name}؟`, () => run(() => apiAdminCaptainRequestApprove(q.id), 'تم القبول'))} />
+            <Btn title="رفض" small variant="soft" style={{ flex: 1 }} onPress={() => askConfirm('رفض التعديل', `رفض طلب ${q.name}؟`, () => run(() => apiAdminCaptainRequestReject(q.id), 'تم الرفض'))} />
+          </View>
+        </Card>
+      ))}
     </>
   );
 }

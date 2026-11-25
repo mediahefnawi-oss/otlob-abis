@@ -1050,3 +1050,19 @@ CREATE TRIGGER trg_rides_stamp BEFORE UPDATE ON rides FOR EACH ROW EXECUTE FUNCT
 -- a captain who is not also a delivery courier: kept out of order dispatch (default FALSE = nothing changes for anybody)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS orders_off BOOLEAN NOT NULL DEFAULT FALSE;
 
+
+-- captain change requests: an accepted captain cannot edit his data / photos himself, the owner approves
+CREATE TABLE IF NOT EXISTS captain_change_requests (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  photo_kind TEXT,
+  data JSONB,
+  photo BYTEA,
+  mime TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  decided_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS captain_change_requests_pending_idx ON captain_change_requests(status, id DESC);

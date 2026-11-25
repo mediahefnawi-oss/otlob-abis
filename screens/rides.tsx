@@ -1,4 +1,5 @@
 import { SvcCover } from './extra';
+import { AuthImage } from '../components/AuthImage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Pressable, Text, Image, Linking, useWindowDimensions } from 'react-native';
 import { ScrollView } from '../components/KScroll';
@@ -312,12 +313,16 @@ export function RideHomeScreen({ navigation }: any) {
             {cur?.driver && (ride.status === 'assigned' || ride.status === 'arrived' || ride.status === 'started') && (
               <Card style={{ gap: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 22 }}>👤</Text></View>
+                  <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: C.greenSoft, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {cur.driver.photos?.includes('selfie') ? <AuthImage path={`/api/rides/${ride.id}/driver-photo/selfie`} style={{ width: 56, height: 56 }} empty={<Text style={{ fontSize: 24 }}>👤</Text>} /> : <Text style={{ fontSize: 24 }}>👤</Text>}
+                  </View>
                   <View style={{ flex: 1 }}>
                     <T w="black" size={14.5}>{cur.driver.name}</T>
                     <T size={12} color={C.sub}>{[cur.driver.model, cur.driver.color, cur.driver.plate].filter(Boolean).join(' • ')}</T>
                   </View>
                 </View>
+                {cur.driver.photos?.includes('car') && <View style={{ height: 130, borderRadius: 12, overflow: 'hidden', backgroundColor: '#EEF1EC' }}><AuthImage path={`/api/rides/${ride.id}/driver-photo/car`} style={{ width: '100%', height: 130 }} /></View>}
+                {!!cur.driver.plate && <View style={{ alignSelf: 'flex-start', backgroundColor: C.gold, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 3 }}><T w="black" size={15} color={C.dark}>{cur.driver.plate}</T></View>}
                 <Btn title="اتصل بالكابتن" icon="call" small variant="soft" onPress={() => Linking.openURL(`tel:${cur.driver!.phone}`)} />
               </Card>
             )}
@@ -480,12 +485,12 @@ export function CaptainScreen({ navigation }: any) {
   const saveProfile = async () => {
     if (!typeId) return toast('اختر نوع المركبة', 'err');
     setBusy(true);
-    try { await apiCaptainProfile({ typeId, model, color, plate }); await load(); toast('تم حفظ البيانات، ارفع الصور المطلوبة'); }
+    try { const x = await apiCaptainProfile({ typeId, model, color, plate }); await load(); toast(x.pending ? 'تم إرسال طلب التعديل للإدارة، لحد الموافقة بياناتك القديمة هي اللي شغالة' : 'تم حفظ البيانات، ارفع الصور المطلوبة'); }
     catch (e) { toast(errText(e), 'err'); }
     finally { setBusy(false); }
   };
   const photo = async (kind: 'car' | 'license' | 'driver' | 'selfie') => {
-    try { const img = await pickImage(); if (!img) return; await apiCaptainPhoto(kind, img); await load(); toast('تم رفع الصورة'); }
+    try { const img = await pickImage(); if (!img) return; const x = await apiCaptainPhoto(kind, img); await load(); toast(x.pending ? 'تم إرسال الصورة للإدارة للموافقة عليها' : 'تم رفع الصورة'); }
     catch (e) { toast(errText(e), 'err'); }
   };
   const offer = async (r: CaptainReq, price?: number) => { try { const x = await apiCaptainOffer(r.id, price); toast(x.accepted ? 'تم قبول الرحلة ✅' : 'تم إرسال عرضك'); pullCur(); } catch (e) { toast(errText(e), 'err'); } };
@@ -521,6 +526,7 @@ export function CaptainScreen({ navigation }: any) {
         {approved && me && (
           <>
             {me.tripsAllowed !== false && <Btn title="رحلات المحافظات — أعلن عن رحلة" icon="bus" variant="soft" onPress={() => navigation.navigate('CaptainTrips')} />}
+            {!!me.pending?.length && <Card><T w="bold" color={C.goldDeep}>طلب تعديل بياناتك أو صورك بانتظار موافقة الإدارة. لحد ما توافق، بياناتك الحالية هي اللي شغالة.</T></Card>}
             <Card style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رصيدك</T><T w="black" color={me.balance < 0 ? C.red : C.green}>{me.balance} ج</T></Card>
             {!me.canReceive && <Card><T color={C.red} w="bold">رصيدك غير كافٍ لاستقبال الرحلات. اشحن رصيدك من الإدارة.</T></Card>}
             {me.canReceive && hot && (
