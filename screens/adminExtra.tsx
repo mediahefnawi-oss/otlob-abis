@@ -11,10 +11,15 @@ import {
   RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission, RideZone, apiAdminRideZones, apiAdminRideZonesSave,
   SvcKey, SvcCoverKind, apiAdminSvcImage, apiAdminSvcSub, apiAdminSvcMeta, apiSvcMeta, svcImageUrl,
   Broadcast, BroadcastAud, SupportBroadcast, apiAdminSupportBroadcasts, apiAdminSupportBroadcastSend, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
-  AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
+  AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, apiAdminCaptainPhotoData, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
   RideDetails, apiAdminRideDetails, apiAdminCaptainPhotoSet, apiAdminCaptainPhotoDelete, apiAdminCaptainPassword, RideCaptainPick, RideOfferRow, apiAdminRideCaptains, apiAdminRideOffers, apiAdminRidePrice, apiAdminRideAcceptOffer, apiAdminRideReopen, apiAdminTrips, apiAdminTripCancel, apiAdminTripEdit, apiAdminTripBook, apiAdminTripUnbook,
 } from '../lib/api';
 
+function AuthPhoto({ id, kind, v }: { id: number; kind: string; v: number }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => { let on = true; setSrc(''); apiAdminCaptainPhotoData(id, kind).then((x) => { if (on) setSrc(x); }).catch(() => {}); return () => { on = false; }; }, [id, kind, v]);
+  return src ? <Image source={{ uri: src }} style={{ width: '100%', height: 96 }} resizeMode="cover" /> : <T size={11.5} color={C.sub}>جاري التحميل...</T>;
+}
 const askConfirm = (title: string, message: string, onConfirm: () => void) => confirmDialog({ title, message, confirmText: 'تأكيد', onConfirm });
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
 const num = (v: string) => Number(String(v).replace(/[^\d.\-]/g, ''));
@@ -457,7 +462,7 @@ function CaptainCard({ c, types, onChanged }: { c: AdminCaptain; types: RideType
               return (
                 <View key={k} style={{ width: '48%', gap: 4 }}>
                   <Pressable onPress={() => upload(k)} style={{ height: 96, borderRadius: 12, backgroundColor: has ? C.greenSoft : '#EEF1EC', borderWidth: has ? 0 : 1.5, borderStyle: 'dashed', borderColor: '#9AB', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                    {has ? <Image source={{ uri: `${captainPhotoUrl(c.id, k)}?v=${bump}` }} style={{ width: '100%', height: 96 }} resizeMode="cover" /> : <T size={12} w="bold" color={C.dark3}>+ ارفع صورة</T>}
+                    {has ? <AuthPhoto id={c.id} kind={k} v={bump} /> : <T size={12} w="bold" color={C.dark3}>+ ارفع صورة</T>}
                   </Pressable>
                   <T size={11.5} w="bold" style={{ textAlign: 'center' }}>{l}{has ? ' • اضغط للتغيير' : ''}</T>
                   {has && <Btn title="حذف" small variant="soft" onPress={() => askConfirm('حذف الصورة', `حذف ${l}؟`, () => run(async () => { await apiAdminCaptainPhotoDelete(c.id, k); setBump((x) => x + 1); }, 'تم الحذف'))} />}

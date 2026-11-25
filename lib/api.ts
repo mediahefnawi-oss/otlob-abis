@@ -639,6 +639,14 @@ export const apiAdminTripUnbook = (id: number, customerId: number) => apiRequest
 export const apiAdminCaptainPhotoSet = (id: number, kind: string, image: string) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}/photos/${kind}`, { method: 'PUT', body: JSON.stringify({ image }) });
 export const apiAdminCaptainPhotoDelete = (id: number, kind: string) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}/photos/${kind}`, { method: 'DELETE' });
 export const apiAdminCaptainPassword = (id: number, password: string) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) });
+/** a protected photo (needs the sign-in header, so an <Image uri> can't load it): returns a data URI, or '' if there is none */
+export async function apiAdminCaptainPhotoData(id: number, kind: string): Promise<string> {
+  const token = await getToken();
+  const res = await fetch(`${API_BASE}/api/admin/captains/${id}/photo/${kind}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) return '';
+  const blob = await res.blob();
+  return await new Promise<string>((ok) => { const fr = new FileReader(); fr.onloadend = () => ok(String(fr.result || '')); fr.onerror = () => ok(''); fr.readAsDataURL(blob); });
+}
 export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
 
 /* zones: the owner's fixed price between two areas, per vehicle */
