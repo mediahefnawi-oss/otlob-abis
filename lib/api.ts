@@ -617,6 +617,16 @@ export const apiAdminRideCancel = (id: number) => apiRequest<{ ok: boolean }>(`/
 export const apiAdminRideComplete = (id: number) => apiRequest<{ ok: boolean; commission: number }>(`/api/admin/rides/${id}/complete`, { method: 'POST' });
 export const apiAdminCaptainAdd = (b: { name: string; phone: string; password: string; typeId: number; model?: string; color?: string; plate?: string }) => apiRequest<{ ok: boolean; id: number }>('/api/admin/captains', { method: 'POST', body: JSON.stringify(b) });
 export const apiAdminRideAssign = (id: number, driverId: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/assign`, { method: 'POST', body: JSON.stringify({ driverId }) });
+export type RideCaptainPick = { id: number; name: string; phone: string; model: string; color: string; plate: string; balance: number; type: string; online: boolean; busy: boolean };
+export type RideOfferRow = { id: number; rideId: number; price: number; driverId: number; name: string; model: string; plate: string };
+export const apiAdminRideCaptains = () => apiRequest<{ captains: RideCaptainPick[] }>('/api/admin/ride-captains');
+export const apiAdminRideOffers = () => apiRequest<{ offers: RideOfferRow[] }>('/api/admin/rides/offers');
+export const apiAdminRidePrice = (id: number, price: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/price`, { method: 'PATCH', body: JSON.stringify({ price }) });
+export const apiAdminRideAcceptOffer = (id: number, offerId: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/accept-offer`, { method: 'POST', body: JSON.stringify({ offerId }) });
+export const apiAdminRideReopen = (id: number) => apiRequest<{ ok: boolean; notified: number }>(`/api/admin/rides/${id}/reopen`, { method: 'POST' });
+export const apiAdminTripEdit = (id: number, b: { price?: number; seats?: number; departAt?: string; dest?: string; driverId?: number }) => apiRequest<{ ok: boolean }>(`/api/admin/trips/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
+export const apiAdminTripBook = (id: number, customerId: number, count = 1) => apiRequest<{ ok: boolean; seats: number[] }>(`/api/admin/trips/${id}/book`, { method: 'POST', body: JSON.stringify({ customerId, count }) });
+export const apiAdminTripUnbook = (id: number, customerId: number) => apiRequest<{ ok: boolean }>(`/api/admin/trips/${id}/unbook`, { method: 'POST', body: JSON.stringify({ customerId }) });
 export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
 
 /* zones: the owner's fixed price between two areas, per vehicle */
@@ -644,7 +654,7 @@ export const apiCaptainTrips = () => apiRequest<{ trips: Trip[]; allowed?: boole
 export const apiCaptainTripCreate = (b: { dest: string; fromText?: string; departAt: string; seats: number; price: number; note?: string }) => apiRequest<{ trip: Trip; notified: number }>('/api/captain/trips', { method: 'POST', body: JSON.stringify(b) });
 export const apiCaptainTripStatus = (id: number, status: 'started' | 'done') => apiRequest<{ ok: boolean }>(`/api/captain/trips/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
 export const apiCaptainTripCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/captain/trips/${id}/cancel`, { method: 'POST' });
-export const apiAdminTrips = () => apiRequest<{ trips: (Trip & { driver: any; plate: string })[] }>('/api/admin/trips');
+export const apiAdminTrips = () => apiRequest<{ trips: (Trip & { driver: any; driverId?: number; plate: string; passengers?: { seat: number; customerId?: number; name: string; phone: string }[] })[] }>('/api/admin/trips');
 export const apiAdminTripCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/trips/${id}/cancel`, { method: 'POST' });
 
 /* the owner turns an account into a supervisor / manager / customer; staff link 1-3 orders to one courier */

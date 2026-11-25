@@ -457,5 +457,69 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       res.json({ ok: true, commission });
     } catch (e) { try { await c.query('ROLLBACK'); } catch { /* already */ } throw e; } finally { c.release(); }
   }));
+
+  /* ----- the owner's full control (additive): price, pick a captain from a list, accept an offer for the customer, reopen to all captains ----- */
+  const audit = (req, action, rideId, before, after) => pool.query(
+    `INSERT INTO audit_log(actor_user_id, actor_name, action, entity, entity_id, before, after, note)
+     VALUES($1::bigint, COALESCE((SELECT name FROM users WHERE id=$1::bigint), 'النظام'), $2, 'ride', $3, $4, $5, '')`,
+    [me(req), action, String(rideId), before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null]).catch(() => {});
+  /** the approved captains the owner may pick from (name, vehicle, balance) */
+  app.get('/api/admin/ride-captains', ...admin, guard(async (_req, res) => {
+    const r = await pool.query(`SELECT p.user_id AS id, u.name, u.phone, p.model, p.color, p.plate, p.balance, t.name AS type_name, u.available,
+        EXISTS (SELECT 1 FROM rides x WHERE x.driver_id=p.user_id AND x.status IN ('assigned','arrived','started')) AS busy
+      FROM captain_profiles p JOIN users u ON u.id=p.user_id LEFT JOIN ride_types t ON t.id=p.type_id
+      WHERE p.status='approved' AND u.deleted_at IS NULL ORDER BY u.available DESC, u.name LIMIT 300`);
+    res.json({ captains: r.rows.map(x => ({ id: Number(x.id), name: x.name, phone: x.phone, model: x.model || '', color: x.color || '', plate: x.plate || '', balance: Number(x.balance), type: x.type_name || '', online: !!x.available, busy: !!x.busy })) });
+  }));
+  /** the captains' price offers on the rides that are still searching */
+  app.get('/api/admin/rides/offers', ...admin, guard(async (_req, res) => {
+    const r = await pool.query(`SELECT o.id, o.ride_id, o.price, o.driver_id, u.name, p.model, p.plate FROM ride_offers o JOIN rides r ON r.id=o.ride_id AND r.status='searching'
+      JOIN users u ON u.id=o.driver_id LEFT JOIN captain_profiles p ON p.user_id=o.driver_id WHERE o.status='open' ORDER BY o.price LIMIT 300`);
+    res.json({ offers: r.rows.map(x => ({ id: Number(x.id), rideId: Number(x.ride_id), price: Number(x.price), driverId: Number(x.driver_id), name: x.name, model: x.model || '', plate: x.plate || '' })) });
+  }));
+  /** change the price the customer pays (before the trip starts); an assigned captain and the customer are told */
+  app.patch('/api/admin/rides/:id/price', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const price = Number((req.body || {}).price);
+    if (!Number.isFinite(price) || price <= 0 || price > 10000) throw fail(400, 'السعر لازم يكون بين 1 و10000');
+    const old = await pool.query("SELECT offered, final_price FROM rides WHERE id=$1 AND status IN ('searching','assigned','arrived')", [id]);
+    if (!old.rowCount) throw fail(409, 'لا يمكن تعديل سعر هذه الرحلة');
+    const u = await pool.query(`UPDATE rides SET offered=$2, final_price = CASE WHEN driver_id IS NOT NULL THEN $2 ELSE final_price END, updated_at=NOW()
+      WHERE id=$1 AND status IN ('searching','assigned','arrived') RETURNING customer_id, driver_id`, [id, money(price)]);
+    if (!u.rowCount) throw fail(409, 'لا يمكن تعديل سعر هذه الرحلة');
+    push([Number(u.rows[0].customer_id)], 'رحلتك', `تم تعديل سعر الرحلة إلى ${money(price)} ج`, `ride-${id}`);
+    if (u.rows[0].driver_id) push([Number(u.rows[0].driver_id)], 'تعديل سعر', `سعر الرحلة بقى ${money(price)} ج`, `ride-${id}`);
+    await audit(req, 'ride.price', id, { offered: Number(old.rows[0].offered) }, { offered: money(price) });
+    res.json({ ok: true });
+  }));
+  /** accept one captain's offer instead of the customer */
+  app.post('/api/admin/rides/:id/accept-offer', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id), oid = positiveId((req.body || {}).offerId); if (!id || !oid) throw fail(400, 'بيانات غير صالحة');
+    const o = await pool.query(`SELECT o.driver_id, o.price FROM ride_offers o JOIN captain_profiles p ON p.user_id=o.driver_id AND p.status='approved' WHERE o.id=$1 AND o.ride_id=$2 AND o.status='open'`, [oid, id]);
+    if (!o.rowCount) throw fail(404, 'العرض غير موجود');
+    const u = await pool.query(`UPDATE rides SET status='assigned', driver_id=$2, final_price=$3, expires_at=GREATEST(expires_at, NOW() + INTERVAL '10 minutes'), updated_at=NOW()
+      WHERE id=$1 AND status='searching' RETURNING customer_id`, [id, Number(o.rows[0].driver_id), money(o.rows[0].price)]);
+    if (!u.rowCount) throw fail(409, 'الرحلة لم تعد متاحة');
+    await pool.query("UPDATE ride_offers SET status = CASE WHEN id=$1 THEN 'accepted' ELSE 'rejected' END WHERE ride_id=$2 AND status='open'", [oid, id]);
+    push([Number(o.rows[0].driver_id)], 'تم قبول عرضك', `رحلة ${money(o.rows[0].price)} ج`, `ride-${id}`);
+    push([Number(u.rows[0].customer_id)], 'كابتنك في الطريق', `تم قبول عرض بسعر ${money(o.rows[0].price)} ج`, `ride-${id}`);
+    await audit(req, 'ride.accept_offer', id, null, { offerId: oid, driverId: Number(o.rows[0].driver_id), price: money(o.rows[0].price) });
+    res.json({ ok: true });
+  }));
+  /** raise it again: back to searching with a fresh timer, told to every eligible captain (an assigned captain is released) */
+  app.post('/api/admin/rides/:id/reopen', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const prev = await pool.query("SELECT driver_id FROM rides WHERE id=$1 AND status IN ('searching','assigned')", [id]);
+    if (!prev.rowCount) throw fail(409, 'لا يمكن رفع هذه الرحلة (لازم تكون بتدوّر على كابتن أو لسه الكابتن ماوصلش)');
+    const u = await pool.query(`UPDATE rides SET status='searching', driver_id=NULL, final_price=NULL, expires_at=NOW() + ($2 || ' minutes')::interval, updated_at=NOW()
+      WHERE id=$1 AND status IN ('searching','assigned') RETURNING *`, [id, String(RIDE_TTL_MIN)]);
+    if (!u.rowCount) throw fail(409, 'لا يمكن رفع هذه الرحلة');
+    await pool.query("UPDATE ride_offers SET status='rejected' WHERE ride_id=$1 AND status='accepted'", [id]);
+    const ride = u.rows[0], s = await settings(), cands = await eligibleCaptains(ride, s);
+    if (prev.rows[0].driver_id) push([Number(prev.rows[0].driver_id)], 'رحلة ملغاة', 'الإدارة حوّلت الرحلة', `ride-${id}`);
+    push(cands.map(c => c.id), 'طلب رحلة جديد', ride.bidding ? 'اكتب سعرك' : `${money(ride.offered)} ج`, `ride-${id}`);
+    await audit(req, 'ride.reopen', id, { driverId: prev.rows[0].driver_id ? Number(prev.rows[0].driver_id) : null }, { notified: cands.length });
+    res.json({ ok: true, notified: cands.length });
+  }));
 }
 module.exports = { commissionFor, canReceive, register };

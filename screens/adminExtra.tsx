@@ -11,6 +11,7 @@ import {
   SvcKey, SvcCoverKind, apiAdminSvcImage, apiAdminSvcSub, apiAdminSvcMeta, apiSvcMeta, svcImageUrl,
   Broadcast, BroadcastAud, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
+  RideCaptainPick, RideOfferRow, apiAdminRideCaptains, apiAdminRideOffers, apiAdminRidePrice, apiAdminRideAcceptOffer, apiAdminRideReopen, apiAdminTrips, apiAdminTripCancel, apiAdminTripEdit, apiAdminTripBook, apiAdminTripUnbook,
 } from '../lib/api';
 
 const askConfirm = (title: string, message: string, onConfirm: () => void) => confirmDialog({ title, message, confirmText: 'تأكيد', onConfirm });
@@ -240,20 +241,21 @@ export function AdminMarketScreen({ navigation }: any) {
 }
 
 /* ---------------- rides: types / captains / settings / rides ---------------- */
-type Tab = 'types' | 'captains' | 'settings' | 'rides';
+type Tab = 'types' | 'captains' | 'settings' | 'rides' | 'trips';
 export function AdminRidesScreen({ navigation }: any) {
   const [tab, setTab] = useState<Tab>('captains');
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="التوصيلة" subtitle="الأنواع والأسعار، الكباتن، العمولة، الرحلات" onBack={() => navigation.goBack()} />
       <View style={{ flexDirection: 'row', gap: 8, padding: 12, flexWrap: 'wrap' }}>
-        {([['captains', 'الكباتن'], ['types', 'الأنواع والأسعار'], ['settings', 'العمولة والتحكم'], ['rides', 'الرحلات']] as [Tab, string][]).map(([k, l]) => <Chip key={k} label={l} active={tab === k} onPress={() => setTab(k)} />)}
+        {([['captains', 'الكباتن'], ['types', 'الأنواع والأسعار'], ['settings', 'العمولة والتحكم'], ['rides', 'الرحلات'], ['trips', 'رحلات المحافظات']] as [Tab, string][]).map(([k, l]) => <Chip key={k} label={l} active={tab === k} onPress={() => setTab(k)} />)}
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 4, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         {tab === 'types' && <><SvcLookCard svc="rides" title="توصيلة في الرئيسية" withName /><TypesTab /></>}
         {tab === 'captains' && <CaptainsTab />}
         {tab === 'settings' && <SettingsTab />}
         {tab === 'rides' && <RidesTab />}
+        {tab === 'trips' && <TripsAdminTab />}
       </ScrollView>
     </View>
   );
@@ -488,33 +490,151 @@ function SettingsTab() {
   );
 }
 
+const RIDE_ST: Record<string, string> = { searching: 'بتدوّر على كابتن', assigned: 'الكابتن في الطريق', arrived: 'الكابتن وصل', started: 'الرحلة شغالة', completed: 'خلصت', cancelled: 'ملغية', expired: 'انتهت' };
+const RIDE_FILTERS: [string, string][] = [['', 'كلها'], ['searching', 'بتدوّر'], ['assigned', 'اتعيّن'], ['started', 'شغالة'], ['completed', 'خلصت'], ['cancelled', 'ملغية']];
+
+/** Owner: pick a captain from a list (name, vehicle, balance) instead of typing his number. */
+function CaptainPicker({ onPick }: { onPick: (c: RideCaptainPick) => void }) {
+  const [list, setList] = useState<RideCaptainPick[] | null>(null);
+  useEffect(() => { apiAdminRideCaptains().then((r) => setList(r.captains)).catch((e) => { toast(errText(e), 'err'); setList([]); }); }, []);
+  if (list === null) return <T color={C.sub}>جاري التحميل...</T>;
+  if (!list.length) return <T color={C.sub}>مفيش كباتن مفعّلين.</T>;
+  return (
+    <View style={{ gap: 6 }}>
+      {list.map((c) => (
+        <Pressable key={c.id} onPress={() => onPick(c)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={13}>{c.name} • #{c.id}</T>
+            <T size={11.5} color={C.sub}>{[c.type, c.model, c.plate].filter(Boolean).join(' • ')} • رصيد {c.balance} ج</T>
+          </View>
+          <T size={11.5} color={c.busy ? C.orange : c.online ? C.green : C.sub}>{c.busy ? 'في رحلة' : c.online ? 'متاح' : 'مش متصل'}</T>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 function RidesTab() {
   const [list, setList] = useState<any[] | null>(null);
-  const [driver, setDriver] = useState<Record<number, string>>({});
-  const load = useCallback(async () => { try { setList((await apiAdminRides()).rides); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
+  const [offers, setOffers] = useState<RideOfferRow[]>([]);
+  const [filter, setFilter] = useState('');
+  const [priceOf, setPriceOf] = useState<number | null>(null);
+  const [priceVal, setPriceVal] = useState('');
+  const [pickOf, setPickOf] = useState<number | null>(null);
+  const load = useCallback(async () => {
+    try { const [a, o] = await Promise.all([apiAdminRides(filter), apiAdminRideOffers().catch(() => ({ offers: [] as RideOfferRow[] }))]); setList(a.rides); setOffers(o.offers); }
+    catch (e) { toast(errText(e), 'err'); setList([]); }
+  }, [filter]);
   useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [load]);
-  if (list === null) return <Empty title="جاري التحميل..." />;
-  if (!list.length) return <Empty title="لا توجد رحلات" />;
+  const run = async (fn: () => Promise<any>, ok: string) => { try { await fn(); toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
   return (
     <>
-      {list.map((r) => (
-        <Card key={r.id} style={{ gap: 6 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رحلة #{r.id} • {r.customer}</T><T size={12} color={C.sub}>{r.status}</T></View>
-          <T size={12.5} color={C.sub}>{r.km} كم • {r.finalPrice ?? r.offered} ج • الكابتن: {r.driver || '—'}</T>
-          {['searching', 'assigned', 'arrived', 'started'].includes(r.status) && (
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Btn title="إلغاء الرحلة" small variant="soft" style={{ flex: 1 }} onPress={() => askConfirm('إلغاء الرحلة', `إلغاء رحلة #${r.id}؟`, async () => { try { await apiAdminRideCancel(r.id); toast('تم الإلغاء'); load(); } catch (e) { toast(errText(e), 'err'); } })} />
-              {!!r.driver && r.status !== 'searching' && <Btn title="تأكيد الإنهاء" small style={{ flex: 1 }} onPress={() => askConfirm('تأكيد الإنهاء', `تأكيد إنهاء رحلة #${r.id}؟ هتتخصم عمولة الكابتن.`, async () => { try { const x = await apiAdminRideComplete(r.id); toast(`تم التأكيد — العمولة ${x.commission} ج`); load(); } catch (e) { toast(errText(e), 'err'); } })} />}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        {RIDE_FILTERS.map(([k, l]) => <Chip key={k || 'all'} label={l} active={filter === k} onPress={() => { setList(null); setFilter(k); }} />)}
+      </ScrollView>
+      {list === null ? <Empty title="جاري التحميل..." /> : !list.length ? <Empty title="لا توجد رحلات" /> : list.map((r) => {
+        const open = ['searching', 'assigned', 'arrived', 'started'].includes(r.status);
+        const mine = offers.filter((o) => o.rideId === r.id);
+        return (
+          <Card key={r.id} style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رحلة #{r.id} • {r.customer}</T><T size={12} color={C.sub}>{RIDE_ST[r.status] || r.status}</T></View>
+            <T size={12.5} color={C.sub}>{r.from?.text || ''}{r.to?.text ? ` ← ${r.to.text}` : ''}{r.textDest ? '' : ` • ${r.km} كم`}</T>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F3F4EE', borderRadius: 12, padding: 10 }}>
+              <View><T size={11.5} color={C.sub}>السعر للعميل • الكابتن: {r.driver || '—'}</T><T w="black" size={18}>{r.finalPrice ?? r.offered} ج</T></View>
+              {['searching', 'assigned', 'arrived'].includes(r.status) && <Btn title="عدّل السعر" small onPress={() => { setPriceOf(priceOf === r.id ? null : r.id); setPriceVal(String(r.finalPrice ?? r.offered)); }} />}
             </View>
-          )}
-          {['searching', 'assigned'].includes(r.status) && (
-            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
-              <View style={{ flex: 1 }}><Field label="رقم الكابتن (من تبويب الكباتن)" value={driver[r.id] || ''} onChangeText={(v) => setDriver({ ...driver, [r.id]: v })} keyboardType="number-pad" /></View>
-              <Btn title="حوّل" small variant="soft" onPress={async () => { try { await apiAdminRideAssign(r.id, num(driver[r.id] || '0')); toast('تم التحويل'); load(); } catch (e) { toast(errText(e), 'err'); } }} />
-            </View>
-          )}
-        </Card>
-      ))}
+            {priceOf === r.id && (
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+                <View style={{ flex: 1 }}><Field label="السعر الجديد (ج)" value={priceVal} onChangeText={setPriceVal} keyboardType="number-pad" /></View>
+                <Btn title="حفظ" small onPress={() => run(async () => { await apiAdminRidePrice(r.id, num(priceVal)); setPriceOf(null); }, 'تم تعديل السعر')} />
+              </View>
+            )}
+            {r.status === 'searching' && mine.length > 0 && <T w="bold" size={12.5}>عروض الكباتن</T>}
+            {r.status === 'searching' && mine.map((o) => (
+              <View key={o.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+                <T style={{ flex: 1 }} size={13}>{o.name} • {[o.model, o.plate].filter(Boolean).join(' ')} • {o.price} ج</T>
+                <Btn title="اقبل عنه" small variant="green" onPress={() => askConfirm('قبول العرض', `قبول عرض ${o.name} بسعر ${o.price} ج بدل العميل؟`, () => run(() => apiAdminRideAcceptOffer(r.id, o.id), 'تم قبول العرض'))} />
+              </View>
+            ))}
+            {['searching', 'assigned'].includes(r.status) && (
+              <>
+                <Btn title={pickOf === r.id ? 'إخفاء القايمة' : r.status === 'searching' ? 'عيّن كابتن من القايمة' : 'حوّل لكابتن تاني'} icon="people" small variant="soft" onPress={() => setPickOf(pickOf === r.id ? null : r.id)} />
+                {pickOf === r.id && <CaptainPicker onPick={(c) => askConfirm('تعيين الكابتن', `تعيين ${c.name} على رحلة #${r.id}؟`, () => run(async () => { await apiAdminRideAssign(r.id, c.id); setPickOf(null); }, 'تم التعيين'))} />}
+                <Btn title="ارفعها لكل الكباتن" icon="megaphone" small variant="soft" onPress={() => askConfirm('رفع الرحلة', `هترجع رحلة #${r.id} لكل الكباتن المتاحين${r.driver ? ' وهيتشال الكابتن الحالي' : ''}. متأكد؟`, () => run(async () => { const x = await apiAdminRideReopen(r.id); toast(`اتبعت لـ ${x.notified} كابتن`); }, 'تم رفع الرحلة'))} />
+              </>
+            )}
+            {open && (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn title="إلغاء الرحلة" small variant="soft" style={{ flex: 1 }} onPress={() => askConfirm('إلغاء الرحلة', `إلغاء رحلة #${r.id}؟`, () => run(() => apiAdminRideCancel(r.id), 'تم الإلغاء'))} />
+                {!!r.driver && r.status !== 'searching' && <Btn title="تأكيد الإنهاء" small style={{ flex: 1 }} onPress={() => askConfirm('تأكيد الإنهاء', `تأكيد إنهاء رحلة #${r.id}؟ هتتخصم عمولة الكابتن.`, async () => { try { const x = await apiAdminRideComplete(r.id); toast(`تم التأكيد — العمولة ${x.commission} ج`); load(); } catch (e) { toast(errText(e), 'err'); } })} />}
+              </View>
+            )}
+          </Card>
+        );
+      })}
+    </>
+  );
+}
+
+const fmtDay = (ms: number) => { try { return new Date(ms).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
+/** Owner: intercity trips — change price / seats / time, change the captain, book or remove a passenger, cancel. */
+function TripsAdminTab() {
+  const [list, setList] = useState<any[] | null>(null);
+  const [edit, setEdit] = useState<{ id: number; price: string; seats: string; when: string } | null>(null);
+  const [pickOf, setPickOf] = useState<number | null>(null);
+  const [book, setBook] = useState<{ id: number; cid: string; n: string } | null>(null);
+  const load = useCallback(async () => { try { setList((await apiAdminTrips()).trips); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
+  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
+  const run = async (fn: () => Promise<any>, ok: string) => { try { await fn(); toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
+  if (list === null) return <Empty title="جاري التحميل..." />;
+  if (!list.length) return <Empty title="لا توجد رحلات محافظات" />;
+  return (
+    <>
+      {list.map((t) => {
+        const isOpen = t.status === 'open';
+        return (
+          <Card key={t.id} style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رحلة #{t.id} • {t.dest}</T><T size={12} color={C.sub}>{t.status === 'open' ? `مفتوحة ${t.seats - t.free}/${t.seats}` : t.status}</T></View>
+            <T size={12.5} color={C.sub}>الكابتن: {t.driver}{t.plate ? ` • ${t.plate}` : ''} • {fmtDay(t.departAt)} • {t.price} ج للفرد</T>
+            {(t.passengers || []).map((p: any) => (
+              <View key={`${p.seat}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <T style={{ flex: 1 }} size={12.5}>كرسي {p.seat}: {p.name} • {p.phone}</T>
+                {isOpen && !!p.customerId && <Btn title="شيل" small variant="soft" onPress={() => askConfirm('إلغاء الحجز', `إلغاء حجز ${p.name} من الرحلة (كل كراسيه)؟`, () => run(() => apiAdminTripUnbook(t.id, p.customerId), 'تم إلغاء الحجز'))} />}
+              </View>
+            ))}
+            {isOpen && (
+              <>
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  <Btn title="عدّل السعر والمقاعد والميعاد" small variant="soft" onPress={() => setEdit(edit?.id === t.id ? null : { id: t.id, price: String(t.price), seats: String(t.seats), when: '' })} />
+                  <Btn title="غيّر الكابتن" small variant="soft" onPress={() => setPickOf(pickOf === t.id ? null : t.id)} />
+                  <Btn title="احجز راكب" small variant="soft" onPress={() => setBook(book?.id === t.id ? null : { id: t.id, cid: '', n: '1' })} />
+                  <Btn title="إلغاء الرحلة" small variant="soft" onPress={() => askConfirm('إلغاء الرحلة', `إلغاء رحلة #${t.id}؟ هيتبلّغ كل اللي حجزوا.`, () => run(() => apiAdminTripCancel(t.id), 'تم الإلغاء'))} />
+                </View>
+                {edit?.id === t.id && (
+                  <View style={{ gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+                    <Field label="سعر الكرسي (ج)" value={edit.price} onChangeText={(v) => setEdit({ ...edit, price: v })} keyboardType="number-pad" />
+                    <Field label="عدد الكراسي" value={edit.seats} onChangeText={(v) => setEdit({ ...edit, seats: v })} keyboardType="number-pad" />
+                    <Field label="ميعاد جديد (اختياري) مثال: 2026-12-03 07:00" value={edit.when} onChangeText={(v) => setEdit({ ...edit, when: v })} />
+                    <Btn title="حفظ" small onPress={() => run(async () => {
+                      const b: any = { price: num(edit.price), seats: num(edit.seats) };
+                      if (edit.when.trim()) { const d = new Date(edit.when.trim().replace(' ', 'T') + '+02:00'); if (isNaN(d.getTime())) throw new Error('الميعاد غير صحيح'); b.departAt = d.toISOString(); }
+                      await apiAdminTripEdit(t.id, b); setEdit(null);
+                    }, 'تم التعديل')} />
+                  </View>
+                )}
+                {pickOf === t.id && <CaptainPicker onPick={(c) => askConfirm('تغيير الكابتن', `تحويل رحلة #${t.id} إلى ${c.name}؟ هيتبلّغ الحاجزين.`, () => run(async () => { await apiAdminTripEdit(t.id, { driverId: c.id }); setPickOf(null); }, 'تم تغيير الكابتن'))} />}
+                {book?.id === t.id && (
+                  <View style={{ gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+                    <Field label="رقم العميل" value={book.cid} onChangeText={(v) => setBook({ ...book, cid: v })} keyboardType="number-pad" />
+                    <Field label="عدد الأفراد" value={book.n} onChangeText={(v) => setBook({ ...book, n: v })} keyboardType="number-pad" />
+                    <Btn title="احجز" small onPress={() => run(async () => { await apiAdminTripBook(t.id, num(book.cid), num(book.n) || 1); setBook(null); }, 'تم الحجز')} />
+                  </View>
+                )}
+              </>
+            )}
+          </Card>
+        );
+      })}
     </>
   );
 }
