@@ -215,7 +215,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
               (SELECT COUNT(*) FROM orders o WHERE o.courier_user_id=u.id AND o.status = ANY($1))::int AS busy,
               cl.lat, cl.lng
          FROM users u LEFT JOIN courier_locations cl ON cl.courier_id=u.id AND cl.updated_at > NOW() - ${NEAR_FRESH}
-        WHERE u.role='courier' AND u.status='active' AND u.available=TRUE AND u.deleted_at IS NULL
+        WHERE u.role='courier' AND u.status='active' AND u.available=TRUE AND NOT u.orders_off AND u.deleted_at IS NULL
           AND u.region_id = $2::bigint AND NOT (u.id = ANY($3::bigint[]))`, [BUSY, row.region_id, skip]);
     if (!c.rowCount) return row;
     let shop = null;
@@ -303,7 +303,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     return Promise.race([job, slow]).finally(() => clearTimeout(t));
   };
   async function onlineCourierIds() {
-    return (await pool.query("SELECT id FROM users WHERE role='courier' AND status='active' AND available=TRUE")).rows.map(r => r.id);
+    return (await pool.query("SELECT id FROM users WHERE role='courier' AND status='active' AND available=TRUE AND NOT orders_off")).rows.map(r => r.id);
   }
   /** New jobs: the courier they were auto-assigned to, or every courier who is switched on. */
   async function notifyCouriers(all) {
@@ -360,7 +360,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     if (user.role === 'customer') return `o.customer_user_id=$${i}`;
     // a closed day moves the shop's finished orders out of its lists (nothing is deleted; the owner still sees everything)
     if (user.role === 'provider') return `o.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i}) AND NOT (o.status IN ('delivered','rejected','cancelled','unavailable') AND COALESCE(o.delivered_at, o.updated_at) <= COALESCE((SELECT MAX(dc.closed_at) FROM day_closings dc WHERE dc.provider_id=o.provider_id AND dc.undone_at IS NULL), 'epoch'::timestamptz))`;
-    return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('accepted','ready')))`;
+    return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('accepted','ready') AND NOT EXISTS (SELECT 1 FROM users cu WHERE cu.id=$${i} AND cu.orders_off)))`;
   }
   function apptScope(user, values) {
     if (user.role === 'admin') return 'TRUE';
@@ -397,7 +397,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         (SELECT updated_at::text FROM site_images WHERE key='welcome_logo') AS wl,
         (SELECT MAX(updated_at)::text||':'||COUNT(*) FROM site_images WHERE key LIKE 'cat\\_%') AS ci,
         (SELECT MAX(updated_at)::text||':'||COUNT(*) FROM site_images WHERE key='home_cover' OR key LIKE 'hb\\_%' OR key LIKE 'pcover\\_%') AS cv,
-        (SELECT COUNT(*) FROM users WHERE role='courier' AND status='active' AND available=TRUE) AS c,
+        (SELECT COUNT(*) FROM users WHERE role='courier' AND status='active' AND available=TRUE AND NOT orders_off) AS c,
         (SELECT COALESCE(SUM(hashtextextended(x.id::text||x.status||x.updated_at::text,0)::numeric),0)::text FROM appointments x WHERE x.status IN ('pending','confirmed') AND x.appointment_date >= CURRENT_DATE - 1) AS sl`, p);
     return crypto.createHash('md5').update(JSON.stringify([auth.role, auth.status, r.rows[0]])).digest('hex');
   }
@@ -425,7 +425,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const [ordersRes, apptsRes, online, slotRows] = await Promise.all([
       pool.query(`SELECT o.* FROM orders o WHERE ${orderScope(req.auth, ov)} ORDER BY o.created_at DESC LIMIT 300`, ov),
       pool.query(`${APPT_SQL} WHERE ${apptScope(req.auth, av)} ORDER BY a.created_at DESC LIMIT 300`, av),
-      soft('couriers', 0, async () => Number((await pool.query("SELECT COUNT(*) AS n FROM users WHERE role='courier' AND status='active' AND available=TRUE")).rows[0].n)),
+      soft('couriers', 0, async () => Number((await pool.query("SELECT COUNT(*) AS n FROM users WHERE role='courier' AND status='active' AND available=TRUE AND NOT orders_off")).rows[0].n)),
       soft('slots', [], async () => (await pool.query(
         "SELECT doctor_product_id, to_char(appointment_date,'YYYY-MM-DD') AS d, appointment_time AS t FROM appointments WHERE status IN ('pending','confirmed') AND appointment_date >= CURRENT_DATE - 1")).rows),
     ]);
@@ -1142,8 +1142,9 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           need(role === 'courier', 'للمناديب فقط'); state('accepted', 'ready');
           if (row.courier_user_id) throw fail(409, 'تم قبول الطلب بواسطة مندوب آخر');
           if (isErrand(row) && (row.data.declinedBy || []).includes(String(me))) throw fail(409, 'رفض العميل سعرك لهذا الطلب');
-          const c = await db.query("SELECT name, phone, vehicle, available FROM users WHERE id=$1 AND role='courier' AND status='active'", [me]);
+          const c = await db.query("SELECT name, phone, vehicle, available, orders_off FROM users WHERE id=$1 AND role='courier' AND status='active'", [me]);
           if (!c.rowCount) throw fail(403, 'حساب المندوب غير مفعّل');
+          if (c.rows[0].orders_off) throw fail(403, 'حسابك كابتن توصيلة فقط، مش مندوب طلبات');
           if (!c.rows[0].available) throw fail(409, 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات');
           next = await moveOrder(db, row, row.status, {}, { id: me, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
           await sysMsg(db, id, isErrand(row) ? `المندوب ${c.rows[0].name} قبل طلبك، وسيرسل لك فاتورة بسعر المشتريات ورسوم التوصيل لتوافق عليها 🧾` : `المندوب ${c.rows[0].name} قبل طلبك وسيتولى التوصيل 🛵`);

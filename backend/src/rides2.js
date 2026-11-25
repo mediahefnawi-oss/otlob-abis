@@ -79,12 +79,19 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   /* ================= admin: review + control the captains ================= */
   app.get('/api/admin/captains', ...admin, guard(async (req, res) => {
     const st = STATUSES.includes(req.query.status) ? req.query.status : null;
-    const r = await pool.query(`SELECT p.user_id, u.name, u.phone, p.status, p.note, p.model, p.color, p.plate, p.balance, p.commission_pct, p.auto_receive, p.trips_mode, p.trips_max, t.name AS type_name,
+    const r = await pool.query(`SELECT p.user_id, u.name, u.phone, p.status, p.note, p.model, p.color, p.plate, p.balance, p.commission_pct, p.auto_receive, p.trips_mode, p.trips_max, t.name AS type_name, t.id AS type_id, u.orders_off,
         ARRAY(SELECT kind FROM captain_photos WHERE user_id=p.user_id) AS photos
       FROM captain_profiles p JOIN users u ON u.id=p.user_id LEFT JOIN ride_types t ON t.id=p.type_id
       WHERE ($1::text IS NULL OR p.status=$1) ORDER BY (p.status='pending') DESC, p.updated_at DESC LIMIT 300`, [st]);
-    res.json({ captains: r.rows.map(x => ({ id: Number(x.user_id), name: x.name, phone: x.phone, status: x.status, note: x.note, typeName: x.type_name, model: x.model, color: x.color, plate: x.plate, balance: Number(x.balance), commissionPct: x.commission_pct === null ? null : Number(x.commission_pct), autoReceive: x.auto_receive, tripsMode: x.trips_mode, tripsMax: x.trips_max === null ? null : Number(x.trips_max), photos: x.photos })) });
+    res.json({ captains: r.rows.map(x => ({ id: Number(x.user_id), name: x.name, phone: x.phone, status: x.status, note: x.note, typeName: x.type_name, typeId: x.type_id, ordersOff: !!x.orders_off, mode: captainMode(x), model: x.model, color: x.color, plate: x.plate, balance: Number(x.balance), commissionPct: x.commission_pct === null ? null : Number(x.commission_pct), autoReceive: x.auto_receive, tripsMode: x.trips_mode, tripsMax: x.trips_max === null ? null : Number(x.trips_max), photos: x.photos })) });
   }));
+  const COURIER_ONLY = 'مندوب توصيل فقط';
+  /** what work the account takes: rides (captain), order delivery (courier), both, or none (pending / rejected / stopped) */
+  const captainMode = x => x.status === 'approved' ? (x.orders_off ? 'captain' : 'both') : (x.status === 'suspended' && x.note === COURIER_ONLY && !x.orders_off ? 'courier' : 'none');
+  const auditCap = (req, action, id, before, after) => pool.query(
+    `INSERT INTO audit_log(actor_user_id, actor_name, action, entity, entity_id, before, after, note)
+     VALUES($1::bigint, COALESCE((SELECT name FROM users WHERE id=$1::bigint), 'النظام'), $2, 'captain', $3, $4, $5, '')`,
+    [me(req), action, String(id), before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null]).catch(() => {});
   /** the owner opens a captain account by hand: a courier user + an approved captain profile */
   app.post('/api/admin/captains', ...admin, guard(async (req, res) => {
     const b = req.body || {}, name = str(b.name, 80), phone = String(b.phone || '').replace(/\s+/g, ''), password = String(b.password || '');
@@ -128,14 +135,67 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     }
     if (b.typeId !== undefined) { const t = positiveId(b.typeId); if (!t) throw fail(400, 'نوع غير صالح'); add('type_id', t); }
     for (const [k, col, n] of [['model', 'model', 60], ['color', 'color', 30], ['plate', 'plate', 20]]) if (b[k] !== undefined) add(col, str(b[k], n));
-    if (!sets.length) throw fail(400, 'لا يوجد تعديل');
+    // what work the account takes: captain only / delivery courier only / both (silent: the captain is not pushed, the owner decides this)
+    let ordersOff;
+    if (b.mode !== undefined) {
+      const cur = (await pool.query('SELECT p.status, p.note, u.orders_off FROM captain_profiles p JOIN users u ON u.id=p.user_id WHERE p.user_id=$1', [id])).rows[0];
+      if (!cur) throw fail(404, 'الكابتن غير موجود');
+      if (!['approved', 'suspended'].includes(cur.status)) throw fail(409, 'اقبل الحساب أولاً');
+      if (b.mode === 'both') { add('status', 'approved'); add('note', ''); ordersOff = false; }
+      else if (b.mode === 'captain') { add('status', 'approved'); add('note', ''); ordersOff = true; }
+      else if (b.mode === 'courier') { add('status', 'suspended'); add('note', COURIER_ONLY); ordersOff = false; }
+      else throw fail(400, 'اختيار غير صحيح');
+    }
+    // account data: name and phone live on the user
+    let name, phone;
+    if (b.name !== undefined) { name = str(b.name, 80); if (name.length < 3) throw fail(400, 'اكتب الاسم بالكامل'); }
+    if (b.phone !== undefined) {
+      phone = String(b.phone).replace(/\s+/g, '');
+      if (!/^01[0-9]{9}$/.test(phone)) throw fail(400, 'رقم الهاتف غير صحيح');
+      if ((await pool.query('SELECT 1 FROM users WHERE phone=$1 AND id<>$2', [phone, id])).rowCount) throw fail(409, 'الرقم مسجل لحساب آخر');
+    }
+    if (!sets.length && ordersOff === undefined && name === undefined && phone === undefined) throw fail(400, 'لا يوجد تعديل');
+    const before = (await pool.query('SELECT p.status, p.model, p.color, p.plate, p.type_id, u.name, u.phone, u.orders_off FROM captain_profiles p JOIN users u ON u.id=p.user_id WHERE p.user_id=$1', [id])).rows[0];
+    if (!before) throw fail(404, 'الكابتن غير موجود');
+    if (name !== undefined) await pool.query('UPDATE users SET name=$2 WHERE id=$1', [id, name]);
+    if (phone !== undefined) await pool.query('UPDATE users SET phone=$2 WHERE id=$1', [id, phone]);
+    if (ordersOff !== undefined) await pool.query('UPDATE users SET orders_off=$2 WHERE id=$1', [id, ordersOff]);
+    await auditCap(req, 'captain.edit', id, before, { ...b, password: undefined });
+    if (!sets.length) return res.json({ ok: true });
     const r = await pool.query(`UPDATE captain_profiles SET ${sets.join(', ')}, updated_at=NOW() WHERE user_id=$1 RETURNING status, note`, vals);
     if (!r.rowCount) throw fail(404, 'الكابتن غير موجود');
-    if (b.status !== undefined) {
+    if (b.status !== undefined && b.mode === undefined) {
       const msg = { approved: 'تم قبول حسابك كابتن. تقدر تستقبل الرحلات الآن', rejected: 'تم رفض طلبك كابتن', needs_photo: 'نحتاج صورة أوضح: ' + r.rows[0].note, suspended: 'تم إيقاف حسابك مؤقتاً' }[b.status];
       if (msg) push([id], 'أطلب أبيس — كابتن', msg, 'captain-status');
     }
     res.json({ ok: true, status: r.rows[0].status });
+  }));
+  /** the owner uploads / replaces / removes one of the four photos (car, license, driver license, the captain himself) */
+  app.put('/api/admin/captains/:id/photos/:kind', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id), kind = String(req.params.kind); if (!id || !KINDS.includes(kind)) throw fail(400, 'نوع الصورة غير صحيح');
+    const s = String((req.body || {}).image || '');
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(s);
+    if (!m || s.length > 1500000) throw fail(400, 'ارفع صورة صالحة (JPG أو PNG أو WebP) بحجم أصغر');
+    if (!(await pool.query('SELECT 1 FROM captain_profiles WHERE user_id=$1', [id])).rowCount) throw fail(404, 'الكابتن غير موجود');
+    await pool.query(`INSERT INTO captain_photos(user_id, kind, image, mime) VALUES($1,$2,$3,$4) ON CONFLICT (user_id, kind) DO UPDATE SET image=$3, mime=$4, updated_at=NOW()`, [id, kind, Buffer.from(m[2], 'base64'), m[1]]);
+    await auditCap(req, 'captain.photo', id, null, { kind });
+    res.json({ ok: true });
+  }));
+  app.delete('/api/admin/captains/:id/photos/:kind', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id), kind = String(req.params.kind); if (!id || !KINDS.includes(kind)) throw fail(400, 'نوع الصورة غير صحيح');
+    const r = await pool.query('DELETE FROM captain_photos WHERE user_id=$1 AND kind=$2', [id, kind]);
+    if (!r.rowCount) throw fail(404, 'مفيش صورة');
+    await auditCap(req, 'captain.photo_delete', id, { kind }, null);
+    res.json({ ok: true });
+  }));
+  /** the owner sets a new password for a captain (never shown anywhere) */
+  app.post('/api/admin/captains/:id/password', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id), pw = String((req.body || {}).password || ''); if (!id) throw fail(400, 'معرّف غير صالح');
+    if (pw.length < 8) throw fail(400, 'كلمة المرور يجب ألا تقل عن 8 أحرف');
+    if (!(await pool.query('SELECT 1 FROM captain_profiles WHERE user_id=$1', [id])).rowCount) throw fail(404, 'الكابتن غير موجود');
+    await pool.query('UPDATE users SET password_hash=$2 WHERE id=$1', [id, await hashPassword(pw)]);
+    await auditCap(req, 'captain.password', id, null, null);
+    res.json({ ok: true });
   }));
   app.post('/api/admin/captains/:id/balance', ...admin, guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');

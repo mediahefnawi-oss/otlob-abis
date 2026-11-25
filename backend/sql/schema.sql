@@ -1047,3 +1047,6 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_rides_stamp ON rides;
 CREATE TRIGGER trg_rides_stamp BEFORE UPDATE ON rides FOR EACH ROW EXECUTE FUNCTION rides_stamp();
 
+-- a captain who is not also a delivery courier: kept out of order dispatch (default FALSE = nothing changes for anybody)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS orders_off BOOLEAN NOT NULL DEFAULT FALSE;
+

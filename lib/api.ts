@@ -606,7 +606,7 @@ export const apiAdminRideTypeSave = (id: number | null, b: any) => apiRequest<{ 
 export const apiAdminRideTypeDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/ride-types/${id}`, { method: 'DELETE' });
 export const apiAdminRideTypeImage = (id: number, image: string) => apiRequest<{ type: RideType }>(`/api/admin/ride-types/${id}/image`, { method: 'PUT', body: JSON.stringify({ image }) });
 export const apiAdminRideTypeCommission = (id: number, commissionPct: number | null) => apiRequest<{ ok: boolean }>(`/api/admin/ride-types/${id}/commission`, { method: 'PATCH', body: JSON.stringify({ commissionPct }) });
-export type AdminCaptain = { id: number; name: string; phone: string; status: string; note: string; typeName: string; model: string; color: string; plate: string; balance: number; commissionPct: number | null; autoReceive: boolean; tripsMode: string; tripsMax: number | null; photos: string[] };
+export type AdminCaptain = { typeId?: number | null; ordersOff?: boolean; mode?: 'both' | 'captain' | 'courier' | 'none'; id: number; name: string; phone: string; status: string; note: string; typeName: string; model: string; color: string; plate: string; balance: number; commissionPct: number | null; autoReceive: boolean; tripsMode: string; tripsMax: number | null; photos: string[] };
 export const apiAdminCaptains = (status?: string) => apiRequest<{ captains: AdminCaptain[] }>(`/api/admin/captains${status ? `?status=${status}` : ''}`);
 export const apiAdminCaptainSet = (id: number, b: any) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminCaptainBalance = (id: number, amount: number, note?: string) => apiRequest<{ ok: boolean; balance: number }>(`/api/admin/captains/${id}/balance`, { method: 'POST', body: JSON.stringify({ amount, note }) });
@@ -636,6 +636,9 @@ export const apiAdminRideReopen = (id: number) => apiRequest<{ ok: boolean; noti
 export const apiAdminTripEdit = (id: number, b: { price?: number; seats?: number; departAt?: string; dest?: string; driverId?: number }) => apiRequest<{ ok: boolean }>(`/api/admin/trips/${id}`, { method: 'PATCH', body: JSON.stringify(b) });
 export const apiAdminTripBook = (id: number, customerId: number, count = 1) => apiRequest<{ ok: boolean; seats: number[] }>(`/api/admin/trips/${id}/book`, { method: 'POST', body: JSON.stringify({ customerId, count }) });
 export const apiAdminTripUnbook = (id: number, customerId: number) => apiRequest<{ ok: boolean }>(`/api/admin/trips/${id}/unbook`, { method: 'POST', body: JSON.stringify({ customerId }) });
+export const apiAdminCaptainPhotoSet = (id: number, kind: string, image: string) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}/photos/${kind}`, { method: 'PUT', body: JSON.stringify({ image }) });
+export const apiAdminCaptainPhotoDelete = (id: number, kind: string) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}/photos/${kind}`, { method: 'DELETE' });
+export const apiAdminCaptainPassword = (id: number, password: string) => apiRequest<{ ok: boolean }>(`/api/admin/captains/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) });
 export const captainPhotoUrl = (id: number, kind: string) => `${API_BASE}/api/admin/captains/${id}/photo/${kind}`;
 
 /* zones: the owner's fixed price between two areas, per vehicle */

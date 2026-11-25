@@ -119,5 +119,17 @@ const pass1 = (req, res, next) => next();
   ok(r.status === 409, 'cannot cancel twice: ' + r.status);
   r = await call('POST /api/orders/:id/action', { sub: String(cust), role: 'customer' }, { id: String(rj) }, { action: 'dismiss' });
   ok(r.status === 403, 'dismiss is for staff only: ' + r.status);
+  // a captain-only account (orders_off) never gets orders: not auto-assigned, not notified, cannot accept
+  const capOnly = await u('كابتن فقط', 'courier'); await q('UPDATE users SET region_id=$1, orders_off=TRUE WHERE id=$2', [rid, capOnly]); await loc(capOnly, 30.0001, 31.0);
+  await q('UPDATE users SET available=FALSE WHERE id IN ($1,$2,$3,$4)', [far, near, noloc, stale]);
+  await q('UPDATE app_settings SET auto_assign=TRUE WHERE id=1');
+  const ooc = await mk(p); notes.length = 0; await accept(ooc);
+  ok((await who(ooc)).c === null, 'orders_off courier is not auto-assigned');
+  ok(!notes.some(n => n.ids.includes(Number(capOnly))), 'orders_off courier is not notified');
+  r = await call('POST /api/orders/:id/action', { sub: String(capOnly), role: 'courier' }, { id: String(ooc) }, { action: 'courier_accept' });
+  ok(r.status === 403, 'orders_off courier cannot accept: ' + r.status);
+  await q('UPDATE users SET orders_off=FALSE WHERE id=$1', [capOnly]);
+  r = await call('POST /api/orders/:id/action', { sub: String(capOnly), role: 'courier' }, { id: String(ooc) }, { action: 'courier_accept' });
+  ok(r.status === 200, 'same courier with the switch off accepts normally: ' + r.status);
   console.log(`autoassign: ${pass} passed, ${bad} failed`); await pool.end(); process.exit(bad ? 1 : 0);
 })().catch(e => { console.error('CRASH', e); process.exit(2); });

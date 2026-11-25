@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Pressable, Text, Image, Linking } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { ScrollView } from '../components/KScroll';
 import { C } from '../lib/theme';
 import { useStore } from '../lib/store';
@@ -11,12 +12,11 @@ import {
   SvcKey, SvcCoverKind, apiAdminSvcImage, apiAdminSvcSub, apiAdminSvcMeta, apiSvcMeta, svcImageUrl,
   Broadcast, BroadcastAud, SupportBroadcast, apiAdminSupportBroadcasts, apiAdminSupportBroadcastSend, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
-  RideDetails, apiAdminRideDetails, RideCaptainPick, RideOfferRow, apiAdminRideCaptains, apiAdminRideOffers, apiAdminRidePrice, apiAdminRideAcceptOffer, apiAdminRideReopen, apiAdminTrips, apiAdminTripCancel, apiAdminTripEdit, apiAdminTripBook, apiAdminTripUnbook,
+  RideDetails, apiAdminRideDetails, apiAdminCaptainPhotoSet, apiAdminCaptainPhotoDelete, apiAdminCaptainPassword, RideCaptainPick, RideOfferRow, apiAdminRideCaptains, apiAdminRideOffers, apiAdminRidePrice, apiAdminRideAcceptOffer, apiAdminRideReopen, apiAdminTrips, apiAdminTripCancel, apiAdminTripEdit, apiAdminTripBook, apiAdminTripUnbook,
 } from '../lib/api';
 
 const askConfirm = (title: string, message: string, onConfirm: () => void) => confirmDialog({ title, message, confirmText: 'تأكيد', onConfirm });
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
-const PHOTO_AR = { car: 'العربية', license: 'رخصة المركبة', driver: 'رخصة القيادة', selfie: 'شخصية' };
 const num = (v: string) => Number(String(v).replace(/[^\d.\-]/g, ''));
 
 /* sizes / weights of a product ("ربع كيلو"، "نص لتر"...): the presets are one tap, any other name can be typed */
@@ -405,59 +405,137 @@ function AddCaptainCard({ onDone }: { onDone: () => void }) {
   );
 }
 
+const CAP_ST: Record<string, string> = { pending: 'تحت المراجعة', approved: 'مفعّل', rejected: 'مرفوض', suspended: 'موقوف', needs_photo: 'يحتاج صورة أوضح' };
+const CAP_MODES: [string, string][] = [['captain', 'كابتن فقط'], ['courier', 'مندوب توصيل فقط'], ['both', 'الاتنين']];
+const CAP_MODE_HELP: Record<string, string> = { captain: 'يستقبل رحلات التوصيلة فقط، مش بيجيله طلبات توصيل', courier: 'يستقبل طلبات التوصيل فقط، مش بيجيله رحلات', both: 'يستقبل رحلات التوصيلة وطلبات التوصيل من التطبيق' };
+const CAP_PHOTOS: [string, string][] = [['car', 'صورة العربية'], ['selfie', 'صورة الكابتن'], ['license', 'رخصة المركبة'], ['driver', 'رخصة القيادة']];
+
+/** One captain's whole card: account data, vehicle data, the four photos, the kind of work, and the status buttons that fit his state. */
+function CaptainCard({ c, types, onChanged }: { c: AdminCaptain; types: RideType[]; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ name: c.name, phone: c.phone, model: c.model || '', color: c.color || '', plate: c.plate || '', typeId: c.typeId ?? null as number | null });
+  const [note, setNote] = useState(''); const [amt, setAmt] = useState(''); const [pct, setPct] = useState(''); const [pw, setPw] = useState('');
+  const [bump, setBump] = useState(0);
+  const run = async (fn: () => Promise<any>, ok?: string) => { try { await fn(); if (ok) toast(ok); onChanged(); } catch (e) { toast(errText(e), 'err'); } };
+  const upload = (kind: string) => run(async () => {
+    if (!canPickImage) { toast('رفع الصور من نسخة الويب (المتصفح)', 'err'); return; }
+    const img = await pickImage(900, false); if (!img) return;
+    await apiAdminCaptainPhotoSet(c.id, kind, img); setBump((x) => x + 1);
+  }, 'تم رفع الصورة');
+  const mode = c.mode || 'none';
+  return (
+    <Card style={{ gap: 8 }}>
+      <Pressable onPress={() => setOpen(!open)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flex: 1 }}><T w="black">{c.name} • {c.phone}</T><T size={12} color={C.sub}>{c.typeName || '—'} • {c.model} • {c.color} • {c.plate}</T></View>
+        <T size={12} w="bold" color={c.status === 'approved' ? C.green : c.status === 'pending' ? C.goldDeep : C.red}>{mode === 'courier' ? 'مندوب توصيل فقط' : CAP_ST[c.status]}</T>
+      </Pressable>
+      {open && (
+        <>
+          <T size={12.5}>الرصيد: {c.balance} ج • عمولته: {c.commissionPct == null ? 'العامة' : c.commissionPct + '%'} • الاستقبال: {c.autoReceive ? 'تلقائي' : 'يدوي'}</T>
+
+          <T w="black" size={13}>بيانات الحساب</T>
+          <Field label="الاسم" value={f.name} onChangeText={(v) => setF({ ...f, name: v })} />
+          <Field label="رقم الهاتف" value={f.phone} onChangeText={(v) => setF({ ...f, phone: v })} keyboardType="phone-pad" />
+          <Btn title="حفظ بيانات الحساب" small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { name: f.name, phone: f.phone }), 'تم الحفظ')} />
+          <Field label="كلمة مرور جديدة (8 أحرف على الأقل)" value={pw} onChangeText={setPw} secureTextEntry />
+          <Btn title="تغيير كلمة المرور" small variant="soft" onPress={() => askConfirm('تغيير كلمة المرور', `تغيير كلمة مرور ${c.name}؟`, () => run(async () => { await apiAdminCaptainPassword(c.id, pw); setPw(''); }, 'تم تغيير كلمة المرور'))} />
+
+          <T w="black" size={13}>بيانات العربية</T>
+          <Field label="الموديل" value={f.model} onChangeText={(v) => setF({ ...f, model: v })} />
+          <Field label="اللون" value={f.color} onChangeText={(v) => setF({ ...f, color: v })} />
+          <Field label="رقم اللوحة" value={f.plate} onChangeText={(v) => setF({ ...f, plate: v })} />
+          <T size={12.5} color={C.sub}>نوع المركبة</T>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {types.map((t) => <Chip key={t.id} label={t.name} active={f.typeId === t.id} onPress={() => setF({ ...f, typeId: t.id })} />)}
+          </ScrollView>
+          <Btn title="حفظ بيانات العربية" small onPress={() => run(() => apiAdminCaptainSet(c.id, { model: f.model, color: f.color, plate: f.plate, ...(f.typeId ? { typeId: f.typeId } : {}) }), 'تم الحفظ')} />
+
+          <T w="black" size={13}>الصور</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {CAP_PHOTOS.map(([k, l]) => {
+              const has = c.photos.includes(k);
+              return (
+                <View key={k} style={{ width: '48%', gap: 4 }}>
+                  <Pressable onPress={() => upload(k)} style={{ height: 96, borderRadius: 12, backgroundColor: has ? C.greenSoft : '#EEF1EC', borderWidth: has ? 0 : 1.5, borderStyle: 'dashed', borderColor: '#9AB', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {has ? <Image source={{ uri: `${captainPhotoUrl(c.id, k)}?v=${bump}` }} style={{ width: '100%', height: 96 }} resizeMode="cover" /> : <T size={12} w="bold" color={C.dark3}>+ ارفع صورة</T>}
+                  </Pressable>
+                  <T size={11.5} w="bold" style={{ textAlign: 'center' }}>{l}{has ? ' • اضغط للتغيير' : ''}</T>
+                  {has && <Btn title="حذف" small variant="soft" onPress={() => askConfirm('حذف الصورة', `حذف ${l}؟`, () => run(async () => { await apiAdminCaptainPhotoDelete(c.id, k); setBump((x) => x + 1); }, 'تم الحذف'))} />}
+                </View>
+              );
+            })}
+          </View>
+
+          {['approved', 'suspended'].includes(c.status) && (
+            <>
+              <T w="black" size={13}>الشغل اللي يستقبله</T>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {CAP_MODES.map(([k, l]) => (
+                  <Pressable key={k} onPress={() => mode !== k && askConfirm('نوع الشغل', `تغيير ${c.name} إلى «${l}»؟`, () => run(() => apiAdminCaptainSet(c.id, { mode: k }), 'تم التغيير'))} style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10, backgroundColor: mode === k ? C.dark : '#EEF1EC' }}>
+                    <T size={12} w="bold" color={mode === k ? C.gold : C.text}>{l}</T>
+                  </Pressable>
+                ))}
+              </View>
+              {CAP_MODE_HELP[mode] ? <T size={11.5} color={C.sub}>{CAP_MODE_HELP[mode]}</T> : null}
+            </>
+          )}
+
+          <T w="black" size={13}>حالة الحساب: {mode === 'courier' ? 'مندوب توصيل فقط' : CAP_ST[c.status]}</T>
+          {(c.status === 'pending' || c.status === 'needs_photo') && (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Btn title="قبول" small style={{ flex: 1 }} onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'approved' }), 'تم القبول')} />
+              <Btn title="رفض" small variant="soft" style={{ flex: 1 }} onPress={() => askConfirm('رفض', `رفض طلب ${c.name}؟`, () => run(() => apiAdminCaptainSet(c.id, { status: 'rejected' }), 'تم الرفض'))} />
+            </View>
+          )}
+          {c.status === 'pending' && (
+            <>
+              <Field label="سبب طلب صورة أوضح" value={note} onChangeText={setNote} />
+              <Btn title="اطلب صورة أوضح" small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'needs_photo', note }), 'تم الإرسال للكابتن')} />
+            </>
+          )}
+          {c.status === 'approved' && <Btn title="إيقاف مؤقت" small variant="soft" onPress={() => askConfirm('إيقاف مؤقت', `إيقاف ${c.name} عن الرحلات؟ يتبلّغ ويقدر تفعّله تاني.`, () => run(() => apiAdminCaptainSet(c.id, { status: 'suspended' }), 'تم الإيقاف'))} />}
+          {c.status === 'suspended' && mode !== 'courier' && <Btn title="إعادة تفعيل" small onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'approved' }), 'تم التفعيل')} />}
+          {c.status === 'rejected' && <Btn title="قبول (إعادة فتح)" small onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'approved' }), 'تم القبول')} />}
+
+          <T w="black" size={13}>الرصيد والعمولة</T>
+          <Field label="شحن الرصيد (سالب للخصم)" value={amt} onChangeText={setAmt} keyboardType="numbers-and-punctuation" />
+          <Btn title="نفّذ" small variant="soft" onPress={() => run(() => apiAdminCaptainBalance(c.id, num(amt), 'من الإدارة'), 'تم تعديل الرصيد')} />
+          <Field label="عمولة هذا الكابتن % (فاضي = العامة)" value={pct} onChangeText={setPct} keyboardType="number-pad" />
+          <Btn title="حفظ العمولة" small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { commissionPct: pct.trim() === '' ? null : num(pct) }), 'تم الحفظ')} />
+          <T w="black" size={13}>🚌 رحلات المحافظات</T>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {([['type', 'حسب النوع'], ['always', 'مسموح دايمًا'], ['never', 'ممنوع']] as const).map(([k, l]) => (
+              <Pressable key={k} onPress={() => run(() => apiAdminCaptainSet(c.id, { tripsMode: k }), 'تم الحفظ')} style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10, backgroundColor: (c.tripsMode || 'type') === k ? C.dark : '#EEF1EC' }}>
+                <T size={12} w="bold" color={(c.tripsMode || 'type') === k ? C.gold : C.text}>{l}</T>
+              </Pressable>
+            ))}
+          </View>
+          <T size={12.5} color={C.sub}>أقصى عدد أفراد للعميل في حجز الكابتن ده</T>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {([null, 4, 5, 6, 7] as (number | null)[]).map((v) => (
+              <Pressable key={String(v)} onPress={() => run(() => apiAdminCaptainSet(c.id, { tripsMax: v }), 'تم الحفظ')} style={{ flex: v === null ? 1.6 : 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10, backgroundColor: (c.tripsMax ?? null) === v ? C.dark : '#EEF1EC' }}>
+                <T size={12} w="bold" color={(c.tripsMax ?? null) === v ? C.gold : C.text}>{v === null ? 'حسب الإعداد العام' : v}</T>
+              </Pressable>
+            ))}
+          </View>
+          <Btn title={c.autoReceive ? 'خليه يستقبل يدوي' : 'خليه يستقبل تلقائي'} small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { autoReceive: !c.autoReceive }))} />
+        </>
+      )}
+    </Card>
+  );
+}
+
 function CaptainsTab() {
   const [list, setList] = useState<AdminCaptain[] | null>(null);
-  const [open, setOpen] = useState<number | null>(null);
-  const [note, setNote] = useState(''); const [amt, setAmt] = useState(''); const [pct, setPct] = useState('');
+  const [types, setTypes] = useState<RideType[]>([]);
   const load = useCallback(async () => { try { setList((await apiAdminCaptains()).captains); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
-  useEffect(() => { load(); }, [load]);
-  const run = async (fn: () => Promise<any>, ok?: string) => { try { await fn(); if (ok) toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
-  const ST: Record<string, string> = { pending: 'تحت المراجعة', approved: 'مفعّل', rejected: 'مرفوض', suspended: 'موقوف', needs_photo: 'يحتاج صورة أوضح' };
+  useEffect(() => { load(); apiAdminRideTypes().then((r) => setTypes(r.types)).catch(() => {}); }, [load]);
   if (list === null) return <Empty title="جاري التحميل..." />;
   if (!list.length) return <><AddCaptainCard onDone={load} /><Empty title="لا يوجد كباتن بعد" /></>;
   return (
     <>
       <AddCaptainCard onDone={load} />
-      {list.map((c) => (
-        <Card key={c.id} style={{ gap: 8 }}>
-          <Pressable onPress={() => setOpen(open === c.id ? null : c.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ flex: 1 }}><T w="black">{c.name} • {c.phone}</T><T size={12} color={C.sub}>{c.typeName || '—'} • {c.model} • {c.color} • {c.plate}</T></View>
-            <T size={12} w="bold" color={c.status === 'approved' ? C.green : c.status === 'pending' ? C.goldDeep : C.red}>{ST[c.status]}</T>
-          </Pressable>
-          {open === c.id && (
-            <>
-              <T size={12.5}>الرصيد: {c.balance} ج • عمولته: {c.commissionPct == null ? 'العامة' : c.commissionPct + '%'} • الاستقبال: {c.autoReceive ? 'تلقائي' : 'يدوي'}</T>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                {c.photos.map((k) => <View key={k} style={{ alignItems: 'center', gap: 2 }}><Image source={{ uri: captainPhotoUrl(c.id, k) }} style={{ width: 120, height: 90, borderRadius: 10, backgroundColor: C.line }} resizeMode="cover" /><T size={11} color={C.sub}>{(PHOTO_AR as Record<string, string>)[k] || k}</T></View>)}
-              </ScrollView>
-              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                <Btn title="قبول" small style={{ flex: 1 }} onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'approved' }), 'تم القبول')} />
-                <Btn title="رفض" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'rejected' }), 'تم الرفض')} />
-                <Btn title="إيقاف" small variant="soft" style={{ flex: 1 }} onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'suspended' }), 'تم الإيقاف')} />
-              </View>
-              <Field label="سبب طلب صورة أوضح" value={note} onChangeText={setNote} />
-              <Btn title="اطلب صورة أوضح" small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { status: 'needs_photo', note }), 'تم الإرسال للكابتن')} />
-              <Field label="شحن الرصيد (سالب للخصم)" value={amt} onChangeText={setAmt} keyboardType="numbers-and-punctuation" />
-              <Btn title="نفّذ" small variant="soft" onPress={() => run(() => apiAdminCaptainBalance(c.id, num(amt), 'من الإدارة'), 'تم تعديل الرصيد')} />
-              <Field label="عمولة هذا الكابتن % (فاضي = العامة)" value={pct} onChangeText={setPct} keyboardType="number-pad" />
-              <Btn title="حفظ العمولة" small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { commissionPct: pct.trim() === '' ? null : num(pct) }), 'تم الحفظ')} />
-              <T w="black" size={13}>🚌 رحلات المحافظات</T>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                {([['type', 'حسب النوع'], ['always', 'مسموح دايمًا'], ['never', 'ممنوع']] as const).map(([k, l]) => (
-                  <Pressable key={k} onPress={() => run(() => apiAdminCaptainSet(c.id, { tripsMode: k }), 'تم الحفظ')} style={{ flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10, backgroundColor: (c.tripsMode || 'type') === k ? C.green : C.greenSoft }}><T w="bold" size={12} color={(c.tripsMode || 'type') === k ? '#fff' : C.green}>{l}</T></Pressable>
-                ))}
-              </View>
-              <T size={12.5} color={C.sub}>أقصى عدد أفراد للعميل في حجز الكابتن ده</T>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                {([null, 4, 5, 6, 7] as (number | null)[]).map((v) => (
-                  <Pressable key={String(v)} onPress={() => run(() => apiAdminCaptainSet(c.id, { tripsMax: v }), 'تم الحفظ')} style={{ flex: v === null ? 1.6 : 1, alignItems: 'center', paddingVertical: 9, borderRadius: 10, backgroundColor: (c.tripsMax ?? null) === v ? C.green : C.greenSoft }}><T w="black" size={13} color={(c.tripsMax ?? null) === v ? '#fff' : C.green}>{v === null ? 'افتراضي' : v}</T></Pressable>
-                ))}
-              </View>
-              <Btn title={c.autoReceive ? 'خليه يستقبل يدوي' : 'خليه يستقبل تلقائي'} small variant="soft" onPress={() => run(() => apiAdminCaptainSet(c.id, { autoReceive: !c.autoReceive }))} />
-            </>
-          )}
-        </Card>
-      ))}
+      {list.map((c) => <CaptainCard key={c.id} c={c} types={types} onChanged={load} />)}
     </>
   );
 }
@@ -555,64 +633,91 @@ function RideDetailsPanel({ id }: { id: number }) {
   );
 }
 
+/** Owner: one ride on its own screen (like an order's page): all the details and every control. */
+export function AdminRideDetailScreen({ navigation, route }: any) {
+  const id = Number(route?.params?.id);
+  const [d, setD] = useState<RideDetails | null>(null);
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [priceVal, setPriceVal] = useState('');
+  const [pick, setPick] = useState(false);
+  const load = useCallback(async () => { try { setD(await apiAdminRideDetails(id)); } catch (e) { toast(errText(e), 'err'); } }, [id]);
+  useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [load]);
+  const run = async (fn: () => Promise<any>, ok: string) => { try { await fn(); toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
+  const r = d?.ride;
+  const open = !!r && ['searching', 'assigned', 'arrived', 'started'].includes(r.status);
+  const openOffers = (d?.offers || []).filter((o) => o.status === 'open');
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title={`رحلة #${id}`} subtitle={r ? (RIDE_ST[r.status] || r.status) : ''} onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 80 }} keyboardShouldPersistTaps="handled">
+        {!d || !r ? <Empty title="جاري التحميل..." /> : (
+          <>
+            <Card style={{ gap: 8 }}>
+              <T size={11.5} color={C.sub}>السعر للعميل</T>
+              <T w="black" size={22}>{r.finalPrice ?? r.offered} ج</T>
+              {['searching', 'assigned', 'arrived'].includes(r.status) && <Btn title={priceOpen ? 'إخفاء' : 'عدّل السعر'} small variant="soft" onPress={() => { setPriceOpen(!priceOpen); setPriceVal(String(r.finalPrice ?? r.offered)); }} />}
+              {priceOpen && (
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+                  <View style={{ flex: 1 }}><Field label="السعر الجديد (ج)" value={priceVal} onChangeText={setPriceVal} keyboardType="number-pad" /></View>
+                  <Btn title="حفظ" small onPress={() => run(async () => { await apiAdminRidePrice(id, num(priceVal)); setPriceOpen(false); }, 'تم تعديل السعر')} />
+                </View>
+              )}
+            </Card>
+            <Card><RideDetailsPanel id={id} /></Card>
+            {open && (
+              <Card style={{ gap: 8 }}>
+                {r.status === 'searching' && openOffers.length > 0 && <T w="bold" size={12.5}>عروض الكباتن</T>}
+                {r.status === 'searching' && openOffers.map((o) => (
+                  <View key={o.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+                    <T style={{ flex: 1 }} size={13}>{o.name} • {o.price} ج</T>
+                    <Btn title="اقبل عنه" small variant="green" onPress={() => askConfirm('قبول العرض', `قبول عرض ${o.name} بسعر ${o.price} ج بدل العميل؟`, () => run(() => apiAdminRideAcceptOffer(id, o.id), 'تم قبول العرض'))} />
+                  </View>
+                ))}
+                {['searching', 'assigned'].includes(r.status) && (
+                  <>
+                    <Btn title={pick ? 'إخفاء القايمة' : r.status === 'searching' ? 'عيّن كابتن من القايمة' : 'حوّل لكابتن تاني'} icon="people" small variant="soft" onPress={() => setPick(!pick)} />
+                    {pick && <CaptainPicker onPick={(c) => askConfirm('تعيين الكابتن', `تعيين ${c.name} على رحلة #${id}؟`, () => run(async () => { await apiAdminRideAssign(id, c.id); setPick(false); }, 'تم التعيين'))} />}
+                    <Btn title="ارفعها لكل الكباتن" icon="megaphone" small variant="soft" onPress={() => askConfirm('رفع الرحلة', `هترجع رحلة #${id} لكل الكباتن المتاحين${d.driver ? ' وهيتشال الكابتن الحالي' : ''}. متأكد؟`, () => run(async () => { const x = await apiAdminRideReopen(id); toast(`اتبعت لـ ${x.notified} كابتن`); }, 'تم رفع الرحلة'))} />
+                  </>
+                )}
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn title="إلغاء الرحلة" small variant="soft" style={{ flex: 1 }} onPress={() => askConfirm('إلغاء الرحلة', `إلغاء رحلة #${id}؟`, () => run(() => apiAdminRideCancel(id), 'تم الإلغاء'))} />
+                  {!!d.driver && r.status !== 'searching' && <Btn title="تأكيد الإنهاء" small style={{ flex: 1 }} onPress={() => askConfirm('تأكيد الإنهاء', `تأكيد إنهاء رحلة #${id}؟ هتتخصم عمولة الكابتن.`, () => run(async () => { const x = await apiAdminRideComplete(id); toast(`العمولة ${x.commission} ج`); }, 'تم تأكيد الإنهاء'))} />}
+                </View>
+              </Card>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
 export function RidesTab() {
   const [list, setList] = useState<any[] | null>(null);
   const [offers, setOffers] = useState<RideOfferRow[]>([]);
   const [filter, setFilter] = useState('');
-  const [priceOf, setPriceOf] = useState<number | null>(null);
-  const [priceVal, setPriceVal] = useState('');
-  const [pickOf, setPickOf] = useState<number | null>(null);
-  const [detOf, setDetOf] = useState<number | null>(null);
+  const nav: any = useNavigation();
   const load = useCallback(async () => {
     try { const [a, o] = await Promise.all([apiAdminRides(filter), apiAdminRideOffers().catch(() => ({ offers: [] as RideOfferRow[] }))]); setList(a.rides); setOffers(o.offers); }
     catch (e) { toast(errText(e), 'err'); setList([]); }
   }, [filter]);
   useEffect(() => { load(); const t = setInterval(load, 8000); return () => clearInterval(t); }, [load]);
-  const run = async (fn: () => Promise<any>, ok: string) => { try { await fn(); toast(ok); await load(); } catch (e) { toast(errText(e), 'err'); } };
   return (
     <>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
         {RIDE_FILTERS.map(([k, l]) => <Chip key={k || 'all'} label={l} active={filter === k} onPress={() => { setList(null); setFilter(k); }} />)}
       </ScrollView>
       {list === null ? <Empty title="جاري التحميل..." /> : !list.length ? <Empty title="لا توجد رحلات" /> : list.map((r) => {
-        const open = ['searching', 'assigned', 'arrived', 'started'].includes(r.status);
         const mine = offers.filter((o) => o.rideId === r.id);
         return (
           <Card key={r.id} style={{ gap: 8 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رحلة #{r.id} • {r.customer}</T><T size={12} color={C.sub}>{RIDE_ST[r.status] || r.status}</T></View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T w="black">رحلة #{r.id} • {r.customer}</T><T size={12} color={C.sub}>{RIDE_ST[r.status] || r.status}{r.status === 'searching' && mine.length ? ` • ${mine.length} عروض` : ''}</T></View>
             <T size={12.5} color={C.sub}>{r.from?.text || ''}{r.to?.text ? ` ← ${r.to.text}` : ''}{r.textDest ? '' : ` • ${r.km} كم`}</T>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F3F4EE', borderRadius: 12, padding: 10 }}>
               <View><T size={11.5} color={C.sub}>السعر للعميل • الكابتن: {r.driver || '—'}</T><T w="black" size={18}>{r.finalPrice ?? r.offered} ج</T></View>
-              {['searching', 'assigned', 'arrived'].includes(r.status) && <Btn title="عدّل السعر" small onPress={() => { setPriceOf(priceOf === r.id ? null : r.id); setPriceVal(String(r.finalPrice ?? r.offered)); }} />}
             </View>
-            <Btn title={detOf === r.id ? 'إخفاء التفاصيل' : 'التفاصيل الكاملة'} icon="document-text" small variant="soft" onPress={() => setDetOf(detOf === r.id ? null : r.id)} />
-            {detOf === r.id && <RideDetailsPanel id={r.id} />}
-            {priceOf === r.id && (
-              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
-                <View style={{ flex: 1 }}><Field label="السعر الجديد (ج)" value={priceVal} onChangeText={setPriceVal} keyboardType="number-pad" /></View>
-                <Btn title="حفظ" small onPress={() => run(async () => { await apiAdminRidePrice(r.id, num(priceVal)); setPriceOf(null); }, 'تم تعديل السعر')} />
-              </View>
-            )}
-            {r.status === 'searching' && mine.length > 0 && <T w="bold" size={12.5}>عروض الكباتن</T>}
-            {r.status === 'searching' && mine.map((o) => (
-              <View key={o.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
-                <T style={{ flex: 1 }} size={13}>{o.name} • {[o.model, o.plate].filter(Boolean).join(' ')} • {o.price} ج</T>
-                <Btn title="اقبل عنه" small variant="green" onPress={() => askConfirm('قبول العرض', `قبول عرض ${o.name} بسعر ${o.price} ج بدل العميل؟`, () => run(() => apiAdminRideAcceptOffer(r.id, o.id), 'تم قبول العرض'))} />
-              </View>
-            ))}
-            {['searching', 'assigned'].includes(r.status) && (
-              <>
-                <Btn title={pickOf === r.id ? 'إخفاء القايمة' : r.status === 'searching' ? 'عيّن كابتن من القايمة' : 'حوّل لكابتن تاني'} icon="people" small variant="soft" onPress={() => setPickOf(pickOf === r.id ? null : r.id)} />
-                {pickOf === r.id && <CaptainPicker onPick={(c) => askConfirm('تعيين الكابتن', `تعيين ${c.name} على رحلة #${r.id}؟`, () => run(async () => { await apiAdminRideAssign(r.id, c.id); setPickOf(null); }, 'تم التعيين'))} />}
-                <Btn title="ارفعها لكل الكباتن" icon="megaphone" small variant="soft" onPress={() => askConfirm('رفع الرحلة', `هترجع رحلة #${r.id} لكل الكباتن المتاحين${r.driver ? ' وهيتشال الكابتن الحالي' : ''}. متأكد؟`, () => run(async () => { const x = await apiAdminRideReopen(r.id); toast(`اتبعت لـ ${x.notified} كابتن`); }, 'تم رفع الرحلة'))} />
-              </>
-            )}
-            {open && (
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Btn title="إلغاء الرحلة" small variant="soft" style={{ flex: 1 }} onPress={() => askConfirm('إلغاء الرحلة', `إلغاء رحلة #${r.id}؟`, () => run(() => apiAdminRideCancel(r.id), 'تم الإلغاء'))} />
-                {!!r.driver && r.status !== 'searching' && <Btn title="تأكيد الإنهاء" small style={{ flex: 1 }} onPress={() => askConfirm('تأكيد الإنهاء', `تأكيد إنهاء رحلة #${r.id}؟ هتتخصم عمولة الكابتن.`, async () => { try { const x = await apiAdminRideComplete(r.id); toast(`تم التأكيد — العمولة ${x.commission} ج`); load(); } catch (e) { toast(errText(e), 'err'); } })} />}
-              </View>
-            )}
+            <Btn title="التفاصيل الكاملة والتحكم" icon="document-text" small variant="soft" onPress={() => nav.navigate('AdminRideDetail', { id: r.id })} />
           </Card>
         );
       })}
