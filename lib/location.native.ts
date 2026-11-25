@@ -22,7 +22,9 @@ export async function getPosition(): Promise<Fix> {
   const Loc = L();
   const perm = await Loc.requestForegroundPermissionsAsync();
   if (perm.status !== 'granted') throw new Error('اسمح للتطبيق بتحديد الموقع من إعدادات الهاتف');
-  const p = await Loc.getCurrentPositionAsync({ accuracy: Loc.Accuracy.High });
+  let p: any;
+  try { p = await Loc.getCurrentPositionAsync({ accuracy: Loc.Accuracy.High }); }
+  catch (e: any) { throw new Error(/unsatisfied|settings|unavailable|disabled|services/i.test(String(e && e.message)) ? 'شغّل الموقع (GPS) من إعدادات الموبايل وجرّب تاني' : 'تعذر تحديد موقعك، جرّب تاني'); }
   return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy ?? undefined };
 }
 export async function startCourierTracking(): Promise<boolean> {
@@ -31,8 +33,8 @@ export async function startCourierTracking(): Promise<boolean> {
     if (await Loc.hasStartedLocationUpdatesAsync(TASK)) return true;
     const fg = await Loc.requestForegroundPermissionsAsync();
     if (fg.status !== 'granted') return false;
-    // "always" lets it keep going when the app is minimised; if refused the foreground service still keeps it alive
-    try { await Loc.requestBackgroundPermissionsAsync(); } catch { /* optional */ }
+    // no "always" (background) location permission: Google Play only allows that with a special review. The foreground service below
+    // (the visible "التتبع يعمل" notification) keeps the tracking alive while the app is minimised, with the normal while-in-use permission.
     await Loc.startLocationUpdatesAsync(TASK, {
       accuracy: Loc.Accuracy.High, timeInterval: 8000, distanceInterval: 15, showsBackgroundLocationIndicator: true,
       foregroundService: { notificationTitle: 'أطلب أبيس — التتبع يعمل', notificationBody: 'موقعك يظهر للعملاء أثناء التوصيل', notificationColor: '#F2B51D' },

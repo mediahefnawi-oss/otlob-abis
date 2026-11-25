@@ -14,6 +14,8 @@ export function reportError(where: string, e: any): void {
     if (!message || /^Network request failed$|Failed to fetch|AbortError|timeout/i.test(message)) return;   // a weak connection is not a bug
     if ((e && e.status === 401) || /^يلزم تسجيل الدخول/.test(message)) return;   // signed out / session ended: expected, not a bug
     if ((e && e.status === 0) || /^تعذر الاتصال/.test(message)) return;   // offline / weak connection (the app's own "no connection" error): not a bug, never worth the owner's attention
+    if ((e && e.status === 403 && /غير مفعّل/.test(message))) return;   // an account still waiting for activation: expected, the account screen says it, not a bug
+    if (/^شغّل الموقع|^تعذر تحديد موقعك|unsatisfied device settings/i.test(message)) return;   // the phone's location is switched off: the user's own setting, not a bug
     const key = where + '|' + message;
     const now = Date.now();
     if ((last.get(key) || 0) > now - 60000 || sent >= 25) return;
