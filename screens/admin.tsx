@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, FlatList, Pressable } from 'react-native';
 import { ScrollView } from '../components/KScroll';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,6 +20,8 @@ import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/
 import { LoginImageManager, WelcomeScreenManager, AppIconManager, UpdateNoticeManager, ServicesManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { SupportInbox, useSupportUnread } from '../components/SupportChat';
+import { RidesTab, TripsAdminTab } from './adminExtra';
+import { apiAdminRideSummary } from '../lib/api';
 import { ThemePicker } from '../components/ThemePicker';
 import { UiScaleCard } from '../components/UiScaleCard';
 import { PrivacyCard } from '../components/PrivacyCard';
@@ -532,7 +534,16 @@ export function AdminCouriersScreen({ navigation }: any) {
 export function AdminOrdersScreen({ navigation }: any) {
   const rc = useRC();
   const { db } = useStore();
+  const me = useMe();
+  const isOwner = !!me && me.role === 'admin';
   const [seg, setSeg] = useState('orders');
+  const [rsub, setRsub] = useState<'rides' | 'trips'>('rides');
+  const [rs, setRs] = useState({ searching: 0, active: 0, openTrips: 0 });
+  useEffect(() => {
+    if (!isOwner) return;
+    let on = true; const go = () => apiAdminRideSummary().then((x) => { if (on) setRs(x); }).catch(() => {});
+    go(); const t = setInterval(go, 20000); return () => { on = false; clearInterval(t); };
+  }, [isOwner]);
   const [f, setF] = useState('all');
   const orders = db.orders.filter((o) => f === 'all' || (f === 'active' ? ['pending', 'quoted', 'accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(o.status) : f === 'dead' ? ['rejected', 'cancelled', 'unavailable'].includes(o.status) : o.status === f)).sort((a, b) => b.createdAt - a.createdAt);
   const appts = db.appointments.filter((a) => f === 'all' || a.status === f).sort((a, b) => b.createdAt - a.createdAt);
@@ -543,10 +554,17 @@ export function AdminOrdersScreen({ navigation }: any) {
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <Header title="الطلبات والحجوزات" subtitle="متابعة كل العمليات داخل التطبيق" />
       <View style={{ padding: 16, paddingBottom: 6, gap: 10 }}>
-        <Segmented value={seg} onChange={(s) => { setSeg(s); setF('all'); }} options={[{ key: 'orders', label: `طلبات التوصيل (${db.orders.length})` }, { key: 'appts', label: `حجوزات العيادات (${db.appointments.length})` }]} />
-        <FlatList horizontal data={chips} keyExtractor={(x) => x.k} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} renderItem={({ item }) => <Chip label={item.l} active={f === item.k} onPress={() => setF(item.k)} />} />
+        <Segmented value={seg} onChange={(s) => { setSeg(s); setF('all'); }} options={[{ key: 'orders', label: `طلبات التوصيل (${db.orders.length})` }, ...(isOwner ? [{ key: 'rides', label: `الرحلات (${rs.searching + rs.active})` }] : []), { key: 'appts', label: `حجوزات العيادات (${db.appointments.length})` }]} />
+        {seg === 'rides' ? (
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Chip label={`التوصيلة${rs.searching ? ` (${rs.searching} بتدوّر)` : ''}`} active={rsub === 'rides'} onPress={() => setRsub('rides')} />
+            <Chip label={`رحلات المحافظات (${rs.openTrips})`} active={rsub === 'trips'} onPress={() => setRsub('trips')} />
+          </View>
+        ) : <FlatList horizontal data={chips} keyExtractor={(x) => x.k} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} renderItem={({ item }) => <Chip label={item.l} active={f === item.k} onPress={() => setF(item.k)} />} />}
       </View>
-      {seg === 'orders' ? (
+      {seg === 'rides' ? (
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 100 }} keyboardShouldPersistTaps="handled">{rsub === 'rides' ? <RidesTab /> : <TripsAdminTab />}</ScrollView>
+      ) : seg === 'orders' ? (
         <FlatList data={orders} keyExtractor={(o) => o.id} refreshControl={rc} contentContainerStyle={{ padding: 16, gap: 12 }} ListEmptyComponent={<Empty icon="receipt" title="لا توجد طلبات" />}
           renderItem={({ item, index }) => <Appear i={index}><OrderCard o={item} perspective="admin" onPress={() => navigation.navigate('OrderDetail', { id: item.id })} /></Appear>} />
       ) : (

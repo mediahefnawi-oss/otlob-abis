@@ -619,6 +619,15 @@ export const apiAdminCaptainAdd = (b: { name: string; phone: string; password: s
 export const apiAdminRideAssign = (id: number, driverId: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/assign`, { method: 'POST', body: JSON.stringify({ driverId }) });
 export type RideCaptainPick = { id: number; name: string; phone: string; model: string; color: string; plate: string; balance: number; type: string; online: boolean; busy: boolean };
 export type RideOfferRow = { id: number; rideId: number; price: number; driverId: number; name: string; model: string; plate: string };
+export type RideDetails = {
+  ride: { id: number; status: string; typeName: string; from: { lat: number; lng: number; text: string }; to: { lat: number; lng: number; text: string }; textDest: boolean; byRegion: boolean; km: number; minutes: number; suggested: number; offered: number; finalPrice: number | null; commission: number | null; bidding: boolean; createdAt: number; updatedAt: number };
+  customer: { id: number; name: string; phone: string; rides: number; completed: number };
+  driver: { id: number; name: string; phone: string; model: string; color: string; plate: string; lat: number | null; lng: number | null; ageSec: number | null } | null;
+  offers: { id: number; price: number; status: string; driverId: number; name: string }[];
+  timeline: { key: string; label: string; at: number }[];
+};
+export const apiAdminRideDetails = (id: number) => apiRequest<RideDetails>(`/api/admin/rides/${id}/details`);
+export const apiAdminRideSummary = () => apiRequest<{ searching: number; active: number; openTrips: number }>('/api/admin/rides/summary');
 export const apiAdminRideCaptains = () => apiRequest<{ captains: RideCaptainPick[] }>('/api/admin/ride-captains');
 export const apiAdminRideOffers = () => apiRequest<{ offers: RideOfferRow[] }>('/api/admin/rides/offers');
 export const apiAdminRidePrice = (id: number, price: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/price`, { method: 'PATCH', body: JSON.stringify({ price }) });

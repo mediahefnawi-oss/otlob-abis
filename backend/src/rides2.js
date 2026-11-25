@@ -188,6 +188,8 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   const rideOut = r => ({ id: Number(r.id), status: r.status, textDest: !!r.text_dest, byRegion: !!r.by_region, fromPin: !r.by_region || !!r.from_pin, pricing: r.pricing || 'km', maxFee: r.max_fee == null ? null : Number(r.max_fee), typeId: r.type_id, from: { lat: r.from_lat, lng: r.from_lng, text: r.from_text }, to: { lat: r.to_lat, lng: r.to_lng, text: r.to_text }, km: Number(r.km), minutes: r.minutes, suggested: Number(r.suggested), offered: Number(r.offered), finalPrice: r.final_price === null ? null : Number(r.final_price), driverId: r.driver_id && Number(r.driver_id), expiresAt: r.expires_at, bidding: !!r.bidding });
 
   /** Captains who may get this ride: approved, right type, online, with enough balance, inside the radius (nearest first). */
+  /** the owner hears about every new ride request (never fails the request) */
+  const alertOwner = (title, body, tag) => { pool.query("SELECT id FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL").then(r => push(r.rows.map(x => Number(x.id)), title, body, tag)).catch(() => {}); };
   async function eligibleCaptains(ride, s) {
     const r = await pool.query(`SELECT p.user_id, p.auto_receive, l.lat, l.lng FROM captain_profiles p
       JOIN users u ON u.id=p.user_id AND u.available
@@ -247,6 +249,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     }
     if (!assignedTo) push(cands.map(c => c.id), 'طلب رحلة جديد', bidding ? `${d.km} — اكتب سعرك` : `${d.km} — ${offered} ج`, `ride-${ride.id}`);
     const fresh = await pool.query(`SELECT ${RIDE_COLS} FROM rides r WHERE id=$1`, [ride.id]);
+    alertOwner('طلب توصيلة جديد', `${fromText || 'نقطة التحميل'}${toText ? ' ← ' + toText : ''} (${money(offered)} ج)`, `owner-ride-${ride.id}`);
     res.json({ ride: rideOut(fresh.rows[0]), notified: cands.length });
   }));
   app.get('/api/rides/current', auth, roles('customer'), guard(async (req, res) => {
@@ -435,6 +438,14 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     if (u.rows[0].driver_id) push([Number(u.rows[0].driver_id)], 'رحلة ملغاة', 'تم إلغاء الرحلة من الإدارة', `ride-${id}`);
     res.json({ ok: true });
   }));
+  /** a ride that waited 3 minutes with no captain: the owner is told once (checked every 30 seconds) */
+  async function sweepStale() {
+    const r = await pool.query("UPDATE rides SET owner_alerted=TRUE WHERE status='searching' AND NOT owner_alerted AND expires_at > NOW() AND created_at < NOW() - INTERVAL '3 minutes' RETURNING id");
+    for (const x of r.rows) alertOwner('رحلة بدون كابتن', `رحلة #${x.id} بتدوّر على كابتن من أكتر من 3 دقايق وتحتاج تدخلك`, `owner-ride-stale-${x.id}`);
+    return r.rowCount;
+  }
+  app.sweepRideStale = sweepStale;
+  if (!process.env.NO_SWEEP) { const t = setInterval(() => { sweepStale().catch(() => {}); }, 30 * 1000); if (t.unref) t.unref(); }
   /** the owner confirms a ride as finished (same commission as when the captain finishes it) */
   app.post('/api/admin/rides/:id/complete', ...admin, guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
@@ -470,6 +481,32 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       FROM captain_profiles p JOIN users u ON u.id=p.user_id LEFT JOIN ride_types t ON t.id=p.type_id
       WHERE p.status='approved' AND u.deleted_at IS NULL ORDER BY u.available DESC, u.name LIMIT 300`);
     res.json({ captains: r.rows.map(x => ({ id: Number(x.id), name: x.name, phone: x.phone, model: x.model || '', color: x.color || '', plate: x.plate || '', balance: Number(x.balance), type: x.type_name || '', online: !!x.available, busy: !!x.busy })) });
+  }));
+  /** the number the owner's badge shows: rides still looking for a captain, rides under way */
+  app.get('/api/admin/rides/summary', ...admin, guard(async (_req, res) => {
+    const r = await pool.query(`SELECT COUNT(*) FILTER (WHERE status='searching' AND expires_at > NOW() - INTERVAL '1 day')::int AS searching, COUNT(*) FILTER (WHERE status IN ('assigned','arrived','started'))::int AS active FROM rides WHERE created_at > NOW() - INTERVAL '2 days' OR status IN ('assigned','arrived','started')`);
+    let trips = 0; try { trips = (await pool.query("SELECT COUNT(*)::int AS n FROM trips WHERE status='open' AND depart_at > NOW()")).rows[0].n; } catch { /* no trips table yet */ }
+    res.json({ searching: r.rows[0].searching, active: r.rows[0].active, openTrips: trips });
+  }));
+  /** everything about one ride, like an order's page: the customer, the way, the money, the captain, the timeline */
+  app.get('/api/admin/rides/:id/details', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const r = await pool.query(`SELECT r.*, t.name AS type_name, c.name AS customer_name, c.phone AS customer_phone FROM rides r LEFT JOIN ride_types t ON t.id=r.type_id JOIN users c ON c.id=r.customer_id WHERE r.id=$1`, [id]);
+    if (!r.rowCount) throw fail(404, 'الرحلة غير موجودة');
+    const x = r.rows[0];
+    const cs = (await pool.query("SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status='completed')::int AS done FROM rides WHERE customer_id=$1", [x.customer_id])).rows[0];
+    let driver = null;
+    if (x.driver_id) {
+      const d = (await pool.query(`SELECT u.name, u.phone, p.model, p.color, p.plate, l.lat, l.lng, EXTRACT(EPOCH FROM (NOW() - l.updated_at))::int AS age FROM users u LEFT JOIN captain_profiles p ON p.user_id=u.id LEFT JOIN courier_locations l ON l.courier_id=u.id WHERE u.id=$1`, [x.driver_id])).rows[0];
+      if (d) driver = { id: Number(x.driver_id), name: d.name, phone: d.phone, model: d.model || '', color: d.color || '', plate: d.plate || '', lat: d.lat == null ? null : Number(d.lat), lng: d.lng == null ? null : Number(d.lng), ageSec: d.age == null ? null : d.age };
+    }
+    const offers = (await pool.query(`SELECT o.id, o.price, o.status, o.driver_id, u.name FROM ride_offers o JOIN users u ON u.id=o.driver_id WHERE o.ride_id=$1 ORDER BY o.price`, [id])).rows.map(o => ({ id: Number(o.id), price: Number(o.price), status: o.status, driverId: Number(o.driver_id), name: o.name }));
+    const at = v => v ? new Date(v).getTime() : null;
+    const timeline = [['created', 'العميل طلب الرحلة', x.created_at], ['assigned', 'اتعيّن كابتن', x.assigned_at], ['arrived', 'الكابتن وصل', x.arrived_at], ['started', 'بدأت الرحلة', x.started_at], ['completed', 'الرحلة خلصت', x.completed_at], ['cancelled', 'اتلغت', x.cancelled_at]]
+      .filter(e => e[2]).map(e => ({ key: e[0], label: e[1], at: at(e[2]) })).sort((a, b) => a.at - b.at);
+    res.json({ ride: { id: Number(x.id), status: x.status, typeName: x.type_name || '', from: { lat: x.from_lat, lng: x.from_lng, text: x.from_text }, to: { lat: x.to_lat, lng: x.to_lng, text: x.to_text }, textDest: !!x.text_dest, byRegion: !!x.by_region,
+      km: Number(x.km), minutes: x.minutes, suggested: Number(x.suggested), offered: Number(x.offered), finalPrice: x.final_price == null ? null : Number(x.final_price), commission: x.commission == null ? null : Number(x.commission), bidding: !!x.bidding, createdAt: at(x.created_at), updatedAt: at(x.updated_at) },
+      customer: { id: Number(x.customer_id), name: x.customer_name, phone: x.customer_phone, rides: cs.total, completed: cs.done }, driver, offers, timeline });
   }));
   /** the captains' price offers on the rides that are still searching */
   app.get('/api/admin/rides/offers', ...admin, guard(async (_req, res) => {

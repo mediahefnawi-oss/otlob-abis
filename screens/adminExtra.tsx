@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Pressable, Text, Image } from 'react-native';
+import { View, Pressable, Text, Image, Linking } from 'react-native';
 import { ScrollView } from '../components/KScroll';
 import { C } from '../lib/theme';
 import { useStore } from '../lib/store';
-import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog } from '../components/ui';
+import { T, Icon, Card, Btn, Empty, Header, Field, Chip, toast, confirmDialog, callPhone } from '../components/ui';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import {
   MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketImportDefaults, apiAdminMarketSetOfferText, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
@@ -11,7 +11,7 @@ import {
   SvcKey, SvcCoverKind, apiAdminSvcImage, apiAdminSvcSub, apiAdminSvcMeta, apiSvcMeta, svcImageUrl,
   Broadcast, BroadcastAud, SupportBroadcast, apiAdminSupportBroadcasts, apiAdminSupportBroadcastSend, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
-  RideCaptainPick, RideOfferRow, apiAdminRideCaptains, apiAdminRideOffers, apiAdminRidePrice, apiAdminRideAcceptOffer, apiAdminRideReopen, apiAdminTrips, apiAdminTripCancel, apiAdminTripEdit, apiAdminTripBook, apiAdminTripUnbook,
+  RideDetails, apiAdminRideDetails, RideCaptainPick, RideOfferRow, apiAdminRideCaptains, apiAdminRideOffers, apiAdminRidePrice, apiAdminRideAcceptOffer, apiAdminRideReopen, apiAdminTrips, apiAdminTripCancel, apiAdminTripEdit, apiAdminTripBook, apiAdminTripUnbook,
 } from '../lib/api';
 
 const askConfirm = (title: string, message: string, onConfirm: () => void) => confirmDialog({ title, message, confirmText: 'تأكيد', onConfirm });
@@ -514,13 +514,55 @@ function CaptainPicker({ onPick }: { onPick: (c: RideCaptainPick) => void }) {
   );
 }
 
-function RidesTab() {
+const fmtT = (ms: number) => { try { return new Date(ms).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' }); } catch { return ''; } };
+/** Owner: the whole ride like an order's page: customer, the way (with a map link), money, captain, timeline. */
+function RideDetailsPanel({ id }: { id: number }) {
+  const [d, setD] = useState<RideDetails | null>(null);
+  useEffect(() => { let on = true; apiAdminRideDetails(id).then((x) => { if (on) setD(x); }).catch((e) => toast(errText(e), 'err')); return () => { on = false; }; }, [id]);
+  if (!d) return <T color={C.sub}>جاري تحميل التفاصيل...</T>;
+  const { ride: r, customer: c, driver: dr } = d;
+  const hasPts = !r.textDest && !r.byRegion && r.from.lat && r.to.lat;
+  const maps = () => Linking.openURL(`https://www.google.com/maps/dir/?api=1&origin=${r.from.lat},${r.from.lng}&destination=${r.to.lat},${r.to.lng}`).catch(() => toast('تعذر فتح الخريطة', 'err'));
+  const line = (k: string, v: string) => <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><T size={12.5} color={C.sub}>{k}</T><T size={12.5} w="bold">{v}</T></View>;
+  return (
+    <View style={{ gap: 10, backgroundColor: '#F6F8F6', borderRadius: 12, padding: 10 }}>
+      <T w="black" size={13}>العميل</T>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1 }}><T w="bold" size={13}>{c.name} • #{c.id}</T><T size={12} color={C.sub}>{c.phone} • رحلاته: {c.rides} (مكتملة {c.completed})</T></View>
+        {!!c.phone && <Btn title="اتصل" small variant="soft" onPress={() => callPhone(c.phone)} />}
+      </View>
+      <T w="black" size={13}>المشوار</T>
+      <T size={12.5} color={C.sub}>من: {r.from.text || 'نقطة على الخريطة'}{'\n'}إلى: {r.to.text || 'نقطة على الخريطة'}</T>
+      {line('النوع', r.typeName || '—')}
+      {!r.textDest && line('المسافة والوقت', `${r.km} كم • ${r.minutes} دقيقة`)}
+      {hasPts && <Btn title="افتح المشوار في الخريطة" icon="map" small variant="soft" onPress={maps} />}
+      <T w="black" size={13}>السعر</T>
+      {line('المقترح', `${r.suggested} ج`)}{line('المعروض للعميل', `${r.offered} ج`)}
+      {r.finalPrice != null && line('السعر المتفق عليه', `${r.finalPrice} ج`)}{r.commission != null && line('عمولة الكابتن', `${r.commission} ج`)}
+      <T w="black" size={13}>الكابتن</T>
+      {dr ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            <T w="bold" size={13}>{dr.name} • #{dr.id}</T>
+            <T size={12} color={C.sub}>{[dr.model, dr.color, dr.plate].filter(Boolean).join(' • ')}{dr.ageSec != null ? ` • آخر موقع من ${dr.ageSec < 90 ? 'لحظات' : Math.round(dr.ageSec / 60) + ' دقيقة'}` : ''}</T>
+          </View>
+          {!!dr.phone && <Btn title="اتصل" small variant="soft" onPress={() => callPhone(dr.phone)} />}
+        </View>
+      ) : <T size={12.5} color={C.sub}>لسه مفيش كابتن{d.offers.length ? ` • ${d.offers.length} عروض` : ''}</T>}
+      <T w="black" size={13}>سجل الرحلة</T>
+      {d.timeline.map((t) => <T key={t.key} size={12.5} color={C.sub}>{fmtT(t.at)} — {t.label}</T>)}
+    </View>
+  );
+}
+
+export function RidesTab() {
   const [list, setList] = useState<any[] | null>(null);
   const [offers, setOffers] = useState<RideOfferRow[]>([]);
   const [filter, setFilter] = useState('');
   const [priceOf, setPriceOf] = useState<number | null>(null);
   const [priceVal, setPriceVal] = useState('');
   const [pickOf, setPickOf] = useState<number | null>(null);
+  const [detOf, setDetOf] = useState<number | null>(null);
   const load = useCallback(async () => {
     try { const [a, o] = await Promise.all([apiAdminRides(filter), apiAdminRideOffers().catch(() => ({ offers: [] as RideOfferRow[] }))]); setList(a.rides); setOffers(o.offers); }
     catch (e) { toast(errText(e), 'err'); setList([]); }
@@ -543,6 +585,8 @@ function RidesTab() {
               <View><T size={11.5} color={C.sub}>السعر للعميل • الكابتن: {r.driver || '—'}</T><T w="black" size={18}>{r.finalPrice ?? r.offered} ج</T></View>
               {['searching', 'assigned', 'arrived'].includes(r.status) && <Btn title="عدّل السعر" small onPress={() => { setPriceOf(priceOf === r.id ? null : r.id); setPriceVal(String(r.finalPrice ?? r.offered)); }} />}
             </View>
+            <Btn title={detOf === r.id ? 'إخفاء التفاصيل' : 'التفاصيل الكاملة'} icon="document-text" small variant="soft" onPress={() => setDetOf(detOf === r.id ? null : r.id)} />
+            {detOf === r.id && <RideDetailsPanel id={r.id} />}
             {priceOf === r.id && (
               <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
                 <View style={{ flex: 1 }}><Field label="السعر الجديد (ج)" value={priceVal} onChangeText={setPriceVal} keyboardType="number-pad" /></View>
@@ -578,7 +622,7 @@ function RidesTab() {
 
 const fmtDay = (ms: number) => { try { return new Date(ms).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 /** Owner: intercity trips — change price / seats / time, change the captain, book or remove a passenger, cancel. */
-function TripsAdminTab() {
+export function TripsAdminTab() {
   const [list, setList] = useState<any[] | null>(null);
   const [edit, setEdit] = useState<{ id: number; price: string; seats: string; when: string } | null>(null);
   const [pickOf, setPickOf] = useState<number | null>(null);

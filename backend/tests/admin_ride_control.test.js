@@ -87,5 +87,34 @@ const { ok, eq, done } = H.counters();
   eq((await call('PATCH /api/admin/trips/:id', { as: A, params: { id: trip }, body: { price: 5 } })).status, 409, 'cancelled trip is locked');
   eq((await call('POST /api/admin/trips/:id/book', { as: A, params: { id: trip }, body: { customerId: c1 } })).status, 409, 'cannot book a cancelled trip');
   ok((await q("SELECT 1 FROM audit_log WHERE action IN ('trip.edit','trip.book','trip.unbook')")).rowCount >= 3, 'trip actions audited');
+
+  /* ---------------- details, summary, timeline, owner alerts ---------------- */
+  const r3 = await ride();
+  const dt = (await call('GET /api/admin/rides/:id/details', { as: A, params: { id: r3 } })).json;
+  eq([dt.ride.id, dt.customer.id, dt.customer.name, dt.driver, dt.ride.from.text, dt.timeline.map(t => t.key)], [r3, c1, 'عميل', null, 'أ', ['created']], 'details: customer, no captain yet, timeline = created');
+  eq((await call('GET /api/admin/rides/:id/details', { as: C1, params: { id: r3 } })).status, 403, 'details: owner only');
+  eq((await call('GET /api/admin/rides/:id/details', { as: A, params: { id: 999999 } })).status, 404, 'details: unknown ride');
+  await call('POST /api/admin/rides/:id/assign', { as: A, params: { id: r3 }, body: { driverId: d1 } });
+  await q("UPDATE rides SET status='arrived' WHERE id=$1", [r3]); await q("UPDATE rides SET status='started' WHERE id=$1", [r3]);
+  const dt2 = (await call('GET /api/admin/rides/:id/details', { as: A, params: { id: r3 } })).json;
+  eq(dt2.timeline.map(t => t.key), ['created', 'assigned', 'arrived', 'started'], 'trigger stamped every step');
+  eq([dt2.driver.id, dt2.driver.model], [d1, 'لانسر'], 'details: captain data');
+  await call('POST /api/admin/rides/:id/complete', { as: A, params: { id: r3 } });
+  ok((await call('GET /api/admin/rides/:id/details', { as: A, params: { id: r3 } })).json.timeline.some(t => t.key === 'completed'), 'completed stamped');
+  const sm = (await call('GET /api/admin/rides/summary', { as: A })).json;
+  ok(Number.isInteger(sm.searching) && Number.isInteger(sm.active) && Number.isInteger(sm.openTrips), 'summary numbers');
+  /* stale sweep: told once */
+  const r4 = await ride(); await q("UPDATE rides SET created_at = NOW() - INTERVAL '4 minutes' WHERE id=$1", [r4]);
+  pushes.length = 0; const n1 = await app.sweepRideStale(); await new Promise(r => setTimeout(r, 50));
+  eq(n1, 1, 'one stale ride found'); ok(pushes.some(p => p.ids.includes(adm) && p.p.title === 'رحلة بدون كابتن'), 'owner told');
+  eq(await app.sweepRideStale(), 0, 'not told twice');
+  /* the owner hears of a customer booking */
+  const trip2 = Number((await q("INSERT INTO trips(driver_id,dest,from_text,depart_at,seats,price) VALUES($1,'الإسكندرية','موقف',$2,4,90) RETURNING id", [d1, dep])).rows[0].id);
+  pushes.length = 0;
+  eq((await call('POST /api/trips/:id/book', { as: C1, params: { id: trip2 }, body: { count: 2 } })).json.ok, true, 'customer books');
+  await new Promise(r => setTimeout(r, 50));
+  ok(pushes.some(p => p.ids.includes(adm) && p.p.title === 'حجز جديد في رحلة محافظات'), 'owner told of the booking');
+  await call('POST /api/trips/:id/cancel-booking', { as: C1, params: { id: trip2 } }); await new Promise(r => setTimeout(r, 50));
+  ok(pushes.some(p => p.ids.includes(adm) && p.p.title === 'إلغاء حجز في رحلة'), 'owner told of the cancellation');
   const bad = await done('admin ride control'); await pool.end?.(); process.exit(bad ? 1 : 0);
 })().catch(e => { console.error('CRASH', e); process.exit(1); });

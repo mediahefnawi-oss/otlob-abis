@@ -44,6 +44,8 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
   const admin = [auth, roles('admin')];
   const me = req => Number(req.auth.sub);
   const push = (ids, title, body, tag) => { try { const p = pushToUsers && pushToUsers((ids || []).filter(Boolean), { title, body, tag, url: '/' }); if (p && p.catch) p.catch(() => {}); } catch { /* a failed push never fails the request */ } };
+  /** the owner hears about every booking and cancellation (never fails the request) */
+  const alertOwner = (title, body, tag) => { pool.query("SELECT id FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL").then(r => push(r.rows.map(x => Number(x.id)), title, body, tag)).catch(() => {}); };
   const needOn = async () => { let on = false; try { on = await extrasLib.featureOn(pool, 'rides'); } catch { /* off */ } if (!on) throw fail(404, 'الخدمة غير متاحة الآن'); };
   /** the owner chooses which vehicle types run intercity trips; while none is chosen every captain may (as before) */
   const tripsAllowed = async uid => {
@@ -191,6 +193,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     } catch (e) { try { await c.query('ROLLBACK'); } catch { /* already */ } throw e; } finally { c.release(); }
     const nm = (await pool.query('SELECT name FROM users WHERE id=$1', [me(req)])).rows[0];
     push([driverId], 'حجز جديد 🎟️', `${nm ? nm.name : 'عميل'} حجز ${seats.length} أفراد في رحلة ${dest}`, `trip-${id}`);
+    alertOwner('حجز جديد في رحلة محافظات', `${nm ? nm.name : 'عميل'} حجز ${seats.length} أفراد: ${dest}`, `owner-trip-${id}`);
     res.json({ ok: true, seats });
   }));
   app.post('/api/trips/:id/cancel-booking', auth, roles('customer'), guard(async (req, res) => {
@@ -201,6 +204,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
     const r = await pool.query('DELETE FROM trip_seats WHERE trip_id=$1 AND customer_id=$2 RETURNING seat_no', [id, me(req)]);
     if (!r.rowCount) throw fail(404, 'مفيش حجز ليك في الرحلة دي');
     push([Number(t.rows[0].driver_id)], 'تم إلغاء حجز', `عميل ألغى ${r.rowCount} أفراد في رحلة ${t.rows[0].dest}`, `trip-${id}`);
+    alertOwner('إلغاء حجز في رحلة', `عميل ألغى ${r.rowCount} أفراد: ${t.rows[0].dest}`, `owner-trip-${id}`);
     res.json({ ok: true });
   }));
 

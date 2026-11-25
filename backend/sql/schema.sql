@@ -1023,3 +1023,27 @@ CREATE TABLE IF NOT EXISTS support_broadcasts (
   sender_user_id BIGINT REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ride timeline for the owner: when each step happened. A trigger stamps it on every path that changes the status, so no existing code had to change.
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS arrived_at TIMESTAMPTZ;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+ALTER TABLE rides ADD COLUMN IF NOT EXISTS owner_alerted BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE OR REPLACE FUNCTION rides_stamp() RETURNS trigger AS $$
+BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    IF NEW.status = 'assigned' THEN NEW.assigned_at := NOW();
+    ELSIF NEW.status = 'arrived' THEN NEW.arrived_at := NOW();
+    ELSIF NEW.status = 'started' THEN NEW.started_at := NOW();
+    ELSIF NEW.status = 'completed' THEN NEW.completed_at := NOW();
+    ELSIF NEW.status = 'cancelled' THEN NEW.cancelled_at := NOW();
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_rides_stamp ON rides;
+CREATE TRIGGER trg_rides_stamp BEFORE UPDATE ON rides FOR EACH ROW EXECUTE FUNCTION rides_stamp();
+
