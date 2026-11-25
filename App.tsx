@@ -55,7 +55,7 @@ import { GroupCartScreen, MarketScreen } from './screens/extra';
 import { RideHomeScreen, CaptainScreen } from './screens/rides';
 import { AdminGatesScreen, DispatchScreen } from './screens/adminControl';
 import { TripsScreen, CaptainTripsScreen } from './screens/trips';
-import { AdminMarketScreen, AdminRidesScreen, AdminBroadcastScreen } from './screens/adminExtra';
+import { AdminMarketScreen, AdminRidesScreen, AdminBroadcastScreen, AdminSupportBroadcastScreen } from './screens/adminExtra';
 
 // the phone app must not close because of one failing action: show a message instead (a crash in a screen is caught by ErrorBoundary)
 if (Platform.OS !== 'web') {
@@ -223,6 +223,7 @@ function Root() {
         <Stack.Screen name="Dispatch" component={DispatchScreen} />
         <Stack.Screen name="AdminHomeLayout" component={HomeEditScreen} />
         <Stack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} />
+        <Stack.Screen name="AdminSupportBroadcast" component={AdminSupportBroadcastScreen} />
         <Stack.Screen name="Provider" component={ProviderScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
         <Stack.Screen name="CustomOrder" component={isGuestId(me.id) ? GuestBlockScreen : CustomOrderScreen} />

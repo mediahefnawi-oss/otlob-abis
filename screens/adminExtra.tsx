@@ -9,7 +9,7 @@ import {
   MarketProduct, marketImageUrl, apiAdminMarketList, apiAdminMarketAdd, apiAdminMarketImportDefaults, apiAdminMarketSetOfferText, apiAdminMarketEdit, apiAdminMarketDelete, apiAdminMarketImage, apiAdminMarketFee, apiAdminMarketSetFee,
   RideType, rideImageUrl, apiAdminRideTypes, apiAdminRideTypeSave, apiAdminRideTypeDelete, apiAdminRideTypeImage, apiAdminRideTypeCommission, RideZone, apiAdminRideZones, apiAdminRideZonesSave,
   SvcKey, SvcCoverKind, apiAdminSvcImage, apiAdminSvcSub, apiAdminSvcMeta, apiSvcMeta, svcImageUrl,
-  Broadcast, BroadcastAud, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
+  Broadcast, BroadcastAud, SupportBroadcast, apiAdminSupportBroadcasts, apiAdminSupportBroadcastSend, apiAdminBroadcasts, apiAdminBroadcastSend, apiAdminBroadcastDelete,
   AdminCaptain, apiAdminCaptains, apiAdminCaptainSet, apiAdminCaptainBalance, captainPhotoUrl, apiAdminRideSettings, apiAdminRideSettingsSave, apiAdminRides, apiAdminRideAssign, apiAdminRideCancel, apiAdminRideComplete, apiAdminCaptainAdd,
   RideCaptainPick, RideOfferRow, apiAdminRideCaptains, apiAdminRideOffers, apiAdminRidePrice, apiAdminRideAcceptOffer, apiAdminRideReopen, apiAdminTrips, apiAdminTripCancel, apiAdminTripEdit, apiAdminTripBook, apiAdminTripUnbook,
 } from '../lib/api';
@@ -682,6 +682,47 @@ export function SvcLookCard({ svc, title, withName }: { svc: SvcKey; title: stri
 
 /* ---------------- owner broadcasts ---------------- */
 const AUDS: { k: BroadcastAud; label: string }[] = [{ k: 'all', label: 'الكل' }, { k: 'customer', label: 'العملاء' }, { k: 'courier', label: 'المناديب' }, { k: 'captain', label: 'الكباتن' }, { k: 'provider', label: 'المحلات' }];
+/** Owner: one message to many users, delivered inside each one's support chat (they can answer it). */
+export function AdminSupportBroadcastScreen({ navigation }: any) {
+  const [text, setText] = useState(''); const [aud, setAud] = useState<BroadcastAud>('all');
+  const [list, setList] = useState<SupportBroadcast[] | null>(null);
+  const [counts, setCounts] = useState<Record<string, number>>({}); const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => { try { const r = await apiAdminSupportBroadcasts(); setList(r.broadcasts); setCounts(r.counts); } catch (e) { toast(errText(e), 'err'); setList([]); } }, []);
+  useEffect(() => { load(); }, [load]);
+  const n = counts[aud] ?? 0;
+  const send = () => {
+    if (!text.trim()) { toast('اكتب الرسالة', 'err'); return; }
+    askConfirm('إرسال الرسالة', `هتوصل لـ ${n} مستخدم (${AUDS.find((a) => a.k === aud)?.label}) في رسائل الدعم. مفيش تراجع. متأكد؟`, async () => {
+      setBusy(true);
+      try { const r = await apiAdminSupportBroadcastSend({ text: text.trim(), audience: aud }); setList(r.broadcasts); setText(''); toast('تم الإرسال'); }
+      catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); }
+    });
+  };
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <Header title="إرسال رسالة" subtitle="توصل في رسائل الدعم عند كل مستخدم ويقدر يرد عليها" onBack={() => navigation.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+        <Card style={{ gap: 8 }}>
+          <Field label="الرسالة" value={text} onChangeText={setText} multiline />
+          <T w="bold" size={13}>توصل لـ</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {AUDS.map((a) => <Chip key={a.k} label={`${a.label} (${counts[a.k] ?? 0})`} active={aud === a.k} onPress={() => setAud(a.k)} />)}
+          </View>
+          <Btn title={`إرسال لـ ${n} مستخدم`} icon="send" loading={busy} onPress={send} />
+          <T size={11.5} color={C.sub}>بتظهر في «الدعم الفني» عند كل واحد ويوصله إشعار على الموبايل. لو رد عليها، الرد بيوصلك في شات الدعم.</T>
+        </Card>
+        <T w="black">آخر الرسائل</T>
+        {list === null ? <T color={C.sub}>جاري التحميل...</T> : list.length === 0 ? <Empty title="لسه مفيش رسائل" /> : list.map((b) => (
+          <Card key={b.id} style={{ gap: 4 }}>
+            <T size={13.5}>{b.text}</T>
+            <T size={11.5} color={C.sub}>{b.audienceAr} • {b.sentTo} مستخدم • {new Date(b.createdAt).toLocaleString('ar-EG')}</T>
+          </Card>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 export function AdminBroadcastScreen({ navigation }: any) {
   const [title, setTitle] = useState(''); const [body, setBody] = useState(''); const [aud, setAud] = useState<BroadcastAud>('all');
   const [list, setList] = useState<Broadcast[] | null>(null);

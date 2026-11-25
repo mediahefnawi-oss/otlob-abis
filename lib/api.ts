@@ -684,6 +684,9 @@ export type BroadcastAud = 'all' | 'customer' | 'courier' | 'provider' | 'captai
 export type Broadcast = { id: number; title: string; body: string; audience: BroadcastAud; audienceAr: string; sentTo: number; createdAt: number };
 export const apiAdminBroadcasts = () => apiRequest<{ broadcasts: Broadcast[]; counts: Record<BroadcastAud, number>; pushUsers: number }>('/api/admin/broadcasts');
 export const apiAdminBroadcastSend = (b: { title: string; body: string; audience: BroadcastAud }) => apiRequest<{ broadcast: Broadcast; broadcasts: Broadcast[] }>('/api/admin/broadcasts', { method: 'POST', body: JSON.stringify(b) });
+export type SupportBroadcast = { id: number; text: string; audience: BroadcastAud; audienceAr: string; sentTo: number; createdAt: number };
+export const apiAdminSupportBroadcasts = () => apiRequest<{ broadcasts: SupportBroadcast[]; counts: Record<BroadcastAud, number> }>('/api/admin/support-broadcasts');
+export const apiAdminSupportBroadcastSend = (b: { text: string; audience: BroadcastAud }) => apiRequest<{ broadcast: SupportBroadcast; broadcasts: SupportBroadcast[] }>('/api/admin/support-broadcasts', { method: 'POST', body: JSON.stringify(b) });
 export const apiAdminBroadcastDelete = (id: number) => apiRequest<{ broadcasts: Broadcast[] }>(`/api/admin/broadcasts/${id}`, { method: 'DELETE' });
 export const apiBroadcastsUnread = () => apiRequest<{ broadcasts: Broadcast[] }>('/api/broadcasts/unread');
 export const apiBroadcastSeen = (id: number) => apiRequest<{ ok: boolean }>(`/api/broadcasts/${id}/seen`, { method: 'POST' });

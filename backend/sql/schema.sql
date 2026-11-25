@@ -1013,3 +1013,13 @@ CREATE TABLE IF NOT EXISTS courier_vehicles (
 -- intercity trips per captain: 'type' (follow the vehicle type) | 'always' | 'never'; trips_max = most persons per booking (NULL = the general limit)
 ALTER TABLE captain_profiles ADD COLUMN IF NOT EXISTS trips_mode TEXT NOT NULL DEFAULT 'type';
 ALTER TABLE captain_profiles ADD COLUMN IF NOT EXISTS trips_max INT;
+
+-- the owner's message to many users at once, delivered inside each user's support chat (the record of what was sent, to whom and how many)
+CREATE TABLE IF NOT EXISTS support_broadcasts (
+  id BIGSERIAL PRIMARY KEY,
+  body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 2000),
+  audience TEXT NOT NULL,
+  sent_to INT NOT NULL DEFAULT 0,
+  sender_user_id BIGINT REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

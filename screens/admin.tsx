@@ -274,6 +274,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     { label: 'أكواد الخصم', route: 'AdminCoupons', icon: 'ticket', color: C.green, bg: C.greenSoft, badge: 0, perm: 'providers' },
     { label: 'منتجات ماركت', route: 'AdminMarket', icon: 'basket', color: C.green, bg: C.greenSoft, badge: 0, perm: 'providers' },
     { label: 'إرسال إشعار للمستخدمين', route: 'AdminBroadcast', icon: 'notifications', color: C.orange, bg: C.orangeSoft, badge: 0, perm: 'notify' },
+    { label: 'إرسال رسالة للمستخدمين', route: 'AdminSupportBroadcast', icon: 'chatbubble-ellipses', color: C.green, bg: C.greenSoft, badge: 0, perm: 'notify' },
     { label: 'التوصيلة والكباتن', route: 'AdminRides', icon: 'car', color: C.green, bg: C.greenSoft, badge: 0, perm: 'orders' },
     { label: 'فتح وقفل الطلبات', route: 'AdminGates', icon: 'lock-closed', color: C.red, bg: C.redSoft, badge: 0, perm: 'orders' },
     { label: 'شكل الشاشة الرئيسية', route: 'AdminHomeLayout', icon: 'color-palette', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'owner' },

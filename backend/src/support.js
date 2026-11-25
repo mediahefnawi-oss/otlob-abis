@@ -169,6 +169,38 @@ module.exports = function registerSupportRoutes(app, { pool, auth, roles, asyncR
     res.json({ id: String(id), enabled: !!r.rows[0].support_chat });
   }));
 
+  /* ---------- the owner writes to many users at once: it lands in each one's support chat (and as a phone push) ---------- */
+  const BC_AUD = { all: "u.role IN ('customer','provider','courier')", customer: "u.role='customer'", courier: "u.role='courier'", provider: "u.role='provider'", captain: "u.role='courier' AND EXISTS (SELECT 1 FROM captain_profiles cp WHERE cp.user_id=u.id)" };
+  const BC_AR = { all: 'الكل', customer: 'العملاء', courier: 'المناديب', provider: 'المحلات', captain: 'الكباتن' };
+  const bcOut = r => ({ id: Number(r.id), text: r.body, audience: r.audience, audienceAr: BC_AR[r.audience] || r.audience, sentTo: r.sent_to, createdAt: new Date(r.created_at).getTime() });
+  const bcRecent = async () => (await pool.query('SELECT * FROM support_broadcasts ORDER BY id DESC LIMIT 30')).rows.map(bcOut);
+  app.get('/api/admin/support-broadcasts', auth, roles('admin'), guard(async (_req, res) => {
+    const counts = {};
+    for (const a of Object.keys(BC_AUD)) counts[a] = Number((await pool.query(`SELECT COUNT(*) FROM users u WHERE u.status='active' AND u.deleted_at IS NULL AND ${BC_AUD[a]}`)).rows[0].count);
+    res.json({ broadcasts: await bcRecent(), counts });
+  }));
+  app.post('/api/admin/support-broadcasts', auth, roles('admin'), guard(async (req, res) => {
+    const text = bodyOf(req), aud = Object.prototype.hasOwnProperty.call(BC_AUD, (req.body || {}).audience) ? req.body.audience : 'all';
+    const dup = await pool.query("SELECT 1 FROM support_broadcasts WHERE body=$1 AND audience=$2 AND created_at > NOW() - INTERVAL '10 minutes'", [text, aud]);
+    if (dup.rowCount) throw fail(409, 'نفس الرسالة اتبعتت من أقل من 10 دقايق');
+    const adm = (await pool.query('SELECT name, role FROM users WHERE id=$1', [me(req)])).rows[0];
+    const out = await withTx(async db => {
+      const ids = (await db.query(`SELECT u.id FROM users u WHERE u.status='active' AND u.deleted_at IS NULL AND ${BC_AUD[aud]}`)).rows.map(r => Number(r.id));
+      if (!ids.length) throw fail(409, 'مفيش مستخدمين في الفئة دي');
+      // a conversation that already exists keeps its status and its place in the inbox, a new one starts closed: the inbox is not flooded, it fills only when somebody answers
+      const th = await db.query(
+        `INSERT INTO support_threads(user_id, status, last_message, last_message_at, unread_user) SELECT x, 'closed', '', NOW() - INTERVAL '1 year', 1 FROM unnest($1::bigint[]) x
+         ON CONFLICT (user_id) DO UPDATE SET unread_user = support_threads.unread_user + 1 RETURNING id`, [ids]);
+      await db.query(
+        `INSERT INTO support_messages(thread_id, sender_user_id, sender_name, sender_role, body) SELECT unnest($1::bigint[]), $2, $3, $4, $5`,
+        [th.rows.map(r => Number(r.id)), me(req), adm.name, adm.role, text]);
+      const rec = (await db.query('INSERT INTO support_broadcasts(body, audience, sent_to, sender_user_id) VALUES($1,$2,$3,$4) RETURNING *', [text, aud, ids.length, me(req)])).rows[0];
+      return { ids, rec };
+    });
+    notify(out.ids, { title: 'رسالة من الدعم الفني', body: text.slice(0, 100), tag: 'support-reply', url: '/', requireInteraction: true });
+    res.status(201).json({ broadcast: bcOut(out.rec), broadcasts: await bcRecent() });
+  }));
+
   async function withTx(fn) {
     const client = await pool.connect();
     try { await client.query('BEGIN'); const out = await fn(client); await client.query('COMMIT'); return out; }
