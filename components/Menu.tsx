@@ -31,7 +31,7 @@ export function MenuGallery({ providerId, count, compact, tall, headerRight }: {
           <Image source={{ uri: menuImageUrl(ids[0]) }} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: C.line }} resizeMode="cover" />
           <View style={{ flex: 1, gap: 2 }}>
             <T w="bold" size={13.5}>{`منيو المحل (${ids.length} ${ids.length > 10 ? 'صفحة' : ids.length === 1 ? 'صفحة' : 'صفحات'})`}</T>
-            <T size={11.5} color={C.sub}>شوف المنيو كامل بالصور</T>
+            <T size={11.5} color={C.sub}>{tall ? 'اضغط لعرض الصفحات كاملة' : 'شوف المنيو كامل بالصور'}</T>
           </View>
           <View style={{ backgroundColor: C.gold, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 }}><T w="black" size={12.5} color={C.dark}>افتح</T></View>
         </Pressable>

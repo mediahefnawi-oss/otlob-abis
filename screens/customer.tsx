@@ -665,7 +665,7 @@ export function ProviderScreen({ navigation, route }: any) {
         </View>
       )}
       {!blocked && !requestOnly && !isBooking(p.type) && (p.menuCount || 0) === 0 && <GroupOrderButton navigation={navigation} providerId={p.id} />}
-      {(p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} compact={!menuOnly} tall={menuOnly} headerRight={!blocked && !requestOnly && !isBooking(p.type) ? <GroupOrderButton navigation={navigation} providerId={p.id} chip /> : undefined} />}
+      {(p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} compact tall={menuOnly} headerRight={!blocked && !requestOnly && !isBooking(p.type) ? <GroupOrderButton navigation={navigation} providerId={p.id} chip /> : undefined} />}
       {!blocked && (requestOnly || isMakerTpl(p.type)) && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.goldSoft, borderWidth: 1.5, borderColor: C.gold }}>
@@ -749,19 +749,11 @@ export function ProviderScreen({ navigation, route }: any) {
           )
         }
       />
-      {cartCount > 0 && !isBooking(p.type) && (
-        <Pressable
-          onPress={() => navigation.navigate('Cart')}
-          style={{ position: 'absolute', bottom: insets.bottom + 12, left: 16, right: 16, backgroundColor: C.dark, borderRadius: 18, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, ...shadow }}
-        >
-          <View style={{ backgroundColor: C.gold, borderRadius: 12, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}>
-            <T w="black" size={13} color={C.dark} align="center">{cartCount}</T>
-          </View>
-          <T w="bold" color="#fff" style={{ flex: 1 }}>عرض السلة</T>
-          <T w="black" color={C.gold}>{money(det.subtotal)}</T>
-        </Pressable>
-      )}
-      <ShopChatButton providerId={p.id} chatOff={p.chatOff} bottom={insets.bottom + (cartCount > 0 && !isBooking(p.type) ? 84 : 22)} onOrder={p.orderMode === 'menu' && !blocked && !requestOnly && !isBooking(p.type) && cartCount === 0 ? () => navigation.navigate('RequestOrder', { id: p.id }) : undefined} />
+      <ShopChatButton providerId={p.id} chatOff={p.chatOff} bottom={insets.bottom + 22}
+        cartBar={cartCount > 0 && !requestOnly && !isBooking(p.type)}
+        orderLabel={cartCount > 0 && !requestOnly && !isBooking(p.type) ? `السلة (${cartCount}) • ${money(det.subtotal)}` : requestOnly ? 'اكتب طلبك' : 'اطلب من المنيو'}
+        orderIcon={cartCount > 0 && !requestOnly && !isBooking(p.type) ? 'cart' : 'create'}
+        onOrder={isBooking(p.type) ? undefined : cartCount > 0 && !requestOnly ? () => navigation.navigate('Cart') : !blocked && requestOnly ? () => navigation.navigate('RequestOrder', { id: p.id }) : p.orderMode === 'menu' && !blocked ? () => navigation.navigate('RequestOrder', { id: p.id }) : undefined} />
     </View>
   );
 }

@@ -43,7 +43,7 @@ function Conversation({ load, send, hint }: { load: () => Promise<ChatMsg[] | nu
 }
 
 /** Customer: "ask the shop" on the shop's page. Hidden unless the owner switched chat on (and did not close it for this shop). */
-export function ShopChatButton({ providerId, chatOff, bottom = 22, onOrder }: { providerId: string; chatOff?: boolean; bottom?: number; onOrder?: () => void }) {
+export function ShopChatButton({ providerId, chatOff, bottom = 22, onOrder, orderLabel = 'اطلب من المنيو', orderIcon = 'create', cartBar }: { providerId: string; chatOff?: boolean; bottom?: number; onOrder?: () => void; orderLabel?: string; orderIcon?: string; cartBar?: boolean }) {
   const { db } = useStore();
   const [open, setOpen] = useState(false);
   const chatOn = !!db.settings.features?.chat && !chatOff;
@@ -58,8 +58,8 @@ export function ShopChatButton({ providerId, chatOff, bottom = 22, onOrder }: { 
               <Icon name="chatbubbles" size={18} color={C.dark} /><T w="black" size={13} color={C.dark}>اسأل المحل</T>
             </Pressable>
           )}
-          <Pressable onPress={onOrder} style={{ flex: 1.3, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.gold, borderRadius: 14, paddingVertical: 12 }}>
-            <Icon name="create" size={18} color={C.dark} /><T w="black" size={13} color={C.dark}>اطلب من المنيو</T>
+          <Pressable onPress={onOrder} style={{ flex: 1.3, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: cartBar ? C.dark : C.gold, borderRadius: 14, paddingVertical: 12 }}>
+            <Icon name={orderIcon as any} size={18} color={cartBar ? C.gold : C.dark} /><T w="black" size={13} color={cartBar ? C.gold : C.dark}>{orderLabel}</T>
           </Pressable>
         </View>
       ) : (
