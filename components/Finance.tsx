@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Image, Pressable } from 'react-native';
+import { View, Image, Pressable, Linking, Platform } from 'react-native';
 import { ScrollView } from './KScroll';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Chip, Sheet, Field, Toggle, Segmented, SectionTitle, Stat, Pill, Header, Empty, toast, confirmDialog } from './ui';
@@ -7,7 +7,7 @@ import { refresh as refreshStore, useStore, publishUpdateNotice, setWelcomeLogo,
 import { TYPES, DEFAULT_CREDITS, money, fmtDateTime, isoDay, DAYS, typeKeys, serviceDefs, errandDef, TEMPLATE_LABEL } from '../lib/format';
 import { ProviderType, ServiceDef, ServiceTemplate } from '../lib/types';
 import { apiJson, refreshCounters, useCounters, useMyCommission, ruleSummary, Counters } from '../lib/finance';
-import { loginImageUrl, welcomeLogoUrl, appIconUrl, catIconUrl, apiSetFeature } from '../lib/api';
+import { loginImageUrl, welcomeLogoUrl, appIconUrl, catIconUrl, apiSetFeature, apiAbsolute } from '../lib/api';
 import { useNavigation } from '@react-navigation/native';
 import { SvcLookCard } from '../screens/adminExtra';
 import { pickImage, canPickImage } from '../lib/pickImage';
@@ -194,11 +194,63 @@ const SVC_AR: Record<string, string> = { ride: 'التوصيلة (الكباتن
 type SvcRow = { svc: string; name: string; since: number | null; orders: number; base: number; commission: number; due: number };
 type SvcClosing = { id: string; svc: string; at: number; orders: number; base: number; commission: number; due: number; undone: boolean };
 
+/* ---------- accounts to Excel (owner) ---------- */
+function ExportSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const [scope, setScope] = useState<'all' | 'courier' | 'provider'>('all');
+  const [when, setWhen] = useState<'today' | 'week' | 'month' | 'last' | 'custom'>('month');
+  const [status, setStatus] = useState<'all' | 'due' | 'settled'>('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const range = (): { from: string; to: string } | null => {
+    const n = new Date();
+    if (when === 'today') return { from: isoDay(n), to: isoDay(n) };
+    if (when === 'week') { const a = new Date(); a.setDate(a.getDate() - 6); return { from: isoDay(a), to: isoDay(n) }; }
+    if (when === 'month') return { from: isoDay(new Date(n.getFullYear(), n.getMonth(), 1)), to: isoDay(n) };
+    if (when === 'last') return { from: isoDay(new Date(n.getFullYear(), n.getMonth() - 1, 1)), to: isoDay(new Date(n.getFullYear(), n.getMonth(), 0)) };
+    const f = toEn(from).trim(), t = toEn(to).trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(f) && /^\d{4}-\d{2}-\d{2}$/.test(t) ? { from: f, to: t } : null;
+  };
+  const go = async () => {
+    const r = range();
+    if (!r) return toast('اكتب التاريخين بالشكل 2026-11-01', 'err');
+    setBusy(true);
+    try {
+      const out = await apiJson<{ path: string }>('/api/admin/commissions/export-link', 'POST', { scope, status, from: r.from, to: r.to });
+      const url = apiAbsolute(out.path);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.location.assign(url); else await Linking.openURL(url);
+      toast('جاري تنزيل ملف Excel...');
+      onClose();
+    } catch (e: any) { toast(e?.message || 'تعذر تجهيز الملف', 'err'); }
+    setBusy(false);
+  };
+  return (
+    <Sheet visible={visible} onClose={onClose} title="📥 تصدير حسابات Excel">
+      <View style={{ gap: 10 }}>
+        <Label>إيه اللي يتصدّر؟</Label>
+        <Wrap>{([['all', 'الكل'], ['courier', 'المناديب'], ['provider', 'المحلات']] as const).map(([k, l]) => <Chip key={k} label={l} active={scope === k} onPress={() => setScope(k)} />)}</Wrap>
+        <Label>الفترة</Label>
+        <Wrap>{([['today', 'اليوم'], ['week', 'آخر 7 أيام'], ['month', 'الشهر ده'], ['last', 'الشهر اللي فات'], ['custom', 'من - إلى']] as const).map(([k, l]) => <Chip key={k} label={l} active={when === k} onPress={() => setWhen(k)} />)}</Wrap>
+        {when === 'custom' && (
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}><Field label="من" value={from} onChangeText={setFrom} placeholder="2026-11-01" autoCapitalize="none" /></View>
+            <View style={{ flex: 1 }}><Field label="إلى" value={to} onChangeText={setTo} placeholder="2026-11-30" autoCapitalize="none" /></View>
+          </View>
+        )}
+        <Label>الحالة</Label>
+        <Wrap>{([['all', 'الكل'], ['due', 'المستحق بس'], ['settled', 'اللي اتسوّى']] as const).map(([k, l]) => <Chip key={k} label={l} active={status === k} onPress={() => setStatus(k)} />)}</Wrap>
+        <Btn title="تنزيل ملف Excel" icon="download" loading={busy} onPress={go} />
+      </View>
+    </Sheet>
+  );
+}
+
 function ReportsTab() {
   const [period, setPeriod] = useState<'day' | 'month'>('day');
   const [range, setRange] = useState(30);
   const [rows, setRows] = useState<any[]>([]);
   const [ov, setOv] = useState<any>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const load = useCallback(() => {
     const from = new Date(); from.setDate(from.getDate() - range);
     apiJson<any>(`/api/admin/commissions/report?period=${period}&from=${isoDay(from)}`).then((r) => setRows(r.rows)).catch(() => {});
@@ -216,6 +268,8 @@ function ReportsTab() {
   const fmtPeriod = (p: string) => (period === 'month' ? p.slice(0, 7) : `${DAYS[new Date(p + 'T12:00:00').getDay()]} ${p}`);
   return (
     <View style={{ gap: 12 }}>
+      <Btn title="📥 تصدير حسابات Excel" variant="green" onPress={() => setExportOpen(true)} />
+      <ExportSheet visible={exportOpen} onClose={() => setExportOpen(false)} />
       <View style={{ flexDirection: 'row', gap: 10 }}>
         <Stat icon="cash" label="صافي الشهر الحالي" value={money(ov?.month || 0)} color={C.goldDeep} soft={C.goldSoft} />
         <Stat icon="alert-circle" label="مستحقات غير مسددة" value={money(tot('provider').due + tot('courier').due + svcTot('market').due + svcTot('errand').due)} color={C.red} soft={C.redSoft} />

@@ -472,6 +472,8 @@ export const apiProviderMode = (id: string, mode: '' | 'cart' | 'request' | 'men
 export const apiMenuList = (providerId: string) => apiRequest<{ images: string[] }>(`/api/providers/${encodeURIComponent(providerId)}/menu`, {}, true);
 export const apiMenuAdd = (providerId: string, image: string) => apiRequest<{ id: string }>(`/api/providers/${encodeURIComponent(providerId)}/menu`, { method: 'POST', body: JSON.stringify({ image }) });
 export const apiMenuDelete = (imgId: string) => apiRequest<{ ok: boolean }>(`/api/menu/${encodeURIComponent(imgId)}`, { method: 'DELETE' });
+/** a full address for a server path (used to open a download link) */
+export const apiAbsolute = (path: string) => `${API_BASE}${path}`;
 export const menuImageUrl = (imgId: string) => `${API_BASE}/api/menu/${encodeURIComponent(imgId)}`;
 
 /** Courier's own picture: the courier uploads, the owner approves, customers see only approved ones. */

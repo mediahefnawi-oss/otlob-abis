@@ -321,11 +321,11 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
   }));
 
   /** Owner: the accounts of couriers and shops as an Excel file (summary + the ledger lines), for the period and status asked for. */
-  app.get('/api/admin/commissions/export', ...admin, guard(async (req, res) => {
-    const scope = ['courier', 'provider'].includes(req.query.scope) ? req.query.scope : 'all';
-    const status = ['due', 'settled'].includes(req.query.status) ? req.query.status : 'all';
-    const from = dayStart(req.query.from) || new Date(Date.now() - 30 * 86400000);
-    const to = dayStart(req.query.to, 1) || new Date(Date.now() + 86400000);
+  const exportOf = async qy => {
+    const scope = ['courier', 'provider'].includes(qy.scope) ? qy.scope : 'all';
+    const status = ['due', 'settled'].includes(qy.status) ? qy.status : 'all';
+    const from = dayStart(qy.from) || new Date(Date.now() - 30 * 86400000);
+    const to = dayStart(qy.to, 1) || new Date(Date.now() + 86400000);
     if (to <= from) throw fail(400, 'الفترة غير صحيحة');
     const v = [from, to]; let w = 'e.created_at >= $1::timestamptz AND e.created_at < $2::timestamptz';
     if (scope !== 'all') { v.push(scope); w += ` AND e.kind = $${v.length}`; }
@@ -361,10 +361,30 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     if (scope !== 'courier') sheets.push({ name: 'المحلات', columns: lineCols, rows: r.rows.filter(e => e.kind === 'provider').map(line) });
     const file = buildXlsx(sheets);
     const tag = d => d.toISOString().slice(0, 10);
+    return { file, name: `accounts-${tag(from)}_${tag(new Date(to.getTime() - 1))}.xlsx` };
+  };
+  const sendXlsx = (res, { file, name }) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="accounts-${tag(from)}_${tag(new Date(to.getTime() - 1))}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
     res.setHeader('Cache-Control', 'no-store');
     res.end(file);
+  };
+  app.get('/api/admin/commissions/export', ...admin, guard(async (req, res) => { sendXlsx(res, await exportOf(req.query || {})); }));
+  // the phone app cannot save a file by itself: it asks for a one-time link (valid 2 minutes, used once) and opens it in the browser, which downloads the file
+  const exportLinks = new Map();
+  app.post('/api/admin/commissions/export-link', ...admin, guard(async (req, res) => {
+    const q = { scope: (req.body || {}).scope, status: (req.body || {}).status, from: (req.body || {}).from, to: (req.body || {}).to };
+    const out = await exportOf(q);   // validates and builds now, so a bad period fails here and not in the browser
+    const token = require('crypto').randomBytes(24).toString('hex');
+    exportLinks.set(token, { ...out, exp: Date.now() + 120000 });
+    for (const [k, x] of exportLinks) if (x.exp < Date.now()) exportLinks.delete(k);
+    res.json({ path: `/api/admin/commissions/export/file/${token}` });
+  }));
+  app.get('/api/admin/commissions/export/file/:token', guard(async (req, res) => {
+    const x = exportLinks.get(String(req.params.token || ''));
+    exportLinks.delete(String(req.params.token || ''));
+    if (!x || x.exp < Date.now()) throw fail(410, 'انتهت صلاحية رابط التحميل، ولّد رابط جديد');
+    sendXlsx(res, x);
   }));
 
   /** Cancellation / return: documented negative adjustment(s) against the original accrual(s). Never edits or deletes. */

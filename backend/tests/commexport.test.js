@@ -18,16 +18,17 @@ const { ok, eq, done } = H.counters();
   await ent('accrual', 'courier', o1, null, c1, 0, 20, 'due');
   await ent('accrual', 'courier', o2, null, c2, 0, 15, 'settled');
 
-  const get = async (as, query) => {
-    const chain = H.routes['GET /api/admin/commissions/export'];
+  const call2 = async (key, as, query, body, params) => {
+    const chain = H.routes[key];
     const out = { status: 200, headers: {}, body: null };
     let done_ = false; let err = null;
     const res = { status(c) { out.status = c; return this; }, json(j) { out.json = j; done_ = true; return this; }, setHeader(k, v) { out.headers[k] = v; }, end(b) { out.body = b; done_ = true; } };
-    const req = { auth: as, params: {}, body: {}, query };
+    const req = { auth: as, params: params || {}, body: body || {}, query: query || {} };
     let i = 0; const next = e => { if (e) { err = e; done_ = true; return; } const f = chain[i++]; if (f) return f(req, res, next); }; next();
     const t0 = Date.now(); while (!done_ && Date.now() - t0 < 8000) await new Promise(r => setTimeout(r, 2));
     if (err) throw err; return out;
   };
+  const get = (as, query) => call2('GET /api/admin/commissions/export', as, query);
   const A = { sub: String(adm), role: 'admin' };
   eq((await get({ sub: String(cust), role: 'customer' }, {})).status, 403, 'customer cannot export');
   eq((await get(undefined, {})).status, 401, 'guest cannot export');
@@ -42,6 +43,18 @@ const { ok, eq, done } = H.counters();
   eq((await get(A, { from: '2026-12-31', to: '2026-01-01' })).status, 400, 'bad range refused');
   const empty = await get(A, { from: '2020-01-01', to: '2020-01-02' });
   eq(empty.status, 200, 'an empty period still gives a file');
+  // one-time link for the phone app
+  const link = await call2('POST /api/admin/commissions/export-link', A, {}, { scope: 'all', status: 'all' });
+  eq(link.status, 200, 'link issued');
+  const token = String((link.json || {}).path || '').split('/').pop();
+  ok(token.length >= 32, 'long random token');
+  eq((await call2('POST /api/admin/commissions/export-link', { sub: String(cust), role: 'customer' }, {}, {})).status, 403, 'customer cannot ask for a link');
+  eq((await call2('POST /api/admin/commissions/export-link', A, {}, { from: '2026-12-31', to: '2026-01-01' })).status, 400, 'bad range refused at link time');
+  const f1 = await call2('GET /api/admin/commissions/export/file/:token', undefined, {}, {}, { token });
+  eq(f1.status, 200, 'the link downloads without a login');
+  ok(Buffer.isBuffer(f1.body) && f1.body.slice(0, 2).toString() === 'PK', 'link gives the file');
+  eq((await call2('GET /api/admin/commissions/export/file/:token', undefined, {}, {}, { token })).status, 410, 'a link works once');
+  eq((await call2('GET /api/admin/commissions/export/file/:token', undefined, {}, {}, { token: 'nope' })).status, 410, 'unknown token refused');
   await pool.end();
   process.exit(done('commexport') ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
