@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { View, Image, Pressable, ScrollView, Modal, useWindowDimensions } from 'react-native';
 import { C } from '../lib/theme';
 import { T, Card, Btn, Icon, toast, confirmDialog } from './ui';
@@ -7,17 +7,40 @@ import { apiMenuList, apiMenuAdd, apiMenuDelete, menuImageUrl } from '../lib/api
 import { pickImage, canPickImage } from '../lib/pickImage';
 
 /** The shop's picture menu: a banner as wide as the ads board, swipe left / right between pages, tap to read a page full screen. */
-export function MenuGallery({ providerId, count }: { providerId: string; count?: number }) {
+export function MenuGallery({ providerId, count, compact, tall, headerRight }: { providerId: string; count?: number; compact?: boolean; tall?: boolean; headerRight?: ReactNode }) {
   const [ids, setIds] = useState<string[]>([]);
   const [w, setW] = useState(0);
   const [i, setI] = useState(0);
   const [full, setFull] = useState<number | null>(null);
   useEffect(() => { apiMenuList(providerId).then((r) => setIds(r.images)).catch(() => {}); }, [providerId, count]);
-  if (!ids.length) return null;
-  const h = Math.max(110, Math.min(170, Math.round(w * 0.34)));
+  const title = (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+      <T w="black" size={14}>📄 المنيو</T>
+      {headerRight}
+    </View>
+  );
+  if (!ids.length) return headerRight ? <View style={{ marginHorizontal: 16, marginTop: 8 }}>{title}</View> : null;
+  if (compact) {
+    // a shop with a menu AND products: a small strip; the pages open full screen
+    return (
+      <View style={{ marginHorizontal: 16, marginTop: 8 }}>
+        {title}
+        <Pressable onPress={() => setFull(0)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 16, padding: 10, borderWidth: 1, borderColor: C.line }}>
+          <Image source={{ uri: menuImageUrl(ids[0]) }} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: C.line }} resizeMode="cover" />
+          <View style={{ flex: 1, gap: 2 }}>
+            <T w="bold" size={13.5}>{`منيو المحل (${ids.length} ${ids.length > 10 ? 'صفحة' : ids.length === 1 ? 'صفحة' : 'صفحات'})`}</T>
+            <T size={11.5} color={C.sub}>شوف المنيو كامل بالصور</T>
+          </View>
+          <View style={{ backgroundColor: C.gold, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8 }}><T w="black" size={12.5} color={C.dark}>افتح</T></View>
+        </Pressable>
+        <MenuViewer ids={ids} start={full ?? 0} visible={full !== null} onClose={() => setFull(null)} />
+      </View>
+    );
+  }
+  const h = tall ? Math.max(220, Math.min(420, Math.round(w * 0.95))) : Math.max(110, Math.min(170, Math.round(w * 0.34)));
   return (
     <View style={{ marginHorizontal: 16, marginTop: 8 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      <T w="black" size={14} style={{ marginBottom: 6 }}>📄 المنيو</T>
+      {title}
       {w > 0 && (
         <View style={{ height: h, borderRadius: 20, overflow: 'hidden', backgroundColor: C.line }}>
           <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onMomentumScrollEnd={(e) => setI(Math.round(Math.abs(e.nativeEvent.contentOffset.x) / w))}>

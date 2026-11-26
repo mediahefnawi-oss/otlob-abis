@@ -21,9 +21,10 @@ const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مر�
 /* ---------------- group order ---------------- */
 
 /** The strip on a shop page: opens (or reuses) the owner's shared cart for this shop. */
-export function GroupOrderButton({ navigation, providerId, compact }: { navigation: any; providerId: string; compact?: boolean }) {
+export function GroupOrderButton({ navigation, providerId, compact, chip }: { navigation: any; providerId: string; compact?: boolean; chip?: boolean }) {
   const { db } = useStore();
   const [busy, setBusy] = useState(false);
+  const [sheet, setSheet] = useState(false);
   const prov = db.providers.find((x) => String(x.id) === String(providerId));
   if (!db.settings.features?.groupOrder || !prov || !groupEligible(prov.type)) return null;
   const go = async () => {
@@ -33,6 +34,24 @@ export function GroupOrderButton({ navigation, providerId, compact }: { navigati
     catch (e) { toast(errText(e), 'err'); }
     finally { setBusy(false); }
   };
+  if (chip) {
+    // one small button beside the menu title; it opens a sheet with "start a group order" and "I have a code"
+    const nav = { ...navigation, navigate: (...a: any[]) => { setSheet(false); (navigation.navigate as any)(...a); } };
+    return (
+      <>
+        <Pressable onPress={() => setSheet(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: C.line }}>
+          <Text style={{ fontSize: 15 }}>👥</Text>
+          <T w="bold" size={12} color={C.green}>طلب جماعي</T>
+        </Pressable>
+        <Sheet visible={sheet} onClose={() => setSheet(false)} title="👥 طلب جماعي (ادعو صحابك)">
+          <View style={{ gap: 10 }}>
+            <Btn title={busy ? 'جاري الفتح...' : 'ابدأ طلب جماعي جديد'} icon="people" variant="green" loading={busy} onPress={go} />
+            <GroupJoinCard navigation={nav} openByDefault />
+          </View>
+        </Sheet>
+      </>
+    );
+  }
   if (compact) {
     return (
       <View style={{ marginHorizontal: 16, marginTop: 8, gap: 4 }}>
@@ -63,10 +82,10 @@ export function GroupOrderButton({ navigation, providerId, compact }: { navigati
 }
 
 /** Home: join a group cart with a code (the link opens it directly on the web; this covers the app). */
-export function GroupJoinCard({ navigation }: { navigation: any }) {
+export function GroupJoinCard({ navigation, openByDefault }: { navigation: any; openByDefault?: boolean }) {
   const { db } = useStore();
   const [code, setCode] = useState('');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!openByDefault);
   if (!db.settings.features?.groupOrder) return null;
   if (!open) return <Pressable onPress={() => setOpen(true)} style={{ marginTop: 10, alignSelf: 'center' }}><T size={12.5} color={C.green} w="bold">عندك كود طلب جماعي؟ ادخله هنا</T></Pressable>;
   return (

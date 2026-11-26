@@ -639,7 +639,7 @@ export function ProviderScreen({ navigation, route }: any) {
         <View style={{ flexDirection: 'row', gap: 14, marginTop: 14, alignItems: 'center' }}>
           <ProviderLogo p={p} size={66} zoomable />
           <View style={{ flex: 1, gap: 4 }}>
-            <T size={12.5} color="#C9D8D2" numberOfLines={2}>{p.desc}</T>
+            <T size={12.5} color="#C9D8D2" numberOfLines={1}>{p.desc}</T>
             <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
               <Pressable onPress={() => setRateOpen(true)} hitSlop={8} style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>{starsOn ? <RatingLine p={p} light /> : <><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}{p.ratingCount ? ` (${p.ratingCount})` : ''}</T></>}</Pressable>
               {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
@@ -664,8 +664,8 @@ export function ProviderScreen({ navigation, route }: any) {
           <T color={C.red} w="bold" size={13} style={{ flex: 1 }}>التوصيل من منطقة هذا المكان إلى منطقتك غير متاح حالياً</T>
         </View>
       )}
-      {!blocked && !requestOnly && !isBooking(p.type) && <GroupOrderButton navigation={navigation} providerId={p.id} compact={(p.menuCount || 0) > 0} />}
-      {(p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} />}
+      {!blocked && !requestOnly && !isBooking(p.type) && (p.menuCount || 0) === 0 && <GroupOrderButton navigation={navigation} providerId={p.id} />}
+      {(p.menuCount || 0) > 0 && <MenuGallery providerId={p.id} count={p.menuCount || 0} compact={!menuOnly} tall={menuOnly} headerRight={!blocked && !requestOnly && !isBooking(p.type) ? <GroupOrderButton navigation={navigation} providerId={p.id} chip /> : undefined} />}
       {!blocked && (requestOnly || isMakerTpl(p.type)) && (
         <Pressable onPress={() => navigation.navigate('RequestOrder', { id: p.id })} style={{ marginHorizontal: 16, marginTop: 12 }}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.goldSoft, borderWidth: 1.5, borderColor: C.gold }}>
@@ -710,7 +710,7 @@ export function ProviderScreen({ navigation, route }: any) {
             </View>
           )
         }
-        ListEmptyComponent={<Empty icon={isBooking(p.type) ? 'pulse' : 'pricetag'} title={isBooking(p.type) ? 'لا يوجد أطباء بعد' : 'لا توجد منتجات بعد'} />}
+        ListEmptyComponent={menuOnly ? null : <Empty icon={isBooking(p.type) ? 'pulse' : 'pricetag'} title={isBooking(p.type) ? 'لا يوجد أطباء بعد' : 'لا توجد منتجات بعد'} />}
         renderItem={({ item, index }) =>
           item.kind === 'doctor' ? (
             <Appear i={index}>
