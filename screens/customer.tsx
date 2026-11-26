@@ -751,9 +751,9 @@ export function ProviderScreen({ navigation, route }: any) {
       />
       <ShopChatButton providerId={p.id} chatOff={p.chatOff} bottom={insets.bottom + 22}
         cartBar={cartCount > 0 && !requestOnly && !isBooking(p.type)}
-        orderLabel={cartCount > 0 && !requestOnly && !isBooking(p.type) ? `السلة (${cartCount}) • ${money(det.subtotal)}` : requestOnly ? 'اكتب طلبك' : 'اطلب من المنيو'}
+        orderLabel={cartCount > 0 && !requestOnly && !isBooking(p.type) ? `السلة (${cartCount}) • ${money(det.subtotal)}` : 'اطلب من المنيو'}
         orderIcon={cartCount > 0 && !requestOnly && !isBooking(p.type) ? 'cart' : 'create'}
-        onOrder={isBooking(p.type) ? undefined : cartCount > 0 && !requestOnly ? () => navigation.navigate('Cart') : !blocked && requestOnly ? () => navigation.navigate('RequestOrder', { id: p.id }) : p.orderMode === 'menu' && !blocked ? () => navigation.navigate('RequestOrder', { id: p.id }) : undefined} />
+        onOrder={isBooking(p.type) ? undefined : cartCount > 0 && !requestOnly ? () => navigation.navigate('Cart') : requestOnly ? undefined : p.orderMode === 'menu' && !blocked ? () => navigation.navigate('RequestOrder', { id: p.id }) : undefined} />
     </View>
   );
 }
