@@ -12,6 +12,7 @@
  */
 const TZ = 'Africa/Cairo';
 const services = require('./services');
+const { buildXlsx } = require('./xlsx');
 const PROVIDER_TYPES = { includes: x => services.isKnown(x), get length() { return services.keys().length; } };
 const COUNTERS = ['sales', 'orders', 'profit'];
 const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -317,6 +318,53 @@ module.exports = function registerCommissionRoutes(app, { pool, auth, roles, asy
     v.push(Math.min(200, Math.max(1, Number(req.query.limit) || 60)));
     const r = await pool.query(`SELECT e.* FROM commission_entries e ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY e.id DESC LIMIT $${v.length}`, v);
     res.json({ entries: r.rows.map(entryJson) });
+  }));
+
+  /** Owner: the accounts of couriers and shops as an Excel file (summary + the ledger lines), for the period and status asked for. */
+  app.get('/api/admin/commissions/export', ...admin, guard(async (req, res) => {
+    const scope = ['courier', 'provider'].includes(req.query.scope) ? req.query.scope : 'all';
+    const status = ['due', 'settled'].includes(req.query.status) ? req.query.status : 'all';
+    const from = dayStart(req.query.from) || new Date(Date.now() - 30 * 86400000);
+    const to = dayStart(req.query.to, 1) || new Date(Date.now() + 86400000);
+    if (to <= from) throw fail(400, 'الفترة غير صحيحة');
+    const v = [from, to]; let w = 'e.created_at >= $1::timestamptz AND e.created_at < $2::timestamptz';
+    if (scope !== 'all') { v.push(scope); w += ` AND e.kind = $${v.length}`; }
+    if (status !== 'all') { v.push(status); w += ` AND e.status = $${v.length}`; }
+    const r = await pool.query(`SELECT e.id, e.entry_type, e.kind, e.order_id, e.appointment_id, e.ride_id, e.provider_id, e.courier_user_id, e.base_amount, e.amount, e.status, e.note,
+        to_char(e.created_at AT TIME ZONE 'Africa/Cairo', 'YYYY-MM-DD HH24:MI') AS at,
+        CASE WHEN e.kind = 'provider' THEN p.name ELSE u.name END AS name, o.order_number
+      FROM commission_entries e LEFT JOIN providers p ON p.id = e.provider_id LEFT JOIN users u ON u.id = e.courier_user_id LEFT JOIN orders o ON o.id = e.order_id
+      WHERE ${w} ORDER BY e.created_at DESC, e.id DESC LIMIT 20000`, v);
+    const num = x => round2(Number(x) || 0);
+    const kindAr = k => (k === 'courier' ? 'مندوب' : 'محل');
+    const ref = e => (e.order_number ? `طلب #${e.order_number}` : e.order_id ? `طلب #${e.order_id}` : e.appointment_id ? `حجز #${e.appointment_id}` : e.ride_id ? `رحلة #${e.ride_id}` : '');
+    // summary: one line per courier / shop
+    const by = new Map();
+    for (const e of r.rows) {
+      const key = e.kind + ':' + (e.kind === 'provider' ? e.provider_id : e.courier_user_id);
+      const a = by.get(key) || { name: e.name || '—', kind: e.kind, count: 0, sales: 0, gross: 0, adj: 0, settled: 0, due: 0 };
+      if (e.entry_type === 'accrual') { a.count++; a.gross += Number(e.amount); if (e.kind === 'provider') a.sales += Number(e.base_amount); } else a.adj += Number(e.amount);
+      if (e.status === 'settled') a.settled += Number(e.amount); else a.due += Number(e.amount);
+      by.set(key, a);
+    }
+    const sum = [...by.values()].sort((a, b) => b.due - a.due);
+    const tot = sum.reduce((t, a) => ({ count: t.count + a.count, sales: t.sales + a.sales, gross: t.gross + a.gross, adj: t.adj + a.adj, settled: t.settled + a.settled, due: t.due + a.due }), { count: 0, sales: 0, gross: 0, adj: 0, settled: 0, due: 0 });
+    const line = e => [e.at, ref(e), e.name || '—', e.entry_type === 'adjustment' ? 'خصم / مرتجع' : 'عمولة', e.kind === 'provider' ? num(e.base_amount) : null, num(e.amount), e.status === 'settled' ? 'اتسوّى' : 'مستحق', e.note || ''];
+    const lineCols = [{ header: 'التاريخ', width: 18 }, { header: 'المرجع', width: 16 }, { header: 'الاسم', width: 24 }, { header: 'النوع', width: 14 }, { header: 'المبلغ الأساسي', width: 16, num: true }, { header: 'العمولة', width: 14, num: true }, { header: 'الحالة', width: 12 }, { header: 'ملاحظة', width: 30 }];
+    const sheets = [{
+      name: 'ملخص',
+      columns: [{ header: 'الاسم', width: 26 }, { header: 'النوع', width: 10 }, { header: 'عدد الطلبات', width: 13, int: true }, { header: 'إجمالي المبيعات', width: 16, num: true }, { header: 'العمولة', width: 14, num: true }, { header: 'خصم / مرتجع', width: 14, num: true }, { header: 'اتسوّى', width: 14, num: true }, { header: 'المستحق', width: 14, num: true }],
+      rows: sum.map(a => [a.name, kindAr(a.kind), a.count, a.kind === 'provider' ? num(a.sales) : null, num(a.gross), num(a.adj), num(a.settled), num(a.due)]),
+      totalRow: ['الإجمالي', '', tot.count, num(tot.sales), num(tot.gross), num(tot.adj), num(tot.settled), num(tot.due)],
+    }];
+    if (scope !== 'provider') sheets.push({ name: 'المناديب', columns: lineCols, rows: r.rows.filter(e => e.kind === 'courier').map(line) });
+    if (scope !== 'courier') sheets.push({ name: 'المحلات', columns: lineCols, rows: r.rows.filter(e => e.kind === 'provider').map(line) });
+    const file = buildXlsx(sheets);
+    const tag = d => d.toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="accounts-${tag(from)}_${tag(new Date(to.getTime() - 1))}.xlsx"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(file);
   }));
 
   /** Cancellation / return: documented negative adjustment(s) against the original accrual(s). Never edits or deletes. */

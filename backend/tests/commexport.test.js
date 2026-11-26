@@ -1,0 +1,47 @@
+const { Pool } = require('./shim');
+const H = require('./h26');
+const fs = require('fs');
+const { ok, eq, done } = H.counters();
+(async () => {
+  const pool = new Pool(); const q = (t, p) => pool.query(t, p);
+  require('../src/commissions.js')(H.app, { pool, auth: H.auth, roles: H.roles, asyncRoute: H.asyncRoute, positiveId: H.positiveId });
+  await q('TRUNCATE commission_entries, orders RESTART IDENTITY CASCADE');
+  const mk = async (n, role) => Number((await q("INSERT INTO users(name, phone, password_hash, role, status) VALUES($1,$2,'x',$3,'active') RETURNING id", [n, H.phone(), role])).rows[0].id);
+  const adm = await mk('owner', 'admin'), c1 = await mk('أحمد المندوب', 'courier'), c2 = await mk('محمود', 'courier'), own = await mk('صاحب', 'provider'), cust = await mk('عميل', 'customer');
+  const prov = Number((await q("INSERT INTO providers(owner_user_id, name, type, status, is_open, phone) VALUES($1,'سنتر القدس','store','active',TRUE,'01000000001') RETURNING id", [own])).rows[0].id);
+  const ordr = async n => Number((await q("INSERT INTO orders(customer_user_id, provider_id, status, order_number, data) VALUES($1,$2,'delivered',$3,'{}') RETURNING id", [cust, prov, n])).rows[0].id);
+  const o1 = await ordr(101), o2 = await ordr(102);
+  const ent = (type, kind, oid, p, c, base, amt, st) => q("INSERT INTO commission_entries(entry_type, kind, order_id, provider_id, courier_user_id, base_amount, amount, status, note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)", [type, kind, oid, p, c, base, amt, st, type === 'adjustment' ? 'مرتجع' : '']);
+  await ent('accrual', 'provider', o1, prov, null, 500, 50, 'settled');
+  await ent('accrual', 'provider', o2, prov, null, 300, 30, 'due');
+  await ent('adjustment', 'provider', o2, prov, null, 0, -10, 'due');
+  await ent('accrual', 'courier', o1, null, c1, 0, 20, 'due');
+  await ent('accrual', 'courier', o2, null, c2, 0, 15, 'settled');
+
+  const get = async (as, query) => {
+    const chain = H.routes['GET /api/admin/commissions/export'];
+    const out = { status: 200, headers: {}, body: null };
+    let done_ = false; let err = null;
+    const res = { status(c) { out.status = c; return this; }, json(j) { out.json = j; done_ = true; return this; }, setHeader(k, v) { out.headers[k] = v; }, end(b) { out.body = b; done_ = true; } };
+    const req = { auth: as, params: {}, body: {}, query };
+    let i = 0; const next = e => { if (e) { err = e; done_ = true; return; } const f = chain[i++]; if (f) return f(req, res, next); }; next();
+    const t0 = Date.now(); while (!done_ && Date.now() - t0 < 8000) await new Promise(r => setTimeout(r, 2));
+    if (err) throw err; return out;
+  };
+  const A = { sub: String(adm), role: 'admin' };
+  eq((await get({ sub: String(cust), role: 'customer' }, {})).status, 403, 'customer cannot export');
+  eq((await get(undefined, {})).status, 401, 'guest cannot export');
+  const all = await get(A, {});
+  eq(all.status, 200, 'owner exports');
+  ok(/spreadsheetml\.sheet/.test(all.headers['Content-Type']), 'xlsx content type');
+  ok(/attachment; filename="accounts-.*\.xlsx"/.test(all.headers['Content-Disposition']), 'download filename');
+  ok(Buffer.isBuffer(all.body) && all.body.slice(0, 2).toString() === 'PK', 'a zip body');
+  fs.writeFileSync('/tmp/export_all.xlsx', all.body);
+  fs.writeFileSync('/tmp/export_courier.xlsx', (await get(A, { scope: 'courier' })).body);
+  fs.writeFileSync('/tmp/export_due.xlsx', (await get(A, { status: 'due' })).body);
+  eq((await get(A, { from: '2026-12-31', to: '2026-01-01' })).status, 400, 'bad range refused');
+  const empty = await get(A, { from: '2020-01-01', to: '2020-01-02' });
+  eq(empty.status, 200, 'an empty period still gives a file');
+  await pool.end();
+  process.exit(done('commexport') ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(1); });
