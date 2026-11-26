@@ -9,7 +9,9 @@ import { pickImage, canPickImage } from '../lib/pickImage';
 /** The shop's picture menu: a banner as wide as the ads board, swipe left / right between pages, tap to read a page full screen. */
 export function MenuGallery({ providerId, count, compact, tall, headerRight }: { providerId: string; count?: number; compact?: boolean; tall?: boolean; headerRight?: ReactNode }) {
   const [ids, setIds] = useState<string[]>([]);
-  const [w, setW] = useState(0);
+  const [w0, setW] = useState(0);
+  const { width: sw } = useWindowDimensions();
+  const w = w0 || Math.max(0, Math.min(sw, 640) - 32);   // until the real width is measured, never leave the pages blank
   const [i, setI] = useState(0);
   const [full, setFull] = useState<number | null>(null);
   useEffect(() => { apiMenuList(providerId).then((r) => setIds(r.images)).catch(() => {}); }, [providerId, count]);
@@ -19,11 +21,11 @@ export function MenuGallery({ providerId, count, compact, tall, headerRight }: {
       {headerRight}
     </View>
   );
-  if (!ids.length) return headerRight ? <View style={{ marginHorizontal: 16, marginTop: 8 }}>{title}</View> : null;
+  if (!ids.length) return headerRight ? <View key="menu-wait" style={{ marginHorizontal: 16, marginTop: 8 }}>{title}</View> : null;
   if (compact) {
     // a shop with a menu AND products: a small strip; the pages open full screen
     return (
-      <View style={{ marginHorizontal: 16, marginTop: 8 }}>
+      <View key="menu-strip" style={{ marginHorizontal: 16, marginTop: 8 }}>
         {title}
         <Pressable onPress={() => setFull(0)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 16, padding: 10, borderWidth: 1, borderColor: C.line }}>
           <Image source={{ uri: menuImageUrl(ids[0]) }} style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: C.line }} resizeMode="cover" />
@@ -39,7 +41,7 @@ export function MenuGallery({ providerId, count, compact, tall, headerRight }: {
   }
   const h = tall ? Math.max(220, Math.min(420, Math.round(w * 0.95))) : Math.max(110, Math.min(170, Math.round(w * 0.34)));
   return (
-    <View style={{ marginHorizontal: 16, marginTop: 8 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+    <View key="menu-full" style={{ marginHorizontal: 16, marginTop: 8 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
       {title}
       {w > 0 && (
         <View style={{ height: h, borderRadius: 20, overflow: 'hidden', backgroundColor: C.line }}>
