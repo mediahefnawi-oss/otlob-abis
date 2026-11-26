@@ -678,7 +678,7 @@ export function ProviderScreen({ navigation, route }: any) {
           </Card>
         </Pressable>
       )}
-      {requestOnly ? (
+      {requestOnly && !(p.menuCount || 0) ? (
         <View style={{ padding: 24, alignItems: 'center', gap: 10 }}>
           <Text style={{ fontSize: 54 }}>{p.type === 'pharmacy' ? '💊' : '🛒'}</Text>
           <T w="black" size={17} align="center">{p.type === 'pharmacy' ? 'اكتب الدواء المطلوب أو ارفع الروشتة' : 'اكتب كل اللي محتاجه'}</T>
