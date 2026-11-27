@@ -1083,3 +1083,16 @@ CREATE TABLE IF NOT EXISTS bells (
 );
 CREATE INDEX IF NOT EXISTS bells_ringing_idx ON bells(status, target_id);
 CREATE INDEX IF NOT EXISTS bells_order_idx ON bells(order_id);
+
+-- delivery price per delivery means (موتوسيكل / توكتوك / تروسيكل ...) on a route; the plain route price above stays the default
+CREATE TABLE IF NOT EXISTS route_vehicle_prices (
+  from_region_id BIGINT NOT NULL,
+  to_region_id BIGINT NOT NULL,
+  vehicle TEXT NOT NULL,
+  price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (from_region_id, to_region_id, vehicle)
+);
+-- "the courier decides the delivery price" mode: the limits he may write between
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS courier_fee_min NUMERIC(8,2) NOT NULL DEFAULT 5;
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS courier_fee_max NUMERIC(8,2) NOT NULL DEFAULT 50;

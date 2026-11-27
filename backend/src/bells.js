@@ -15,7 +15,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers 
   const me = req => Number(req.auth.sub);
   const push = (ids, title, body, tag, ring) => { if (!pushToUsers || !ids.length) return Promise.resolve(); return Promise.resolve(pushToUsers(ids, { title, body, tag, url: '/', requireInteraction: true, ...(ring ? { ring: true } : {}) })).catch(() => {}); };
   const admins = async () => (await pool.query("SELECT id FROM users WHERE role='admin' AND status='active' AND deleted_at IS NULL")).rows.map(x => Number(x.id));
-  const tellOwner = async (title, body, tag) => push(await admins(), title, body, tag, false);
+  const tellOwner = async (title, body, tag, extraId) => push([...new Set([...(await admins()), ...(extraId ? [Number(extraId)] : [])])], title, body, tag, false);
   const label = o => `#${o.order_number || o.id}`;
   const orderRow = async id => (await pool.query('SELECT o.*, p.owner_user_id AS powner, p.is_open AS popen, p.name AS pname FROM orders o LEFT JOIN providers p ON p.id=o.provider_id WHERE o.id=$1', [id])).rows[0];
   const bellJson = b => ({ id: Number(b.id), orderId: Number(b.order_id), targetId: Number(b.target_id), role: b.role, status: b.status, startedAt: new Date(b.started_at).getTime(), sends: b.sends });
@@ -35,13 +35,22 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers 
   }
   const whoName = async uid => ((await pool.query('SELECT name FROM users WHERE id=$1', [uid])).rows[0] || {}).name || '';
 
-  /* ---------- the owner ---------- */
-  app.post('/api/admin/orders/:id/bell', auth, roles('admin'), guard(async (req, res) => {
+  /** A supervisor rings only about orders of his own areas (the owner and managers: any). */
+  async function areaOk(req, o) {
+    if (req.auth.role !== 'supervisor') return true;
+    const r = await pool.query('SELECT sup_regions FROM users WHERE id=$1', [me(req)]);
+    return !!o.region_id && String((r.rows[0] || {}).sup_regions || '').split(',').filter(Boolean).includes(String(o.region_id));
+  }
+
+  /* ---------- the owner and supervisors ---------- */
+  app.post('/api/admin/orders/:id/bell', auth, roles('admin', 'supervisor'), guard(async (req, res) => {
     const id = positiveId(req.params.id), role = String((req.body || {}).role || ''), target = positiveId((req.body || {}).targetId);
     if (!id) throw fail(400, 'طلب غير صالح');
     if (!['courier', 'shop'].includes(role)) throw fail(400, 'اختر مندوب أو محل');
     const o = await orderRow(id);
     if (!o) throw fail(404, 'الطلب غير موجود');
+    if (!(await areaOk(req, o))) throw fail(403, 'هذا الطلب خارج مناطقك');
+    if (req.auth.role === 'supervisor' && role !== 'courier') throw fail(403, 'المشرف يرنّ على المناديب فقط');
     let tid;
     if (role === 'courier') {
       tid = target; if (!tid) throw fail(400, 'اختر المندوب');
@@ -61,16 +70,20 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers 
     await ringOnce(b, o);
     res.status(201).json({ bell: bellJson(b) });
   }));
-  app.delete('/api/admin/orders/:id/bell', auth, roles('admin'), guard(async (req, res) => {
+  app.delete('/api/admin/orders/:id/bell', auth, roles('admin', 'supervisor'), guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'طلب غير صالح');
+    const oo = await orderRow(id); if (!oo) throw fail(404, 'الطلب غير موجود');
+    if (!(await areaOk(req, oo))) throw fail(403, 'هذا الطلب خارج مناطقك');
     const rows = (await pool.query("SELECT * FROM bells WHERE order_id=$1 AND status='ringing'", [id])).rows;
     for (const b of rows) {
       if (await endBell(b, 'stopped', 'owner')) push([Number(b.target_id)], 'تم إيقاف التنبيه', 'الإدارة أوقفت الجرس', `bell-${b.id}`, false);
     }
     res.json({ ok: true, stopped: rows.length });
   }));
-  app.get('/api/admin/orders/:id/bells', auth, roles('admin'), guard(async (req, res) => {
+  app.get('/api/admin/orders/:id/bells', auth, roles('admin', 'supervisor'), guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'طلب غير صالح');
+    const oo = await orderRow(id); if (!oo) throw fail(404, 'الطلب غير موجود');
+    if (!(await areaOk(req, oo))) throw fail(403, 'هذا الطلب خارج مناطقك');
     const r = await pool.query(`SELECT b.*, u.name FROM bells b JOIN users u ON u.id=b.target_id WHERE b.order_id=$1 ORDER BY b.id DESC LIMIT 10`, [id]);
     res.json({ bells: r.rows.map(b => ({ ...bellJson(b), name: b.name, reason: b.reason || '' })) });
   }));
@@ -113,7 +126,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers 
     if (!ended) return;
     const name = await whoName(b.target_id);
     const who = b.role === 'shop' ? `المحل ${o.pname || name}` : `المندوب ${name}`;
-    await tellOwner(status === 'accepted' ? `✅ ${who} قبل الطلب` : `❌ ${who} رفض الطلب`, `${label(o)} — الجرس وقف`, `bell-${b.id}`);
+    await tellOwner(status === 'accepted' ? `✅ ${who} قبل الطلب` : `❌ ${who} رفض الطلب`, `${label(o)} — الجرس وقف`, `bell-${b.id}`, b.started_by);
   }
   /** orders.js calls this after a successful decision on an order: it ends the bells that this decision answers. */
   async function afterAction(orderId, actorId, action) {
@@ -138,7 +151,7 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers 
         const taken = o && b.role === 'courier' && o.courier_user_id && Number(o.courier_user_id) !== Number(b.target_id);
         if (!o || !open || taken) { if (await endBell(b, 'closed', 'order_moved')) push([Number(b.target_id)], 'تم إيقاف التنبيه', 'الطلب اتغيّر', `bell-${b.id}`, false); continue; }
         if (age >= MAX_MS) {
-          if (await endBell(b, 'expired', 'timeout')) { const nm = await whoName(b.target_id); await tellOwner('⏱️ ما ردّش على الطلب', `${nm} ما ردّش على ${label(o)} خلال 30 دقيقة — الجرس وقف`, `bell-${b.id}`); push([Number(b.target_id)], 'انتهى التنبيه', 'الإدارة هتتابع معاك', `bell-${b.id}`, false); }
+          if (await endBell(b, 'expired', 'timeout')) { const nm = await whoName(b.target_id); await tellOwner('⏱️ ما ردّش على الطلب', `${nm} ما ردّش على ${label(o)} خلال 30 دقيقة — الجرس وقف`, `bell-${b.id}`, b.started_by); push([Number(b.target_id)], 'انتهى التنبيه', 'الإدارة هتتابع معاك', `bell-${b.id}`, false); }
           continue;
         }
         if (Date.now() - new Date(b.last_sent_at).getTime() >= RING_EVERY_MS - 500) await ringOnce(b, o);

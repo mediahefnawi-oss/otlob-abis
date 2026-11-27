@@ -187,7 +187,7 @@ const offersLib = require('./offers');
 const ratingsLib = require('./ratings');
 const extrasLib = require('./extras');
 const regionClose = require('./regionclose');
-const SCHEMA_VERSION = 20261238;
+const SCHEMA_VERSION = 20261239;
 let schemaState = 'pending';
 async function ensureSchema() {
   const schema = fs.readFileSync(path.join(__dirname, '..', 'sql', 'schema.sql'), 'utf8');
@@ -983,8 +983,8 @@ app.get('/api/catalog', optionalAuth, asyncRoute(async (req, res) => {
   const key = v && (v.role === 'admin' || v.role === 'provider') ? `${v.role}:${v.id}` : 'public';
   const hit = req.query.fresh ? undefined : catalogMemo.get(key);
   if (hit) return res.json(hit);
-  const [providers, products, regions, ads, routePrices] = await Promise.all([listProviders(v), listProducts(v), listRegions(v), listAds(v).catch(() => []), listRoutePrices()]);
-  res.json(catalogMemo.set(key, { providers, products, regions, ads, routePrices, services: services.listJson() }));
+  const [providers, products, regions, ads, routePrices, routeVehiclePrices] = await Promise.all([listProviders(v), listProducts(v), listRegions(v), listAds(v).catch(() => []), listRoutePrices(), require('./routeVehicles').listPrices(pool)]);
+  res.json(catalogMemo.set(key, { providers, products, regions, ads, routePrices, routeVehiclePrices, services: services.listJson() }));
 }));
 
 // Owner of the service (or the app owner) edits the service details / open-closed switch.
@@ -1133,6 +1133,7 @@ require('./commissions')(app, { pool, auth, roles, asyncRoute, positiveId });
 services.register(app, { pool, auth, roles, asyncRoute });
 require('./mapmode').registerMapModeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
 require('./kmfee').registerKmFeeRoutes(app, { pool, auth, roles, asyncRoute, settingsMemo });
+require('./routeVehicles').register(app, { pool, auth, roles, asyncRoute, positiveId, settingsMemo });
 require('./offers').registerOfferRoutes(app, { pool, auth, roles, asyncRoute, positiveId, pushToUsers });
 require('./premium').register(app, { pool, auth, roles, asyncRoute, clearCaches: () => { settingsMemo.clear(); catalogMemo.clear(); authMemo.clear(); }, pushToUsers });
 require('./coupons').registerCouponRoutes(app, { pool, auth, roles, asyncRoute, positiveId });

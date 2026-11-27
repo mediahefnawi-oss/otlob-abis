@@ -15,6 +15,7 @@ import { useStore, useMe, setAvailable, orderAction, updateProfile } from '../li
 import { Order } from '../lib/types';
 import { RegionPicker } from '../components/Regions';
 import { money, isToday, fmtTime } from '../lib/format';
+import { vehicleEmoji } from '../components/Location';
 
 /** Lets the home screen open the orders page on a chosen list (offers / mine / done). */
 const segBus = {
@@ -52,7 +53,7 @@ export function CourierWorkScreen({ go }: any) {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={{ paddingBottom: 24 }}>
-      <Header title="لوحة المندوب" subtitle={`أهلاً ${me.name}`}>
+      <Header title="لوحة المندوب" subtitle={`أهلاً ${me.name}${me.vehicle ? ` • ${vehicleEmoji(me.vehicle)} ${me.vehicle}` : ''}`}>
         <Pressable onPress={toggle} style={{ marginTop: 14 }}>
           <LinearGradient colors={on ? ['#16A163', '#0E7A4F'] : ['#3A4C46', '#2A3A35']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 22, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
             <View style={{ width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
@@ -102,6 +103,11 @@ export function CourierWorkScreen({ go }: any) {
         <SectionTitle title="إعدادات الشغل" />
         <Card style={{ gap: 8 }}>
           <RegionPicker value={me.regionId} onChange={async (id) => { const r = await updateProfile({ regionId: id }); if (!r.ok) toast(r.error, 'err'); else toast('تم تحديد منطقتك'); }} label="أنا الآن في منطقة" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <T size={13} color={C.sub} style={{ flex: 1 }}>وسيلة التوصيل</T>
+            <T w="black" size={14}>{vehicleEmoji(me.vehicle || '')} {me.vehicle || '—'}</T>
+          </View>
+          <T size={11.5} color={C.sub}>لتغيير الوسيلة كلّم الإدارة، والطلبات اللي بتوصلك بتبقى على حسب وسيلتك.</T>
         </Card>
         {!!db.settings.features?.rides && (
           <Pressable onPress={() => nav.navigate('Captain')}>

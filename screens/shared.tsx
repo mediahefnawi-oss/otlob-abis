@@ -17,6 +17,7 @@ import { CommissionTrail } from '../components/Finance';
 import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel, isMakerTpl } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
+import { CourierFeeButton, FeeApprovalCard, FeeWaitNote } from '../components/Delivery';
 import { QuoteButtons, MakerOrderButtons, RequestPhoto, ErrandQuoteButton } from '../components/Quote';
 import { PushCard } from '../components/PushCard';
 import { OrderStaffTools } from '../components/StaffTools';
@@ -153,6 +154,7 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           {!o.privacyMasked && <Row icon="call" label="الهاتف" value={o.phone} />}
           {!o.privacyMasked && !!o.phone2 && me.role !== 'customer' && <Row icon="call" label="رقم آخر للعميل" value={o.phone2} />}
           {!!o.regionName && <Row icon="map" label="منطقة العميل" value={o.regionName} />}
+          {!!o.vehicle && <Row icon="bicycle" label="وسيلة التوصيل" value={o.vehicle} />}
           {!o.privacyMasked && <Row icon="location" label="العنوان التفصيلي" value={o.address} />}
           {!o.privacyMasked && !!o.notes && <Row icon="create" label="ملاحظات" value={o.notes} />}
           {me.role !== 'customer' || true ? (
@@ -170,6 +172,8 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
             {!!o.customerFlagNote && <T size={12.5} color={C.dark3}>{o.customerFlagNote}</T>}
           </Card>
         )}
+
+        <FeeApprovalCard o={o} />
 
         {/* items */}
         <Card style={{ gap: 10 }}>
@@ -244,9 +248,11 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
           )}
           {iAmCourier && !o.courierId && ['accepted', 'ready'].includes(o.status) && <Btn title="قبول التوصيل" icon="bicycle" onPress={() => act('courier_accept')} />}
           {iAmCourier && mine && isCustom && ['accepted', 'quoted'].includes(o.status) && o.errandQuote !== 'approved' && <ErrandQuoteButton o={o} />}
+          {iAmCourier && mine && <CourierFeeButton o={o} />}
+          {iAmCourier && mine && <FeeWaitNote o={o} />}
           {iAmCourier && mine && (
             <>
-              {['accepted', 'ready'].includes(o.status) && (!isCustom || o.errandQuote === 'approved') && <Btn title={isCustom ? 'تم شراء الطلب' : 'استلمت الطلب'} icon="bag-handle" onPress={() => act('pickup')} />}
+              {['accepted', 'ready'].includes(o.status) && (!isCustom || o.errandQuote === 'approved') && (!o.feeByCourier || o.feeState === 'approved') && <Btn title={isCustom ? 'تم شراء الطلب' : 'استلمت الطلب'} icon="bag-handle" onPress={() => act('pickup')} />}
               {o.status === 'picked_up' && <Btn title="أنا في الطريق" icon="bicycle" onPress={() => act('go')} />}
               {o.status === 'on_the_way' && <Btn title="وصلت المكان" icon="location" variant="dark" onPress={() => act('arrive')} />}
               {o.status === 'arrived' && <Btn title="تم تسليم الطلب للعميل" icon="checkmark-done" variant="green" onPress={() => confirmDialog({ title: 'تأكيد التسليم', message: `هل استلمت ${money(o.total)} كاش من العميل؟`, confirmText: 'تم التسليم', onConfirm: () => act('deliver') })} />}

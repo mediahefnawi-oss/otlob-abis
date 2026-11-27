@@ -13,7 +13,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiPinProvider, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiMarketOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiCourierFee, apiSetCourierVehicle, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiPinProvider, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiMarketOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -58,13 +58,14 @@ export interface State {
   db: DB;
   userId: string | null;
   cart: CartLine[];
+  cartVehicle: string; // the delivery means the customer chose for this order ('' = none: the plain route price)
   cartDest: CartDest; // where the order being made goes: the saved spot, or another address (optionally with its own pin)
   syncError: string | null; // shown as a banner when the app could not refresh from the server
   ready: boolean;
 }
 
 export type CartDest = { pin?: { lat: number; lng: number } };
-let state: State = { db: buildSeed(), userId: null, cart: [], cartDest: {}, ready: false, syncError: null };
+let state: State = { db: buildSeed(), userId: null, cart: [], cartDest: {}, cartVehicle: '', ready: false, syncError: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const setState = (p: Partial<State>) => {
@@ -80,12 +81,13 @@ export const subscribe = (l: () => void) => {
 };
 export const getState = () => state;
 export function setCartDest(d: CartDest) { setState({ cartDest: d }); }
+export function setCartVehicle(v: string) { setState({ cartVehicle: v }); }
 /** The owner's switch for maps and live location (on unless the owner switched it off). */
 export const mapOn = () => state.db.settings.map?.enabled !== false;
 export const mapRequired = () => mapOn() && state.db.settings.map?.required !== false;
 export const useMapOn = () => { const s = useStore(); return s.db.settings.map?.enabled !== false; };
 /** Sent with an order: the pin chosen for THIS order ('none' when there is no pin and none is required). Nothing when maps are off. */
-const destBody = () => (!mapOn() ? {} : state.cartDest.pin ? { destMode: 'pin', destLat: state.cartDest.pin.lat, destLng: state.cartDest.pin.lng } : { destMode: 'none' });
+const destBody = () => ({ ...(state.cartVehicle ? { vehicle: state.cartVehicle } : {}), ...(!mapOn() ? {} : state.cartDest.pin ? { destMode: 'pin', destLat: state.cartDest.pin.lat, destLng: state.cartDest.pin.lng } : { destMode: 'none' }) });
 /** A new order needs a delivery pin when the owner requires it. */
 const pinError = (): string | null => (mapRequired() && !state.cartDest.pin ? 'حدد موقع التوصيل على الخريطة أولاً' : null);
 export const useStore = () => useSyncExternalStore(subscribe, getState, getState);
@@ -273,9 +275,21 @@ function routePriceFor(p: Provider): number | undefined {
 export function deliveryOpen(p: Provider): boolean {
   if (isBooking(p.type)) return true;
   if (kmInfoFor(p)) return true; // priced by distance: no area route needed
+  if (state.db.settings.delivery?.mode === 'courier') return true; // the courier writes the price
   const me = state.db.users.find((u) => u.id === state.userId);
   if (!me || me.role !== 'customer' || !me.regionId) return true;
-  return routePriceFor(p) !== undefined;
+  return routePriceFor(p) !== undefined || routeHasVehicles(p);
+}
+/** The price of one delivery means from this shop's area to the signed-in customer's area (undefined = that means does not go there). */
+export function vehiclePriceFor(p: Provider, vehicle: string): number | undefined {
+  const me = state.db.users.find((u) => u.id === state.userId);
+  return p.regionId && me?.regionId ? (state.db.routeVehiclePrices || {})[`${p.regionId}:${me.regionId}:${vehicle}`] : undefined;
+}
+function routeHasVehicles(p: Provider): boolean {
+  const me = state.db.users.find((u) => u.id === state.userId);
+  if (!p.regionId || !me?.regionId) return false;
+  const pre = `${p.regionId}:${me.regionId}:`;
+  return Object.keys(state.db.routeVehiclePrices || {}).some((k) => k.startsWith(pre));
 }
 /** Delivery price for the signed-in customer: the owner's price for the route from the shop's area to the customer's area. */
 /** The owner's "by kilometre" price for this shop and the signed-in customer (null = switch off or a spot is missing, so the area price applies). */
@@ -288,8 +302,10 @@ export function kmInfoFor(p: Provider): { fee: number; km: number } | null {
 }
 export function feeFor(p: Provider): number {
   if (isBooking(p.type)) return 0;
+  if (state.db.settings.delivery?.mode === 'courier') return 0; // the courier writes it after taking the order
   const k = kmInfoFor(p);
   if (k) return k.fee;
+  if (state.cartVehicle) { const vp = vehiclePriceFor(p, state.cartVehicle); if (vp !== undefined) return vp; }
   const route = routePriceFor(p);
   return route !== undefined ? route : p.deliveryFee;
 }
@@ -444,7 +460,7 @@ async function syncOrders() {
 
 async function syncCatalog() {
   if (pendingWrites > 0) return;
-  const { providers, products, regions, ads, routePrices, services } = await apiCatalog<any>();
+  const { providers, products, regions, ads, routePrices, routeVehiclePrices, services } = await apiCatalog<any>();
   if (Array.isArray(services) && services.length) applyServices(services);
   if (pendingWrites > 0) return;
   const P = providers.map(toProvider);
@@ -452,7 +468,7 @@ async function syncCatalog() {
   const R: Region[] = regions.map((r) => toRegion(r));
   const A: Ad[] = (ads || []).map(toAd);
   const same = JSON.stringify(P) === JSON.stringify(state.db.providers) && JSON.stringify(I) === JSON.stringify(state.db.products)
-    && JSON.stringify(R) === JSON.stringify(state.db.regions) && JSON.stringify(A) === JSON.stringify(state.db.ads || []) && JSON.stringify(routePrices || {}) === JSON.stringify(state.db.routePrices || {}) && JSON.stringify(services || []) === JSON.stringify(state.db.services || []);
+    && JSON.stringify(R) === JSON.stringify(state.db.regions) && JSON.stringify(A) === JSON.stringify(state.db.ads || []) && JSON.stringify(routePrices || {}) === JSON.stringify(state.db.routePrices || {}) && JSON.stringify(routeVehiclePrices || {}) === JSON.stringify(state.db.routeVehiclePrices || {}) && JSON.stringify(services || []) === JSON.stringify(state.db.services || []);
   if (same) return;
   mutate((db) => {
     const clean = stripDemo(db);
@@ -463,6 +479,7 @@ async function syncCatalog() {
     db.regions = R;
     db.ads = A;
     db.routePrices = routePrices || {};
+    db.routeVehiclePrices = routeVehiclePrices || {};
     db.services = Array.isArray(services) ? services : db.services;
   });
   const ids = new Set(I.map((p) => p.id));
@@ -821,6 +838,25 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   }
 }
 
+/** "The courier decides the delivery price": the courier who took the order writes it; the customer then approves or refuses. */
+export async function courierSetFee(orderId: string, fee: number): Promise<Result> {
+  if (!(fee >= 0)) return { ok: false, error: 'اكتب سعر التوصيل' };
+  pendingWrites++;
+  try {
+    const r = await apiCourierFee(orderId, fee);
+    mutate((db) => { db.orders = upsertById(db.orders, [r.order as Order]); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+  finally { pendingWrites--; }
+}
+/** Owner / manager: moves a courier to another delivery means. */
+export async function setCourierVehicle(courierId: string, vehicle: string): Promise<Result> {
+  try {
+    await apiSetCourierVehicle(courierId, vehicle);
+    mutate((db) => { db.users = db.users.map((u) => (u.id === courierId ? { ...u, vehicle } : u)); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
 /** «اطلب إيه نجيبهولك»: the courier who took the errand writes the price of the goods and his delivery fee; the customer then approves. */
 export async function courierQuote(orderId: string, subtotal: number, fee: number): Promise<Result> {
   if (!(subtotal > 0)) return { ok: false, error: 'اكتب سعر المشتريات' };
@@ -1012,7 +1048,7 @@ export async function staffOrderAction(orderId: string, action: 'cancel' | 'dism
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 
-export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver' | 'approve_quote' | 'decline_quote';
+export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver' | 'approve_quote' | 'decline_quote' | 'approve_fee' | 'decline_fee';
 
 export function orderAction(orderId: string, action: OrderAction, by: User, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string }): Result {
   const o = state.db.orders.find((x) => x.id === orderId);
@@ -1035,6 +1071,14 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
         }
         setStatus(db, orderId, 'accepted');
         sysMsg(db, orderId, 'وافق العميل على الفاتورة وجاري تجهيز الطلب 👨‍🍳');
+        break;
+      case 'approve_fee':
+        db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, feeState: 'approved', updatedAt: Date.now() } : x));
+        sysMsg(db, orderId, 'وافق العميل على سعر التوصيل ✅');
+        break;
+      case 'decline_fee':
+        db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, feeState: 'open', total: Math.max(0, x.total - x.deliveryFee), deliveryFee: 0, courierId: undefined, courierName: undefined, courierPhone: undefined, courierVehicle: undefined, updatedAt: Date.now() } : x));
+        sysMsg(db, orderId, 'رفض العميل سعر المندوب، وتم إرجاع الطلب للمناديب 🔁');
         break;
       case 'decline_quote':
         if (o.providerType === 'custom') {
@@ -1434,7 +1478,7 @@ export async function setMapMode(b: { enabled: boolean; required: boolean }): Pr
   }
 }
 /** Owner-only: delivery price by area (as before) or by kilometre. */
-export async function setDeliveryMode(b: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }): Promise<Result> {
+export async function setDeliveryMode(b: { mode: 'region' | 'km' | 'courier'; perKm: number; min: number; max: number; factor: number; courierMin?: number; courierMax?: number }): Promise<Result> {
   try {
     await apiSetDeliveryMode(b);
     const { settings } = await apiGetSettings();
@@ -1635,6 +1679,14 @@ export async function saveRoutePrices(fromId: string, prices: { toId: string; pr
   try {
     const r = await apiJson<{ routePrices: Record<string, number> }>('/api/admin/route-prices', 'PUT', { fromId, prices });
     mutate((db) => { db.routePrices = r.routePrices || {}; });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
+/** Owner: the delivery price of each means (موتوسيكل / توكتوك ...) from one shop area to each customer area (empty = that means does not go there). */
+export async function saveRouteVehiclePrices(fromId: string, prices: { toId: string; vehicle: string; price: number | null }[]): Promise<Result> {
+  try {
+    const r = await apiJson<{ prices: Record<string, number> }>('/api/admin/route-vehicle-prices', 'PUT', { fromId, prices });
+    mutate((db) => { db.routeVehiclePrices = r.prices || {}; });
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }

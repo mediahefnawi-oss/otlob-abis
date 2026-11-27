@@ -19,7 +19,8 @@ export function OrderStaffTools({ o }: { o: Order }) {
   const [gift, setGift] = useState(false);
   const [gv, setGv] = useState<'10' | '20' | '50' | '10%'>('20');
   const [gd, setGd] = useState(7);
-  const canAssign = open && ['accepted', 'ready'].includes(o.status);
+  // a supervisor may link ANY accepted order of his areas to a courier (not only stuck ones); transfer / end stay for stuck orders
+  const canAssign = (open || me?.role === 'supervisor') && ['accepted', 'ready'].includes(o.status);
   // a written request can move to another shop while it is still waiting or after the shop refused it; never after it was accepted
   const byShop = o.status === 'cancelled' && o.cancelledBy === 'provider';
   const movable = o.providerType !== 'custom' && (!!o.request || o.items.length > 0);

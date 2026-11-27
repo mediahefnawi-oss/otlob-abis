@@ -17,14 +17,15 @@ const mmss = (ms: number) => {
 /** Owner only: ring a courier / the shop until he answers, and stop the ringing at any moment. */
 export function OrderBellPanel({ o }: { o: Order }) {
   const me = useMe();
-  const isOwner = me?.role === 'admin';
+  // the owner, a manager who was given the bell, and a supervisor (for orders of his own areas; the server checks the area)
+  const isOwner = me?.role === 'supervisor' || (me?.role === 'admin' && (!me.manager || (me.mgrPerms || []).includes('bell')));
   const [bells, setBells] = useState<BellInfo[]>([]);
   const [now, setNow] = useState(Date.now());
   const [sheet, setSheet] = useState(false);
   const [couriers, setCouriers] = useState<StaffCourier[] | null>(null);
   const [busy, setBusy] = useState('');
   const canCourier = ['accepted', 'ready'].includes(o.status) && !['picked_up', 'on_the_way', 'arrived', 'delivered'].includes(o.status);
-  const canShop = ['pending', 'quoted'].includes(o.status);
+  const canShop = ['pending', 'quoted'].includes(o.status) && me?.role === 'admin';
 
   const load = useCallback(() => { apiBellList(o.id).then((r) => setBells(r.bells || [])).catch(() => {}); }, [o.id]);
   useEffect(() => {

@@ -148,6 +148,8 @@ export interface Order {
   privacyMasked?: boolean; // the customer's data was hidden from this shop/courier after delivery
   autoPending?: boolean; // the owner's auto-assign gave it to this courier and he has not opened it yet (the app opens it for him)
   market?: boolean; marketBase?: number; // a «طلبات ماركت» order: the products that already have a price are the minimum the courier can write
+  vehicle?: string; // the delivery means the customer chose (only a courier with this means can take the order)
+  feeByCourier?: boolean; feeState?: 'open' | 'proposed' | 'approved'; // "the courier decides the delivery price": waiting for his price / waiting for the customer / agreed
   errandQuote?: 'open' | 'quoted' | 'approved'; // «اطلب إيه نجيبهولك»: waiting for the courier's price / waiting for the customer / agreed
   id: string;
   number: number;
@@ -290,7 +292,7 @@ export interface Settings {
   welcomeLogoV?: number; // 0 / missing = the built-in logo on the first screen
   credits?: Credits | null; // the developer lines at the bottom of the first screen (null = the defaults)
   hours?: Hours; // opening hours (Cairo time); outside them customers see the closed screen
-  delivery?: { mode: 'region' | 'km'; perKm: number; min: number; max: number; factor: number }; // delivery price by area or by kilometre
+  delivery?: { mode: 'region' | 'km' | 'courier'; perKm: number; min: number; max: number; factor: number; courierMin?: number; courierMax?: number }; // delivery price by area or by kilometre
   map?: { enabled: boolean; required: boolean }; // owner switch: maps + live location, and whether a delivery pin is required
   theme?: string; // colour theme picked by the owner
   features?: Record<string, boolean>; // the owner's feature switches
@@ -307,6 +309,7 @@ export interface DB {
   providers: Provider[];
   products: Product[];
   regions: Region[];
+  routeVehiclePrices?: Record<string, number>; // "shopAreaId:customerAreaId:means" -> delivery price of that means
   routePrices?: Record<string, number>; // "shopAreaId:customerAreaId" -> delivery price
   services?: ServiceDef[]; // the services the owner arranged (name, order, size, on/off)
   ads?: Ad[];

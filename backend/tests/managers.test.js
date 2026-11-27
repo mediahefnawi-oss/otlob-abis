@@ -48,7 +48,7 @@ const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b), `${m}: got $
   eq(await g('POST', '/api/admin/broadcasts', ['users']), M.DENY, 'other perm does not notify');
   // owner-only areas, even with everything on
   const all = M.PERMS;
-  for (const [m, u] of [['POST', '/api/admin/managers'], ['PATCH', '/api/admin/managers/1'], ['DELETE', '/api/admin/managers/1'], ['POST', '/api/admin/supervisors'], ['POST', '/api/admin/wipe'], ['GET', '/api/admin/wipe/preview'], ['POST', '/api/admin/replication'], ['PATCH', '/api/admin/settings'], ['PATCH', '/api/admin/features'], ['PATCH', '/api/admin/theme'], ['POST', '/api/admin/regions'], ['PATCH', '/api/admin/privacy'], ['PUT', '/api/admin/app-icon'], ['POST', '/api/admin/log/3/undo'], ['PATCH', '/api/admin/ride-types/1/commission'], ['POST', '/api/admin/services'], ['PUT', '/api/admin/route-prices'], ['PATCH', '/api/admin/supervisors/1']])
+  for (const [m, u] of [['POST', '/api/admin/managers'], ['PATCH', '/api/admin/managers/1'], ['DELETE', '/api/admin/managers/1'], ['POST', '/api/admin/supervisors'], ['POST', '/api/admin/wipe'], ['GET', '/api/admin/wipe/preview'], ['POST', '/api/admin/replication'], ['PATCH', '/api/admin/settings'], ['PATCH', '/api/admin/features'], ['PATCH', '/api/admin/theme'], ['POST', '/api/admin/regions'], ['PATCH', '/api/admin/privacy'], ['PUT', '/api/admin/app-icon'], ['POST', '/api/admin/log/3/undo'], ['PATCH', '/api/admin/ride-types/1/commission'], ['POST', '/api/admin/services'], ['PATCH', '/api/admin/supervisors/1']])
     eq(await g(m, u, all), M.DENY, `owner-only: ${m} ${u}`);
   eq(await g('GET', '/api/admin/log', []), OK, 'everyone can read the change log');
   eq(await g('GET', '/api/me', []), OK, 'own account stays open');

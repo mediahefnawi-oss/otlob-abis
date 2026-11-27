@@ -2,7 +2,7 @@
 // Managers: staff accounts the owner creates with a chosen set of admin permissions.
 // A manager runs through the same code as the admin (auth maps him to role 'admin'), but every request first passes gate():
 // what is not explicitly allowed for his permissions is refused, and the owner-only areas are never open to him.
-const PERMS = ['orders', 'users', 'support', 'providers', 'couriers', 'finance_view', 'finance_edit', 'notify'];
+const PERMS = ['orders', 'users', 'support', 'providers', 'couriers', 'finance_view', 'finance_edit', 'notify', 'bell', 'delivery_prices', 'export'];
 
 function parsePerms(v) {
   const list = Array.isArray(v) ? v : String(v || '').split(',');
@@ -25,6 +25,9 @@ const ADMIN_RULES = [
   [/^(providers|market-products|offers|coupons|ads|provider-cover)(\/|$)/, 'providers'],
   [/^captains\/[^/]+\/balance$/, 'finance_edit'],
   [/^(couriers|captains|courier-photos)(\/|$)/, 'couriers'],
+  [/^orders\/[^/]+\/bells?$/, 'bell'],        // the bell on a courier / shop
+  [/^(route-prices|route-vehicle-prices|delivery-mode)$/, 'delivery_prices'],
+  [/^commissions\/export/, 'export'],
   [/^(commissions|closings|daily-report|counters|premium)(\/|$)/, 'finance'],
   [/^broadcasts(\/|$)/, 'notify'],
   [/^log\/[^/]+\/undo$/, 'block'],

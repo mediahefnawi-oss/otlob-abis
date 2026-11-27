@@ -141,6 +141,7 @@ function Main({ navigation }: any) {
     const fresh = db.orders.filter((o) => inStaffQueue(o)).length;
     tabs = [
       { key: 'orders', label: 'الطلبات', icon: 'receipt', badge: fresh, render: () => <SupervisorOrdersScreen navigation={navigation} /> },
+      ...(db.settings.map?.enabled !== false ? [{ key: 'map', label: 'الخريطة', icon: 'map', render: () => <CouriersMapScreen navigation={navigation} /> }] : []),
       { key: 'support', label: 'الدعم', icon: 'headset', badge: supUnread, render: () => (me.supportChat ? <SupportInbox /> : <SupportScreen navigation={{ canGoBack: () => false }} />) },
       { key: 'profile', label: 'حسابي', icon: 'person', render: () => <ProfileScreen navigation={navigation} /> },
     ];

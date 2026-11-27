@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { DeliveryPin } from '../components/Location';
+import { VehiclePicker } from '../components/Delivery';
 import { OfferBadge, TodayOffers, ShopOfferTag } from '../components/Offers';
 import { ShopRatingsSheet } from '../components/Ratings';
 import { View, StyleSheet, FlatList, RefreshControl, Pressable, KeyboardAvoidingView, Platform, Text, Image } from 'react-native';
@@ -629,7 +630,7 @@ export function ProviderScreen({ navigation, route }: any) {
             <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <T w="bold" size={11.5} color={p.open ? C.green : C.red}>{p.open ? '✓ مفتوح' : 'مغلق'}</T>
               {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}><Icon name="time" size={13} color={C.goldDeep} /><T size={11.5} w="bold">{p.eta} د</T></View>}
-              {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}><Icon name="bicycle" size={13} color={C.goldDeep} /><T size={11.5} w="bold">توصيل {feeFor(p)} ج.م</T></View>}
+              {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}><Icon name="bicycle" size={13} color={C.goldDeep} /><T size={11.5} w="bold">{db.settings.delivery?.mode === 'courier' ? 'التوصيل: المندوب يحدد السعر' : `توصيل ${feeFor(p)} ج.م`}</T></View>}
               <View style={{ flexDirection: 'row', gap: 3, alignItems: 'center', flexShrink: 1 }}><Icon name="location" size={13} color={C.goldDeep} /><T size={11} color={C.sub} numberOfLines={1} style={{ flexShrink: 1 }}>{[p.regionName ? (mineArea ? 'في منطقتك' : p.regionName) : '', p.address].filter(Boolean).join(' — ') || 'أبيس'}</T></View>
             </View>
           </View>
@@ -643,7 +644,7 @@ export function ProviderScreen({ navigation, route }: any) {
             <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
               <Pressable onPress={() => setRateOpen(true)} hitSlop={8} style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>{starsOn ? <RatingLine p={p} light /> : <><Icon name="star" size={14} color={C.gold} /><T w="bold" size={12} color="#fff">{p.rating ? p.rating.toFixed(1) : 'جديد'}{p.ratingCount ? ` (${p.ratingCount})` : ''}</T></>}</Pressable>
               {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="time" size={14} color={C.gold} /><T size={12} color="#fff">{p.eta} د</T></View>}
-              {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">توصيل {feeFor(p)} ج.م</T></View>}
+              {!isBooking(p.type) && <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="bicycle" size={14} color={C.gold} /><T size={12} color="#fff">{db.settings.delivery?.mode === 'courier' ? 'التوصيل: المندوب يحدد السعر' : `توصيل ${feeFor(p)} ج.م`}</T></View>}
               <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}><Icon name="location" size={14} color={C.gold} /><T size={12} color="#fff">{[p.regionName ? (mineArea ? 'في منطقتك' : `منطقة ${p.regionName}`) : '', p.address].filter(Boolean).join(' — ') || 'أبيس'}</T></View>
             </View>
           </View>
@@ -840,6 +841,7 @@ export function CartScreen({ navigation }: any) {
               <Field label="ملاحظات (اختياري)" icon="create" value={notes} onChangeText={setNotes} placeholder="مثال: الدور الثالث، الجرس لا يعمل" />
             </Card>
 
+            <VehiclePicker providerIds={det.groups.map((g) => String(g.provider.id))} />
             <SchedulePicker onChange={setSched} />
             {det.groups.length === 1 && <PoolCard providerId={String(det.groups[0].provider.id)} fee={det.delivery} disabled={!!sched} value={pool} onChange={setPool} />}
             <ProductSheet p={sel} inCart={sel ? qty(sel.id) : 0} canOrder bg={C.goldSoft} onClose={() => setSel(null)} />
@@ -1136,6 +1138,7 @@ export function RequestOrderScreen({ navigation, route }: any) {
         <AddressPicker address={address} onPick={setAddress} />
         <Field label="العنوان التفصيلي" icon="location" value={address} onChangeText={setAddress} multiline />
         <DeliveryPin />
+        <VehiclePicker providerIds={[String(p.id)]} />
         <Btn title={maker ? 'إرسال الطلب للصانع' : 'إرسال الطلب للمتجر'} icon="send" loading={busy} onPress={submit} />
       </ScrollView>
     </View>

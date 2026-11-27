@@ -9,6 +9,7 @@ const commissions = require('./commissions');
 const services = require('./services');
 const offersLib = require('./offers');
 const kmFee = require('./kmfee');
+const routeVeh = require('./routeVehicles');
 const tracking = require('./tracking');
 const mapMode = require('./mapmode');
 const couponsLib = require('./coupons');
@@ -35,7 +36,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), discount: d.discount > 0 ? num(d.discount) : undefined, couponCode: d.discount > 0 ? d.couponCode : undefined, giftCode: d.giftCode || undefined, deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
-      courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
+      courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, vehicle: d.vehicle || undefined, feeByCourier: d.feeByCourier ? true : undefined, feeState: d.feeByCourier ? (d.feeState || 'open') : undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
       createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], premium: d.premium ? true : undefined, courierFee: d.premiumFree && d.normalFee != null ? num(d.normalFee) : undefined, autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, staffDismissed: d.staffDismissed ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined, market: d.market || undefined, marketBase: d.marketBase != null ? num(d.marketBase) : undefined,
     };
@@ -80,14 +81,39 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     } catch { return null; } // table not migrated yet: never block an order
   }
   /** What a customer pays for delivery from a shop: only the owner's route price counts. A route without a price is closed. */
-  async function deliveryFeeFor(db, prov, region, fallback, customerId, dest) {
+  async function deliveryFeeFor(db, prov, region, fallback, customerId, dest, vehicle) {
     if (['booking', 'lab'].includes(services.tplOf(prov.type))) return 0;
+    if ((await kmFee.loadCfg(db)).mode === 'courier') return 0; // the courier writes the price after he takes the order
     // owner's "by kilometre" switch: priced from the shop's spot to the customer's spot; without both spots the area price below applies
     if (customerId) { const k = await kmFee.forOrder(db, prov.id, customerId, dest); if (k) return k.fee; }
     if (!region) return Number(fallback) || 0; // an old customer account with no area: the shop's own price
+    // the customer chose a delivery means: its own price on this route (no price = that means does not go there)
+    if (vehicle) {
+      const vp = await routeVeh.vehiclePrice(db, prov.id, region.id, vehicle);
+      if (vp === null) throw fail(409, `وسيلة التوصيل «${vehicle}» غير متاحة من ${prov.name} إلى منطقتك`);
+      return vp;
+    }
     const r = await routeFee(db, prov.id, region.id);
+    if (r === null && await routeVeh.routeHasVehicles(db, prov.id, region.id)) { // an older app that cannot choose a means: the cheapest one
+      const c = await db.query('SELECT MIN(v.price) AS p FROM providers p JOIN users u ON u.id=p.owner_user_id JOIN route_vehicle_prices v ON v.from_region_id=u.region_id AND v.to_region_id=$2 WHERE p.id=$1', [prov.id, region.id]);
+      if (c.rows[0] && c.rows[0].p !== null) return Number(c.rows[0].p);
+    }
     if (r === null) throw fail(409, `التوصيل من منطقة ${prov.name} إلى منطقتك غير متاح حالياً`);
     return r;
+  }
+  /** The delivery means the customer chose ('' = none): it must exist and at least one such courier must be on duty now. */
+  async function vehicleOf(db, b) {
+    const v = routeVeh.clean(b && b.vehicle);
+    if (!v) return '';
+    const ok = await db.query('SELECT 1 FROM courier_vehicles WHERE active AND name=$1', [v]);
+    if (!ok.rowCount) throw fail(400, 'وسيلة التوصيل غير معروفة');
+    const duty = await db.query("SELECT 1 FROM users WHERE role='courier' AND status='active' AND available=TRUE AND NOT orders_off AND deleted_at IS NULL AND vehicle=$1 LIMIT 1", [v]);
+    if (!duty.rowCount) throw fail(409, `لا يوجد مندوب «${v}» متاح حالياً، اختر وسيلة أخرى`);
+    return v;
+  }
+  /** "The courier decides the price" is on for this shop's kind of order. */
+  async function courierPriced(db, prov) {
+    return !['booking', 'lab'].includes(services.tplOf(prov.type)) && (await kmFee.loadCfg(db)).mode === 'courier';
   }
   /**
    * Where this order goes on the map. The customer chooses: his saved spot (default), or "another address" - with a pin picked for this order, or none.
@@ -216,7 +242,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
               cl.lat, cl.lng
          FROM users u LEFT JOIN courier_locations cl ON cl.courier_id=u.id AND cl.updated_at > NOW() - ${NEAR_FRESH}
         WHERE u.role='courier' AND u.status='active' AND u.available=TRUE AND NOT u.orders_off AND u.deleted_at IS NULL
-          AND u.region_id = $2::bigint AND NOT (u.id = ANY($3::bigint[]))`, [BUSY, row.region_id, skip]);
+          AND u.region_id = $2::bigint AND NOT (u.id = ANY($3::bigint[])) AND ($4::text = '' OR u.vehicle = $4::text)`, [BUSY, row.region_id, skip, String((row.data && row.data.vehicle) || '')]);
     if (!c.rowCount) return row;
     let shop = null;
     if (row.provider_id) {
@@ -302,8 +328,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const job = pushToUsers(list, { title, body, tag, url: '/', requireInteraction: true, ...(ring ? { ring: true } : {}) }).catch(() => {});
     return Promise.race([job, slow]).finally(() => clearTimeout(t));
   };
-  async function onlineCourierIds() {
-    return (await pool.query("SELECT id FROM users WHERE role='courier' AND status='active' AND available=TRUE AND NOT orders_off")).rows.map(r => r.id);
+  async function onlineCourierIds(vehicle) {
+    return (await pool.query("SELECT id FROM users WHERE role='courier' AND status='active' AND available=TRUE AND NOT orders_off AND ($1::text = '' OR vehicle = $1::text)", [String(vehicle || '')])).rows.map(r => r.id);
   }
   /** New jobs: the courier they were auto-assigned to, or every courier who is switched on. */
   async function notifyCouriers(all) {
@@ -313,12 +339,24 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       for (const r of rows.filter(x => x.courier_user_id)) jobs.push(notify([r.courier_user_id], 'تم تعيين طلب لك 🛵', `${(r.data || {}).providerName || ''} — ${(r.data || {}).regionName || (r.data || {}).address || ''}`, `order-${r.id}`, true));
       const open = rows.filter(x => !x.courier_user_id);
       if (open.length) {
-        const ids = await onlineCourierIds();
         const d = open[0].data || {};
+        const ids = await onlineCourierIds(d.vehicle);
         jobs.push(notify(ids, open.length > 1 ? `${open.length} طلبات توصيل جديدة 🛵` : 'طلب توصيل جديد 🛵', `${d.regionName ? `منطقة ${d.regionName}` : d.address || ''} — ${d.providerName || ''}`, `offer-${open[0].id}`, true));
       }
       await Promise.allSettled(jobs);
     } catch (e) { console.error('notifyCouriers failed:', e.message); }
+  }
+  /** A new order in a supervisor's area: every supervisor of that area gets a push (the order is also in his list). */
+  async function notifySupervisors(rows) {
+    try {
+      for (const r of rows) {
+        if (!r.region_id) continue;
+        const ids = (await pool.query("SELECT id FROM users WHERE role='supervisor' AND status='active' AND deleted_at IS NULL AND $1::text = ANY(string_to_array(NULLIF(sup_regions,''),','))", [String(r.region_id)])).rows.map(x => x.id);
+        if (!ids.length) continue;
+        const d = r.data || {};
+        await notify(ids, `🆕 طلب جديد في ${d.regionName || 'منطقتك'}`, `#${r.order_number} ${d.providerName || ''}${Number(r.total) ? ' — ' + Number(r.total) + ' ج.م' : ''}`, `sup-${r.id}`, false);
+      }
+    } catch (e) { console.error('notifySupervisors failed:', e.message); }
   }
   async function notifyAction(action, row, actorRole) {
     try {
@@ -360,7 +398,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     if (user.role === 'customer') return `o.customer_user_id=$${i}`;
     // a closed day moves the shop's finished orders out of its lists (nothing is deleted; the owner still sees everything)
     if (user.role === 'provider') return `o.provider_id IN (SELECT id FROM providers WHERE owner_user_id=$${i}) AND NOT (o.status IN ('delivered','rejected','cancelled','unavailable') AND COALESCE(o.delivered_at, o.updated_at) <= COALESCE((SELECT MAX(dc.closed_at) FROM day_closings dc WHERE dc.provider_id=o.provider_id AND dc.undone_at IS NULL), 'epoch'::timestamptz))`;
-    return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('accepted','ready') AND NOT EXISTS (SELECT 1 FROM users cu WHERE cu.id=$${i} AND cu.orders_off)))`;
+    return `(o.courier_user_id=$${i} OR (o.courier_user_id IS NULL AND o.status IN ('accepted','ready') AND NOT EXISTS (SELECT 1 FROM users cu WHERE cu.id=$${i} AND cu.orders_off) AND COALESCE(o.data->>'vehicle','') IN ('', COALESCE((SELECT vehicle FROM users cv WHERE cv.id=$${i}),''))))`;
   }
   function apptScope(user, values) {
     if (user.role === 'admin') return 'TRUE';
@@ -519,6 +557,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const { address, phone } = checkContact(b);
     const lines = cleanLines(b.lines);
     const scheduledFor = await scheduleOf(b);
+    const vehicle = await vehicleOf(pool, b);
     const wantPool = b.pool === true && !scheduledFor && (await poolLib.on(pool));
     const groups = await buildGroups(lines);
     await gatesLib.assertOpen(pool, [...new Set([...groups.values()].map(g => g.p.ptype))], fail, services.listJson()); // the owner closed new orders (whole app or this service)
@@ -535,7 +574,8 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const ben = await premiumLib.benefits(db, Number(req.auth.sub)); // "أبيس بريميم": a subscriber's free delivery / percent off, decided here and nowhere else
       for (const g of groups.values()) {
         const disc = ev ? (ev.perGroup.get(String(g.p.provider_id)) || 0) : 0;
-        const normalFee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee, Number(req.auth.sub), dest);
+        const normalFee = await deliveryFeeFor(db, { id: g.p.provider_id, type: g.p.ptype, name: g.p.pname }, region, g.p.pfee, Number(req.auth.sub), dest, vehicle);
+        const byCourier = await courierPriced(db, { type: g.p.ptype });
         const px = premiumLib.priceGroup({ subtotal: g.subtotal, couponDisc: disc, hasOffer: g.hasOffer, fee: normalFee, pooled: wantPool && !scheduledFor }, ben);
         const fee = px.fee;
         const allDisc = Math.round((disc + px.discount) * 100) / 100;
@@ -543,7 +583,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           customerName: name, phone, address, notes: String(b.notes || '').slice(0, 500), providerName: g.p.pname, providerType: g.p.ptype,
           ...(scheduledFor ? { scheduledFor } : {}),
           ...(wantPool && fee > 0 && region && services.tplOf(g.p.ptype) !== 'booking' ? { pool: { want: true, fullFee: fee } } : {}),
-          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, ...(allDisc > 0 ? { discount: allDisc, couponCode: disc > 0 ? ev.coupon.code : 'PREMIUM' } : {}), ...(ben.priority ? { premium: true } : {}), ...(px.free ? { premiumFree: true, normalFee } : {}), deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
+          providerOwnerId: String(g.p.owner_user_id), items: g.items, subtotal: g.subtotal, ...(allDisc > 0 ? { discount: allDisc, couponCode: disc > 0 ? ev.coupon.code : 'PREMIUM' } : {}), ...(ben.priority ? { premium: true } : {}), ...(px.free ? { premiumFree: true, normalFee } : {}), deliveryFee: fee, ...(vehicle ? { vehicle } : {}), ...(byCourier ? { feeByCourier: true, feeState: 'open' } : {}), regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, g.p.provider_id), ...(await flagData(db, Number(req.auth.sub), dest)),
           // every shop decides first: it must press accept or reject (a maker also picks the ready day and hour); nothing starts by itself
           history: [{ status: 'pending', at: Date.now() }],
         };
@@ -587,6 +627,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       ...out.poolChanges.map(c => notify([c.row.customer_user_id], 'جار قرّب طلب من نفس المحل 🤝', `رسوم توصيلك بقت ${c.to} ج.م بدل ${c.from} ج.م`, `order-${c.row.id}`)),
       ...out.orders.map(r => notify([(r.data || {}).providerOwnerId], (r.data || {}).scheduledFor ? 'طلب مجدول جديد ⏰' : 'طلب جديد 🔔', `${name} — ${Number(r.total)} ج.م${(r.data || {}).scheduledFor ? ' — ' + schedText(r.data.scheduledFor) : ''}`, `order-${r.id}`, true)),
       notifyCouriers(out.orders.filter(r => r.status !== 'pending')),
+      notifySupervisors(out.orders),
     ]);
     res.status(201).json({ invoice: invoiceJson(out.invoice), orders: out.orders.map(orderJson), address: out.user.address });
   }));
@@ -635,6 +676,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return { o, inv };
     });
     await notifyCouriers([out.o]);
+    await notifySupervisors([out.o]);
     res.status(201).json({ invoice: invoiceJson(out.inv), orders: [orderJson(out.o)] });
   }));
 
@@ -703,6 +745,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return { o, inv };
     });
     await notifyCouriers([out.o]);
+    await notifySupervisors([out.o]);
     res.status(201).json({ invoice: invoiceJson(out.inv), orders: [orderJson(out.o)] });
   }));
 
@@ -723,6 +766,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     if (text.length < 3 && !image && !voice) throw fail(400, 'اكتب طلبك أو ارفع صورة أو سجّل رسالة صوتية');
     if (image && (!/^data:image\/(jpeg|png|webp);base64,/.test(image) || image.length > MAX_IMAGE)) throw fail(400, 'الصورة غير صالحة أو كبيرة جداً');
     const { address, phone } = checkContact(b);
+    const vehicle = await vehicleOf(pool, b);
     const p = await pool.query('SELECT * FROM providers WHERE id=$1 AND deleted_at IS NULL', [providerId]);
     const prov = p.rows[0];
     if (prov && Number(prov.owner_user_id) === Number(req.auth.sub)) throw fail(409, 'مينفعش تطلب من متجرك إنت. ارجع لحسابك كمقدم خدمة');
@@ -733,10 +777,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     const out = await withTx(async db => {
       const me = await db.query('SELECT name FROM users WHERE id=$1', [Number(req.auth.sub)]);
       const region = await regionOf(db, Number(req.auth.sub));
-      const fee = await deliveryFeeFor(db, prov, region, prov.delivery_fee, Number(req.auth.sub), dest);
+      const fee = await deliveryFeeFor(db, prov, region, prov.delivery_fee, Number(req.auth.sub), dest, vehicle);
+      const byCourier = await courierPriced(db, prov);
       const d = {
         customerName: me.rows[0].name, phone, address, notes: '', providerName: prov.name, providerType: prov.type, providerOwnerId: String(prov.owner_user_id),
-        items: [], subtotal: 0, deliveryFee: fee, regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub), dest)), ...((await premiumLib.benefits(db, Number(req.auth.sub))).priority ? { premium: true } : {}),
+        items: [], subtotal: 0, deliveryFee: fee, ...(vehicle ? { vehicle } : {}), ...(byCourier ? { feeByCourier: true, feeState: 'open' } : {}), regionName: region ? region.name : undefined, providerRegionName: await providerRegionName(db, prov.id), ...(await flagData(db, Number(req.auth.sub), dest)), ...((await premiumLib.benefits(db, Number(req.auth.sub))).priority ? { premium: true } : {}),
         request: { text, hasImage: !!image }, ...(voice ? { hasVoice: true, voiceSecs: voice.seconds } : {}), history: [{ status: 'pending', at: Date.now() }],
       };
       const o = (await db.query('INSERT INTO orders(customer_user_id, provider_id, status, total, region_id, data) VALUES($1,$2,\'pending\',0,$3,$4) RETURNING *',
@@ -747,6 +792,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       return o;
     });
     await notify([prov.owner_user_id], 'طلب مكتوب جديد 📝', `${(out.data || {}).customerName || ''} — يحتاج تسعير`, `order-${out.id}`);
+    await notifySupervisors([out]);
     res.status(201).json({ order: orderJson(out) });
   }));
 
@@ -888,7 +934,6 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         if (!row.courier_user_id || !['accepted', 'ready', 'picked_up', 'on_the_way', 'arrived'].includes(row.status)) throw fail(409, 'لا يوجد مندوب معه هذا الطلب الآن');
       } else {
         if (!['accepted', 'ready'].includes(row.status)) throw fail(409, 'يمكن تعيين مندوب بعد قبول الطلب وقبل استلامه فقط');
-        if (req.auth.role === 'supervisor' && !needsStaff(row)) throw fail(409, 'الطلب ماشي طبيعي مع المتجر، لا يمكن التدخل فيه');
       }
       const c = await db.query("SELECT id, name, phone, vehicle FROM users WHERE id=$1 AND role='courier' AND status='active' AND deleted_at IS NULL", [cid]);
       if (!c.rowCount) throw fail(404, 'المندوب غير متاح');
@@ -1045,6 +1090,46 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     res.json({ order: orderJsonFor(out, req.auth.role) });
   }));
 
+  /** Moves the delivery part of an order's price (and its invoice) from its old value to `fee`. */
+  async function setDeliveryFee(db, row, fee) {
+    const money = v => Math.round(Number(v) * 100) / 100;
+    const oldFee = num(row.data.deliveryFee);
+    const total = Math.max(0, money(num(row.total) - oldFee + fee));
+    if (row.data.invoiceId) {
+      const iv = await db.query('SELECT * FROM invoices WHERE id=$1 FOR UPDATE', [Number(row.data.invoiceId)]);
+      if (iv.rowCount) {
+        const idata = iv.rows[0].data || {};
+        const parts = (idata.parts || []).map(pt => String(pt.orderId) === String(row.id) ? { ...pt, deliveryFee: fee } : pt);
+        await db.query('UPDATE invoices SET total=$1, data=$2 WHERE id=$3', [Math.max(0, money(num(iv.rows[0].total) - oldFee + fee)), JSON.stringify({ ...idata, parts }), iv.rows[0].id]);
+      }
+    }
+    return total;
+  }
+  /** "المندوب يحدد السعر": the courier who took the order writes the delivery price (between the owner's limits); the customer approves or refuses it. */
+  app.post('/api/orders/:id/courier-fee', auth, roles('courier', 'admin'), guard(async (req, res) => {
+    const id = positiveId(req.params.id);
+    if (!id) throw fail(400, 'معرّف الطلب غير صالح');
+    const fee = Math.round(Number((req.body || {}).fee) * 100) / 100;
+    const cfg = await kmFee.loadCfg(pool);
+    if (!Number.isFinite(fee) || fee < cfg.courierMin || fee > cfg.courierMax) throw fail(400, `سعر التوصيل لازم يكون من ${cfg.courierMin} إلى ${cfg.courierMax} ج.م`);
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [id]);
+      if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+      const row = f.rows[0];
+      if (!row.data.feeByCourier) throw fail(400, 'سعر التوصيل لهذا الطلب غير متروك للمندوب');
+      if (req.auth.role !== 'admin' && Number(row.courier_user_id) !== Number(req.auth.sub)) throw fail(403, 'للمندوب الذي قبل الطلب فقط');
+      if (!row.courier_user_id) throw fail(409, 'اقبل الطلب أولاً');
+      if (!['accepted', 'ready'].includes(row.status) || row.data.feeState === 'approved') throw fail(409, 'حالة الطلب لا تسمح بتحديد السعر الآن');
+      const total = await setDeliveryFee(db, row, fee);
+      const d = { ...row.data, deliveryFee: fee, feeState: 'proposed' };
+      const r = await db.query('UPDATE orders SET total=$1, data=$2, updated_at=NOW() WHERE id=$3 RETURNING *', [total, JSON.stringify(d), id]);
+      await sysMsg(db, id, `المندوب ${d.courierName || ''} حدد سعر التوصيل ${fee} ج.م. الإجمالي ${total} ج.م — وافق عليه عشان يبدأ التوصيل 🛵`);
+      return r.rows[0];
+    });
+    await notify([out.customer_user_id], 'المندوب حدد سعر التوصيل 🛵', `${fee} ج.م — افتح الطلب ووافق أو ارفض`, `order-${id}`, true);
+    res.json({ order: orderJsonFor(out, req.auth.role) });
+  }));
+
   /* ---------- order state machine ---------- */
   app.post('/api/orders/:id/action', auth, guard(async (req, res) => {
     const id = positiveId(req.params.id);
@@ -1112,6 +1197,24 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           }
           next = await moveOrder(db, row, 'cancelled', { rejectReason: 'رفض العميل الفاتورة' });
           break;
+        case 'approve_fee':
+          need(isCustomer); state('accepted', 'ready');
+          if (!row.data.feeByCourier || row.data.feeState !== 'proposed') throw fail(409, 'لا يوجد سعر توصيل ينتظر موافقتك');
+          next = await moveOrder(db, row, row.status, { feeState: 'approved' });
+          await sysMsg(db, id, 'وافق العميل على سعر التوصيل ✅');
+          break;
+        case 'decline_fee': {
+          need(isCustomer); state('accepted', 'ready');
+          if (!row.data.feeByCourier || row.data.feeState !== 'proposed') throw fail(409, 'لا يوجد سعر توصيل ينتظر موافقتك');
+          // the price goes back to nothing, this courier is taken off and the order opens to the others (he cannot take it again)
+          const total = await setDeliveryFee(db, row, 0);
+          await db.query('UPDATE orders SET total=$1 WHERE id=$2', [total, id]);
+          const skip = [...new Set([...(row.data.autoSkip || []), Number(row.courier_user_id)].filter(Boolean))];
+          next = await moveOrder(db, { ...row, total }, row.status, { deliveryFee: 0, feeState: 'open', autoSkip: skip, autoAssigned: undefined, declinedBy: [...(row.data.declinedBy || []), String(row.courier_user_id || '')].filter(Boolean) }, null);
+          await sysMsg(db, id, 'رفض العميل سعر المندوب، وتم إرجاع الطلب للمناديب 🔁');
+          next = await tryAutoAssign(db, next);
+          break;
+        }
         case 'reject':
           need(isShop); state('pending', 'quoted');
           next = await moveOrder(db, row, 'rejected', { rejectReason: reason || 'غير متاح حالياً' });
@@ -1141,10 +1244,11 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'courier_accept': {
           need(role === 'courier', 'للمناديب فقط'); state('accepted', 'ready');
           if (row.courier_user_id) throw fail(409, 'تم قبول الطلب بواسطة مندوب آخر');
-          if (isErrand(row) && (row.data.declinedBy || []).includes(String(me))) throw fail(409, 'رفض العميل سعرك لهذا الطلب');
+          if ((isErrand(row) || row.data.feeByCourier) && (row.data.declinedBy || []).includes(String(me))) throw fail(409, 'رفض العميل سعرك لهذا الطلب');
           const c = await db.query("SELECT name, phone, vehicle, available, orders_off FROM users WHERE id=$1 AND role='courier' AND status='active'", [me]);
           if (!c.rowCount) throw fail(403, 'حساب المندوب غير مفعّل');
           if (c.rows[0].orders_off) throw fail(403, 'حسابك كابتن توصيلة فقط، مش مندوب طلبات');
+          if (row.data.vehicle && row.data.vehicle !== c.rows[0].vehicle) throw fail(403, `العميل اختار التوصيل بـ«${row.data.vehicle}» ووسيلتك غير ذلك`);
           if (!c.rows[0].available) throw fail(409, 'فعّل حالتك إلى "متاح" أولاً لقبول الطلبات');
           next = await moveOrder(db, row, row.status, {}, { id: me, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
           await sysMsg(db, id, isErrand(row) ? `المندوب ${c.rows[0].name} قبل طلبك، وسيرسل لك فاتورة بسعر المشتريات ورسوم التوصيل لتوافق عليها 🧾` : `المندوب ${c.rows[0].name} قبل طلبك وسيتولى التوصيل 🛵`);
@@ -1153,6 +1257,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
         case 'pickup': // the courier has the order in hand (the shop does not have to tap "ready" first)
           need(isMyDelivery); state('accepted', 'ready');
           if (isErrand(row) && row.data.errandQuote !== 'approved') throw fail(409, 'سعّر الطلب وانتظر موافقة العميل على الفاتورة أولاً');
+          if (row.data.feeByCourier && row.data.feeState !== 'approved') throw fail(409, row.data.feeState === 'proposed' ? 'انتظر موافقة العميل على سعر التوصيل' : 'حدد سعر التوصيل أولاً وانتظر موافقة العميل');
           next = await moveOrder(db, row, 'picked_up');
           await sysMsg(db, id, 'استلم المندوب طلبك 📦');
           break;

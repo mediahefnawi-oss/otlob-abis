@@ -3,8 +3,9 @@ import { View, Pressable } from 'react-native';
 import { ScrollView } from './KScroll';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Sheet, Field, Chip, SectionTitle, Toggle, toast, confirmDialog } from './ui';
-import { useStore, addRegion, updateRegion, deleteRegion, saveRoutePrices } from '../lib/store';
+import { useStore, addRegion, updateRegion, deleteRegion, saveRoutePrices, saveRouteVehiclePrices } from '../lib/store';
 import { Region } from '../lib/types';
+import { apiPublicCourierVehicles } from '../lib/api';
 
 /** Customer: a red notice while the owner has closed the delivery of his area (switch "regionClose"). */
 export function RegionClosedBanner({ regionId }: { regionId?: string | null }) {
@@ -195,6 +196,63 @@ export function RoutePricesManager() {
         </>
       )}
       {areas.length > 0 && <T size={11.5} color={C.sub}>{areas.map((r) => `${r.name}: ${count(r.id)} من ${areas.length}`).join(' • ')}</T>}
+    </Card>
+  );
+}
+
+/** Owner: the delivery price of EACH delivery means (موتوسيكل / توكتوك / تروسيكل ...) from a shop's area to each customer area. An empty price = that means does not go there. */
+export function RouteVehiclePricesManager() {
+  const { db } = useStore();
+  const areas = db.regions.filter((r) => r.active);
+  const [vehicles, setVehicles] = useState<{ id: number; name: string }[]>([]);
+  const [from, setFrom] = useState('');
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const prices = db.routeVehiclePrices || {};
+  useEffect(() => { apiPublicCourierVehicles().then((r) => setVehicles(r.vehicles)).catch(() => setVehicles([])); }, []);
+  useEffect(() => {
+    if (!from) return setVals({});
+    const v: Record<string, string> = {};
+    for (const r of areas) for (const x of vehicles) { const p = prices[`${from}:${r.id}:${x.name}`]; v[`${r.id}:${x.name}`] = p === undefined ? '' : String(p); }
+    setVals(v);
+  }, [from, JSON.stringify(prices), areas.length, vehicles.length]);
+  const save = async () => {
+    const list: { toId: string; vehicle: string; price: number | null }[] = [];
+    for (const r of areas) for (const x of vehicles) {
+      const raw = toEn((vals[`${r.id}:${x.name}`] || '').trim());
+      if (raw === '') { list.push({ toId: r.id, vehicle: x.name, price: null }); continue; }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) return toast(`سعر غير صحيح: ${x.name} إلى ${r.name}`, 'err');
+      list.push({ toId: r.id, vehicle: x.name, price: n });
+    }
+    setBusy(true);
+    const r = await saveRouteVehiclePrices(from, list);
+    setBusy(false);
+    toast(r.ok ? 'تم حفظ أسعار الوسائل' : r.error, r.ok ? 'ok' : 'err');
+  };
+  return (
+    <Card style={{ gap: 10 }}>
+      <T w="black" size={15}>أسعار التوصيل لكل وسيلة</T>
+      <T size={11.5} color={C.sub}>اختر منطقة المتجر واكتب سعر كل وسيلة (موتوسيكل / توكتوك / تروسيكل...) لكل منطقة عميل. الخانة الفاضية = الوسيلة دي مش متاحة للمسار ده. لو مفيش ولا سعر على مسار، العميل مش بيختار وسيلة ويتحسب بالسعر العادي فوق.</T>
+      <RegionPicker value={from} onChange={setFrom} label="من منطقة المتجر" />
+      {!!from && vehicles.length === 0 && <T size={12} color={C.sub}>مفيش وسائل توصيل. ضيفها من «وسائل توصيل المندوب».</T>}
+      {!!from && vehicles.length > 0 && (
+        <>
+          {areas.map((r) => (
+            <View key={r.id} style={{ gap: 6, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 8 }}>
+              <T w="bold" size={13.5}>إلى {r.name}</T>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {vehicles.map((x) => (
+                  <View key={x.id} style={{ flex: 1 }}>
+                    <Field label={x.name} value={vals[`${r.id}:${x.name}`] ?? ''} onChangeText={(t) => setVals((v) => ({ ...v, [`${r.id}:${x.name}`]: t }))} keyboardType="decimal-pad" placeholder="—" />
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+          <Btn title="حفظ أسعار الوسائل" icon="checkmark" loading={busy} onPress={save} />
+        </>
+      )}
     </Card>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { CourierVehicleButton } from '../components/Delivery';
 import { View, FlatList, Pressable } from 'react-native';
 import { ScrollView } from '../components/KScroll';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,7 +17,7 @@ import {
   useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminPinProvider, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor, createManager, updateManager, deleteManager, setUserRole,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
-import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
+import { RegionsManager, RegionPicker, RoutePricesManager, RouteVehiclePricesManager } from '../components/Regions';
 import { LoginImageManager, WelcomeScreenManager, AppIconManager, UpdateNoticeManager, ServicesManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { SupportInbox, useSupportUnread } from '../components/SupportChat';
@@ -107,9 +108,14 @@ export const MGR_GROUPS: { title: string; items: { k: string; l: string }[] }[] 
     { k: 'finance_view', l: 'عرض المالية والتقارير (قراءة فقط)' },
     { k: 'finance_edit', l: 'التقفيل وتعديل العمولات والأرصدة' },
     { k: 'notify', l: 'إرسال إشعارات للمستخدمين' },
+    { k: 'export', l: 'تصدير حسابات المناديب والمحلات (Excel)' },
+  ] },
+  { title: 'التشغيل والتوصيل', items: [
+    { k: 'bell', l: '🔔 الجرس على المندوب أو المحل' },
+    { k: 'delivery_prices', l: '🚚 أسعار التوصيل ونظام حسابه' },
   ] },
 ];
-const MGR_SHORT: Record<string, string> = { orders: 'الطلبات', users: 'المستخدمين', support: 'الدعم', providers: 'الخدمات', couriers: 'المناديب', finance_view: 'المالية (عرض)', finance_edit: 'المالية (كامل)', notify: 'الإشعارات' };
+const MGR_SHORT: Record<string, string> = { bell: 'الجرس', delivery_prices: 'أسعار التوصيل', export: 'تصدير Excel', orders: 'الطلبات', users: 'المستخدمين', support: 'الدعم', providers: 'الخدمات', couriers: 'المناديب', finance_view: 'المالية (عرض)', finance_edit: 'المالية (كامل)', notify: 'الإشعارات' };
 /** what the signed-in account may open: the owner can do everything, a manager only what he was given */
 export function useCan() {
   const me = useMe();
@@ -515,6 +521,7 @@ export function AdminCouriersScreen({ navigation }: any) {
                   <T size={12} color={C.sub}>{active} جارية</T>
                   <T size={12} color={C.sub}>{done} مكتملة</T>
                 </View>
+                {item.status === 'active' && <CourierVehicleButton courier={item} />}
                 {item.status === 'pending' && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="green" icon="checkmark" title="قبول المندوب" style={{ flex: 1 }} onPress={() => done(setUserStatus(item.id, 'active'), 'تم قبول المندوب ✅')} />
@@ -822,6 +829,7 @@ export function AdminSettingsScreen({ navigation }: any) {
       <Section icon="location" title="المناطق والتوصيل" sub={`${db.regions.length} منطقة • أسعار التوصيل`}>
         <RegionsManager />
         <RoutePricesManager />
+        <RouteVehiclePricesManager />
       </Section>
       <Section icon="images" title="الإعلانات والصور" sub={`${(db.ads || []).length} إعلانات • صورة الدخول`}>
         <AdsManager />

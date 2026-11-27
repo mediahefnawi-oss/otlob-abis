@@ -345,6 +345,10 @@ export async function apiPlaceRequest(input: { providerId: string; text: string;
 export async function apiQuote(orderId: string | number, input: { items?: { name: string; price: number; qty: number }[]; price?: number; unavailable?: boolean; note?: string; readyDate?: string; readyTime?: string }) {
   return apiRequest<{ order: any; invoice: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/quote`, { method: 'POST', body: JSON.stringify(input) });
 }
+export type DeliveryOption = { id: number; name: string; image: string | null; price: number | null; couriers: number; available: boolean; reason: string };
+export const apiDeliveryOptions = (providerIds: (string | number)[]) => apiRequest<{ mode: 'region' | 'km' | 'courier'; options: DeliveryOption[]; courierMin: number; courierMax: number }>('/api/delivery-options', { method: 'POST', body: JSON.stringify({ providerIds }) });
+export const apiCourierFee = (orderId: string | number, fee: number) => apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/courier-fee`, { method: 'POST', body: JSON.stringify({ fee }) });
+export const apiSetCourierVehicle = (courierId: string | number, vehicle: string) => apiRequest<{ ok: boolean; vehicle: string }>(`/api/admin/couriers/${encodeURIComponent(String(courierId))}/vehicle`, { method: 'PATCH', body: JSON.stringify({ vehicle }) });
 export async function apiErrandQuote(orderId: string | number, subtotal: number, fee: number) {
   return apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/errand-quote`, { method: 'POST', body: JSON.stringify({ subtotal, fee }) });
 }

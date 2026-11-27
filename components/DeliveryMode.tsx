@@ -8,7 +8,9 @@ import { useStore, setDeliveryMode } from '../lib/store';
 export function DeliveryModeCard() {
   const { db } = useStore();
   const d = db.settings.delivery || { mode: 'region' as const, perKm: 5, min: 10, max: 40, factor: 1.3 };
-  const [mode, setMode] = useState<'region' | 'km'>(d.mode);
+  const [mode, setMode] = useState<'region' | 'km' | 'courier'>(d.mode);
+  const [cMin, setCMin] = useState(String(d.courierMin ?? 5));
+  const [cMax, setCMax] = useState(String(d.courierMax ?? 50));
   const [perKm, setPerKm] = useState(String(d.perKm));
   const [min, setMin] = useState(String(d.min));
   const [max, setMax] = useState(String(d.max));
@@ -16,11 +18,11 @@ export function DeliveryModeCard() {
   const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true);
-    const r = await setDeliveryMode({ mode, perKm: Number(perKm), min: Number(min), max: Number(max), factor: Number(factor) });
+    const r = await setDeliveryMode({ mode, perKm: Number(perKm), min: Number(min), max: Number(max), factor: Number(factor), courierMin: Number(cMin), courierMax: Number(cMax) });
     setBusy(false);
     toast(r.ok ? 'تم حفظ نظام التوصيل ✅' : r.error, r.ok ? 'ok' : 'err');
   };
-  const Opt = ({ id, title, sub }: { id: 'region' | 'km'; title: string; sub: string }) => (
+  const Opt = ({ id, title, sub }: { id: 'region' | 'km' | 'courier'; title: string; sub: string }) => (
     <Card onPress={() => setMode(id)} style={{ flex: 1, gap: 2, borderWidth: 2, borderColor: mode === id ? C.gold : C.line, padding: 12 }}>
       <T w="black" size={13.5}>{title}</T>
       <T size={11} color={C.sub}>{sub}</T>
@@ -36,6 +38,18 @@ export function DeliveryModeCard() {
         <Opt id="region" title="بالمناطق" sub="الأسعار اللي ضبطتها بين المناطق (زي الآن)" />
         <Opt id="km" title="بالكيلو" sub="سعر الكيلو × المسافة بين المحل والعميل" />
       </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Opt id="courier" title="المندوب يحدده 🆕" sub="المندوب يكتب سعر التوصيل بين حدّين، والعميل يوافق قبل الاستلام" />
+      </View>
+      {mode === 'courier' && (
+        <View style={{ gap: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}><Field label="أقل سعر يكتبه المندوب (ج.م)" value={cMin} onChangeText={setCMin} keyboardType="decimal-pad" icon="arrow-down" /></View>
+            <View style={{ flex: 1 }}><Field label="أعلى سعر يكتبه المندوب (ج.م)" value={cMax} onChangeText={setCMax} keyboardType="decimal-pad" icon="arrow-up" /></View>
+          </View>
+          <T size={11.5} color={C.sub}>1) العميل يختار الوسيلة ويأكد الطلب بدون سعر توصيل. 2) المندوب يقبل الطلب ويكتب السعر. 3) العميل يوافق أو يرفض (لو رفض المندوب بيتشال والطلب يروح لغيره). المندوب مش بيستلم قبل الموافقة.</T>
+        </View>
+      )}
       {mode === 'km' && (
         <View style={{ gap: 10 }}>
           <View style={{ flexDirection: 'row', gap: 10 }}>
