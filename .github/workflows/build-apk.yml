@@ -95,6 +95,11 @@ jobs:
               }
           }
           EOF
+      - name: Diagnose autolinking
+        continue-on-error: true
+        run: |
+          npx expo-modules-autolinking resolve --platform android 2>&1 | tail -30 || true
+          npx react-native config 2>&1 | tail -30 || true
       - name: Build the APK
         working-directory: android
         env:
