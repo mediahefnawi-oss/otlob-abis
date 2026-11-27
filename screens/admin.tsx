@@ -121,6 +121,17 @@ export function useCan() {
   const me = useMe();
   return (perm: string) => !!me && me.role === 'admin' && (!me.manager || (me.mgrPerms || []).includes(perm) || (perm === 'finance_view' && (me.mgrPerms || []).includes('finance_edit')));
 }
+/** The plain (one price per route) card is folded away: the per-means prices are the main ones; this stays for routes that have no means. */
+function OldRoutePrices() {
+  const [open, setOpen] = useState(false);
+  if (!open) return <Btn variant="soft" small icon="chevron-down" title="السعر العادي للمسار (متقدم)" onPress={() => setOpen(true)} />;
+  return (
+    <>
+      <RoutePricesManager />
+      <Btn variant="soft" small icon="chevron-up" title="إخفاء السعر العادي" onPress={() => setOpen(false)} />
+    </>
+  );
+}
 export function AdminManagersScreen({ navigation }: any) {
   const rc = useRC();
   const { db } = useStore();
@@ -828,8 +839,8 @@ export function AdminSettingsScreen({ navigation }: any) {
       </Section>
       <Section icon="location" title="المناطق والتوصيل" sub={`${db.regions.length} منطقة • أسعار التوصيل`}>
         <RegionsManager />
-        <RoutePricesManager />
         <RouteVehiclePricesManager />
+        <OldRoutePrices />
       </Section>
       <Section icon="images" title="الإعلانات والصور" sub={`${(db.ads || []).length} إعلانات • صورة الدخول`}>
         <AdsManager />
