@@ -1,4 +1,5 @@
 import { CourierPhotoCard } from '../components/CourierPhoto';
+import { CourierLocationCard } from '../components/CourierLocationCard';
 import React, { useEffect, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { View, FlatList, ScrollView, Pressable } from 'react-native';
@@ -98,6 +99,7 @@ export function CourierWorkScreen({ go }: any) {
             <Icon name="chevron-back" size={18} color={C.sub} />
           </Card>
         </Pressable>
+        <CourierLocationCard working={on || mine.length > 0} />
         <SectionTitle title="حساباتي" />
         <CourierFinanceCard />
         <SectionTitle title="إعدادات الشغل" />

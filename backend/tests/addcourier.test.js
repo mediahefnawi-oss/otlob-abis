@@ -1,0 +1,26 @@
+process.env.NO_SWEEP = '1';
+const { Pool } = require('./shim');
+const H = require('./h26');
+const B = require('../src/billing.js');
+const { ok, eq, done } = H.counters();
+(async () => {
+  const pool = new Pool(); const q = (t, p) => pool.query(t, p);
+  const { app, asyncRoute, positiveId, auth, roles, call } = H;
+  B.register(app, { pool, auth, roles, asyncRoute, positiveId, hashPassword: async p => 'h:' + p });
+  const adm = Number((await q("INSERT INTO users(name, phone, password_hash, role, status) VALUES('o',$1,'x','admin','active') RETURNING id", [H.phone()])).rows[0].id);
+  const A = { sub: String(adm), role: 'admin' }, C = { sub: '1', role: 'customer' };
+  await q("INSERT INTO courier_vehicles(name, sort_order) VALUES('دراجة نارية',1) ON CONFLICT DO NOTHING");
+  const add = (b, as = A) => call('POST /api/admin/couriers', { as, body: b });
+  const ph = H.phone();
+  eq((await add({ name: 'مندوب جديد', phone: ph, password: '12345678' }, C)).status, 403, 'customers cannot');
+  eq((await add({ name: 'م', phone: ph, password: '12345678' })).status, 400, 'short name');
+  eq((await add({ name: 'مندوب جديد', phone: '123', password: '12345678' })).status, 400, 'bad phone');
+  eq((await add({ name: 'مندوب جديد', phone: ph, password: '123' })).status, 400, 'short password');
+  eq((await add({ name: 'مندوب جديد', phone: ph, password: '12345678', vehicle: 'طيارة' })).status, 400, 'unknown vehicle');
+  const r = await add({ name: 'مندوب جديد', phone: ph, password: '12345678', vehicle: 'دراجة نارية' });
+  eq(r.status, 201, 'created');
+  const u = (await q('SELECT role,status,password_hash,vehicle FROM users WHERE id=$1', [r.json.courier.id])).rows[0];
+  eq([u.role, u.status, u.password_hash, u.vehicle], ['courier', 'active', 'h:12345678', 'دراجة نارية'], 'active courier, password hashed');
+  eq((await add({ name: 'مندوب ثاني', phone: ph, password: '12345678' })).status, 409, 'phone already used');
+  process.exit(done('addcourier'));
+})().catch(e => { console.error(e); process.exit(1); });

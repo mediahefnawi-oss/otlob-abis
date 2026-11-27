@@ -1,4 +1,5 @@
 import { apiCourierPing, apiCourierStop } from './api';
+import { markPing, LocPerm } from './locState';
 
 /**
  * Android app: location through expo-location (added by the APK build). The courier is followed also when the app is minimised,
@@ -14,7 +15,7 @@ try {
   TM().defineTask(TASK, async ({ data, error }: any) => {
     if (error || !data || !data.locations || !data.locations.length) return;
     const p = data.locations[data.locations.length - 1].coords;
-    try { await apiCourierPing({ lat: p.latitude, lng: p.longitude, accuracy: p.accuracy ?? undefined, heading: p.heading ?? undefined }); } catch { /* next fix retries */ }
+    try { await apiCourierPing({ lat: p.latitude, lng: p.longitude, accuracy: p.accuracy ?? undefined, heading: p.heading ?? undefined }); markPing(); } catch { /* next fix retries */ }
   });
 } catch { /* a build without the library: tracking is simply off */ }
 
@@ -61,4 +62,11 @@ export async function askLocationAccess(): Promise<LocAccess> {
 }
 export async function openLocationSettings() {
   try { require('react-native').Linking.openSettings(); } catch { /* nothing to open */ }
+}
+
+export async function locationPermission(): Promise<LocPerm> {
+  try {
+    const cur = await L().getForegroundPermissionsAsync();
+    return cur.status === 'granted' ? 'granted' : cur.canAskAgain === false ? 'denied' : 'prompt';
+  } catch { return 'unsupported'; }
 }

@@ -1098,3 +1098,43 @@ ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS courier_fee_min NUMERIC(8,2) N
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS courier_fee_max NUMERIC(8,2) NOT NULL DEFAULT 50;
 -- owner switch: the customer chooses a delivery means (and pays its price) / off = the plain route price only, as before
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS route_vehicles_on BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Hand-made invoices (owner / permitted manager): customer, shop, courier or commission invoices that become an image for WhatsApp / a thermal printer.
+CREATE SEQUENCE IF NOT EXISTS manual_invoice_no_seq START 1001;
+CREATE TABLE IF NOT EXISTS manual_invoices (
+  id BIGSERIAL PRIMARY KEY,
+  number BIGINT NOT NULL UNIQUE,
+  kind TEXT NOT NULL CHECK (kind IN ('customer','provider','courier','commission')),
+  party_kind TEXT NOT NULL DEFAULT 'customer' CHECK (party_kind IN ('customer','provider','courier')),
+  party_name TEXT NOT NULL DEFAULT '',
+  party_phone TEXT NOT NULL DEFAULT '',
+  party_user_id BIGINT,
+  party_provider_id BIGINT,
+  lines JSONB NOT NULL DEFAULT '[]'::jsonb,
+  extras JSONB NOT NULL DEFAULT '[]'::jsonb,
+  delivery NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (delivery >= 0),
+  discount NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
+  total NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (total >= 0),
+  commission JSONB,
+  design JSONB NOT NULL DEFAULT '{}'::jsonb,
+  stamps JSONB NOT NULL DEFAULT '[]'::jsonb,
+  note TEXT NOT NULL DEFAULT '',
+  created_by BIGINT,
+  voided_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_manual_invoices_created ON manual_invoices(created_at DESC);
+-- the owner's own stamps (pictures); the four built-in ones live in the app. Removing one only hides it (old invoices keep their copy).
+CREATE TABLE IF NOT EXISTS invoice_stamps (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  image TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS invoice_design (
+  id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  design JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

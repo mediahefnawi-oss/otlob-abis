@@ -1,4 +1,5 @@
 import { apiCourierPing, apiCourierStop } from './api';
+import { markPing, LocPerm } from './locState';
 
 /** Web: the browser's own location (asks the person once). Courier tracking on the web works while the page is open. */
 export type Fix = { lat: number; lng: number; accuracy?: number; heading?: number };
@@ -18,7 +19,7 @@ export async function startCourierTracking(): Promise<boolean> {
   let last = 0;
   watch = navigator.geolocation.watchPosition((p) => {
     if (Date.now() - last < 8000) return; last = Date.now();
-    apiCourierPing({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, heading: p.coords.heading ?? undefined }).catch(() => {});
+    apiCourierPing({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, heading: p.coords.heading ?? undefined }).then(markPing).catch(() => {});
   }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
   return true;
 }
@@ -32,3 +33,14 @@ export async function stopCourierTracking() {
 export type LocAccess = 'granted' | 'denied' | 'unsupported';
 export async function askLocationAccess(): Promise<LocAccess> { return 'unsupported'; }
 export async function openLocationSettings() { /* nothing to open on the web */ }
+
+/** Where the location permission stands (the browser tells without asking). */
+export async function locationPermission(): Promise<LocPerm> {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return 'unsupported';
+    const q = (navigator as any).permissions && (navigator as any).permissions.query;
+    if (!q) return 'prompt';
+    const r = await (navigator as any).permissions.query({ name: 'geolocation' });
+    return r.state === 'granted' ? 'granted' : r.state === 'denied' ? 'denied' : 'prompt';
+  } catch { return 'prompt'; }
+}

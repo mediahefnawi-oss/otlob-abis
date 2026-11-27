@@ -23,6 +23,7 @@ import { useCounters } from '../lib/finance';
 import { SupportInbox, useSupportUnread } from '../components/SupportChat';
 import { RidesTab, TripsAdminTab } from './adminExtra';
 import { apiAdminRideSummary } from '../lib/api';
+import { AddCourierSheet } from '../components/AddCourier';
 import { ThemePicker } from '../components/ThemePicker';
 import { UiScaleCard } from '../components/UiScaleCard';
 import { PrivacyCard } from '../components/PrivacyCard';
@@ -113,9 +114,10 @@ export const MGR_GROUPS: { title: string; items: { k: string; l: string }[] }[] 
   { title: 'التشغيل والتوصيل', items: [
     { k: 'bell', l: '🔔 الجرس على المندوب أو المحل' },
     { k: 'delivery_prices', l: '🚚 أسعار التوصيل ونظام حسابه' },
+    { k: 'invoices', l: '🧾 إنشاء الفواتير وإرسالها (التصميم والأختام للمالك فقط)' },
   ] },
 ];
-const MGR_SHORT: Record<string, string> = { bell: 'الجرس', delivery_prices: 'أسعار التوصيل', export: 'تصدير Excel', orders: 'الطلبات', users: 'المستخدمين', support: 'الدعم', providers: 'الخدمات', couriers: 'المناديب', finance_view: 'المالية (عرض)', finance_edit: 'المالية (كامل)', notify: 'الإشعارات' };
+const MGR_SHORT: Record<string, string> = { bell: 'الجرس', delivery_prices: 'أسعار التوصيل', export: 'تصدير Excel', orders: 'الطلبات', users: 'المستخدمين', support: 'الدعم', providers: 'الخدمات', couriers: 'المناديب', finance_view: 'المالية (عرض)', finance_edit: 'المالية (كامل)', notify: 'الإشعارات', invoices: 'الفواتير' };
 /** what the signed-in account may open: the owner can do everything, a manager only what he was given */
 export function useCan() {
   const me = useMe();
@@ -284,6 +286,7 @@ export function AdminDashboardScreen({ navigation, go }: any) {
     { label: 'إرسال إشعار للمستخدمين', route: 'AdminBroadcast', icon: 'notifications', color: C.orange, bg: C.orangeSoft, badge: 0, perm: 'notify' },
     { label: 'إرسال رسالة للمستخدمين', route: 'AdminSupportBroadcast', icon: 'chatbubble-ellipses', color: C.green, bg: C.greenSoft, badge: 0, perm: 'notify' },
     { label: 'التوصيلة والكباتن', route: 'AdminRides', icon: 'car', color: C.green, bg: C.greenSoft, badge: 0, perm: 'orders' },
+    { label: 'عمل فاتورة', route: 'BillingHome', icon: 'document-text', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'invoices' },
     { label: 'فتح وقفل الطلبات', route: 'AdminGates', icon: 'lock-closed', color: C.red, bg: C.redSoft, badge: 0, perm: 'orders' },
     { label: 'شكل الشاشة الرئيسية', route: 'AdminHomeLayout', icon: 'color-palette', color: C.goldDeep, bg: C.goldSoft, badge: 0, perm: 'owner' },
     { label: 'ربط أوردرات بطيار', route: 'Dispatch', icon: 'link', color: C.green, bg: C.greenSoft, badge: 0, perm: 'orders' },
@@ -487,12 +490,17 @@ export function AdminProvidersScreen({ navigation }: any) {
 /* ---------------- Couriers ---------------- */
 export function AdminCouriersScreen({ navigation }: any) {
   const rc = useRC();
+  const can = useCan();
+  const [addOpen, setAddOpen] = useState(false);
   const { db } = useStore();
   const list = db.users.filter((u) => u.role === 'courier').sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0));
   const avail = availableCouriers(db).length;
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title="المناديب" subtitle={`${avail} متاح الآن من ${list.filter((u) => u.status === 'active').length}`} />
+      <Header title="المناديب" subtitle={`${avail} متاح الآن من ${list.filter((u) => u.status === 'active').length}`}>
+        {can('couriers') && <Btn small variant="dark" icon="person-add" title="＋ إضافة مندوب" style={{ marginTop: 10, alignSelf: 'flex-start' }} onPress={() => setAddOpen(true)} />}
+      </Header>
+      <AddCourierSheet visible={addOpen} onClose={() => setAddOpen(false)} />
       <FlatList
         data={list}
         keyExtractor={(u) => u.id}

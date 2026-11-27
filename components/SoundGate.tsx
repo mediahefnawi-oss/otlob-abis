@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
-import { toast } from './ui';
-import { CenterNotice } from './CenterNotice';
+import { Platform, View, Pressable } from 'react-native';
+import { C } from '../lib/theme';
+import { toast, T, Icon } from './ui';
 import { useMe, isGuestId } from '../lib/store';
 import { soundReady, soundSupported, subscribeSound, enableSound, playNewOrderSound } from '../lib/alerts';
 import { PushState, pushState, enablePush, autoEnablePush, openPushSettings } from '../lib/push';
@@ -42,14 +42,16 @@ export function SoundGate() {
     refresh();
   };
   const denied = native && push === 'denied';
+  if (hide) return null;
+  // a slim bar in the page flow (not a popup in the middle): it does not cover anything and the person can close it
   return (
-    <CenterNotice
-      visible={!hide}
-      icon="notifications"
-      title={denied ? 'الإشعارات مقفولة' : 'فعّل التنبيهات'}
-      message={denied ? 'فعّلها من إعدادات الجهاز' : staff ? 'عشان توصلك الطلبات فوراً' : 'عشان توصلك العروض وأخبار طلبك'}
-      primary={{ label: denied ? 'فتح الإعدادات' : 'تفعيل الآن', onPress: () => { setHide(true); act(); } }}
-      onClose={() => setHide(true)}
-    />
+    <View style={{ backgroundColor: '#FFF4CC', borderBottomWidth: 1, borderBottomColor: '#F2D98A', paddingVertical: 7, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <Icon name="notifications" size={18} color={C.goldDeep} />
+      <T w="bold" size={12.5} color={C.text} style={{ flex: 1 }}>{denied ? 'الإشعارات مقفولة — فعّلها من إعدادات الجهاز' : staff ? 'فعّل التنبيهات عشان توصلك الطلبات فوراً' : 'فعّل التنبيهات عشان توصلك العروض وأخبار طلبك'}</T>
+      <Pressable onPress={act} style={{ backgroundColor: C.gold, borderRadius: 10, paddingVertical: 6, paddingHorizontal: 14 }}>
+        <T w="black" size={12.5} color={C.dark}>{denied ? 'فتح الإعدادات' : 'تفعيل'}</T>
+      </Pressable>
+      <Pressable onPress={() => setHide(true)} hitSlop={10}><Icon name="close" size={18} color={C.sub} /></Pressable>
+    </View>
   );
 }

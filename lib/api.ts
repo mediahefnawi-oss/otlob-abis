@@ -766,3 +766,25 @@ export const apiBellList = (orderId: string | number) =>
 export const apiMyBells = () => apiRequest<{ bells: MyBell[] }>('/api/me/bells');
 export const apiBellRespond = (orderId: string | number, decision: 'accept' | 'reject') =>
   apiRequest<{ ok: boolean }>(`/api/orders/${encodeURIComponent(String(orderId))}/bell/respond`, { method: 'POST', body: JSON.stringify({ decision }) });
+
+/* ---------- عمل فاتورة (owner / manager with the invoices permission) ---------- */
+export type InvDesign = { showLogo: boolean; showSupport: boolean; showParty: boolean; showPayment: boolean; showThanks: boolean; tagline: string; supportPhone: string; website: string; thanks: string; payment: string; theme: 'color' | 'bw'; width: 'wa' | '80' | '58'; fixed: { label: string; value: string }[]; defaultStamps: string[] };
+export type InvStamp = { id: number; name: string; image: string; active: boolean };
+export type InvStampPlace = { ref: string; x: number; y: number; size: number };
+export type InvKind = 'customer' | 'provider' | 'courier' | 'commission';
+export type InvCommission = { mode: 'auto' | 'manual'; from: string; to: string; orders: number; base: number; commission: number; settled: number; due?: number; percent?: number | null; computed?: any };
+export type Invoice = { id: number; number: number; kind: InvKind; partyKind: 'customer' | 'provider' | 'courier'; partyName: string; partyPhone: string; partyUserId: number | null; partyProviderId: number | null; lines: { name: string; qty: number; price: number }[]; extras: { label: string; value: string }[]; delivery: number; discount: number; total: number; commission: InvCommission | null; design: InvDesign; stamps: InvStampPlace[]; note: string; voided: boolean; createdAt: number };
+export type InvListRow = { id: number; number: number; kind: InvKind; partyName: string; partyPhone: string; total: number; voided: boolean; createdAt: number };
+export type InvParty = { kind: 'customer' | 'provider' | 'courier'; userId: number; providerId: number | null; name: string; phone: string };
+export const apiBillingConfig = () => apiRequest<{ design: InvDesign; stamps: InvStamp[]; nextNumber: number }>('/api/admin/billing/config');
+export const apiBillingDesign = (d: Partial<InvDesign>) => apiRequest<{ ok: boolean; design: InvDesign }>('/api/admin/billing/design', { method: 'PUT', body: JSON.stringify(d) });
+export const apiBillingStampAdd = (name: string, image: string) => apiRequest<{ stamp: InvStamp }>('/api/admin/billing/stamps', { method: 'POST', body: JSON.stringify({ name, image }) });
+export const apiBillingStampRename = (id: number, name: string) => apiRequest<{ stamp: InvStamp }>(`/api/admin/billing/stamps/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+export const apiBillingStampDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/billing/stamps/${id}`, { method: 'DELETE' });
+export const apiBillingParties = (kind: string, q: string) => apiRequest<{ parties: InvParty[] }>(`/api/admin/billing/parties?kind=${kind}&q=${encodeURIComponent(q)}`);
+export const apiBillingCommission = (kind: string, id: number, from: string, to: string) => apiRequest<{ figures: { orders: number; base: number; commission: number; settled: number; due: number; percent: number | null } }>(`/api/admin/billing/commission-preview?kind=${kind}&id=${id}&from=${from}&to=${to}`);
+export const apiBillingInvoices = (q = '') => apiRequest<{ invoices: InvListRow[] }>(`/api/admin/billing/invoices?q=${encodeURIComponent(q)}`);
+export const apiBillingInvoice = (id: number) => apiRequest<{ invoice: Invoice; stamps: InvStamp[] }>(`/api/admin/billing/invoices/${id}`);
+export const apiBillingCreate = (b: any) => apiRequest<{ invoice: Invoice }>('/api/admin/billing/invoices', { method: 'POST', body: JSON.stringify(b) });
+export const apiBillingVoid = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/billing/invoices/${id}/void`, { method: 'POST' });
+export const apiAdminAddCourier = (b: { name: string; phone: string; password: string; vehicle?: string; regionId?: string }) => apiRequest<{ courier: { id: number; name: string; phone: string; vehicle: string } }>('/api/admin/couriers', { method: 'POST', body: JSON.stringify(b) });

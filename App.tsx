@@ -55,6 +55,7 @@ import { AdminCourierVehiclesScreen } from './components/AdminCourierVehicles';
 import { GroupCartScreen, MarketScreen } from './screens/extra';
 import { RideHomeScreen, CaptainScreen } from './screens/rides';
 import { AdminGatesScreen, DispatchScreen } from './screens/adminControl';
+import { BillingHomeScreen, InvoiceFormScreen, InvoiceDetailScreen, InvoiceDesignScreen } from './screens/billing';
 import { TripsScreen, CaptainTripsScreen } from './screens/trips';
 import { AdminMarketScreen, AdminRidesScreen, AdminRideDetailScreen, AdminCaptainScreen, AdminBroadcastScreen, AdminSupportBroadcastScreen } from './screens/adminExtra';
 
@@ -224,6 +225,10 @@ function Root() {
         <Stack.Screen name="AdminRideDetail" component={AdminRideDetailScreen} />
         <Stack.Screen name="AdminCaptain" component={AdminCaptainScreen} />
         <Stack.Screen name="AdminGates" component={AdminGatesScreen} />
+        <Stack.Screen name="BillingHome" component={BillingHomeScreen} />
+        <Stack.Screen name="InvoiceForm" component={InvoiceFormScreen} />
+        <Stack.Screen name="InvoiceDetail" component={InvoiceDetailScreen} />
+        <Stack.Screen name="InvoiceDesign" component={InvoiceDesignScreen} />
         <Stack.Screen name="Dispatch" component={DispatchScreen} />
         <Stack.Screen name="AdminHomeLayout" component={HomeEditScreen} />
         <Stack.Screen name="AdminBroadcast" component={AdminBroadcastScreen} />
