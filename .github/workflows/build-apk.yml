@@ -105,7 +105,7 @@ jobs:
           sed -i '/^org.gradle.jvmargs/d' gradle.properties
           echo 'org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m' >> gradle.properties
           # the lint pass ran out of memory with the extra libraries and adds nothing to a release build we sign ourselves
-          ./gradlew assembleRelease --no-daemon -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease
+          ./gradlew assembleRelease --no-daemon --stacktrace -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease
       - name: Name the file
         run: cp android/app/build/outputs/apk/release/*.apk otlob-abis.apk
       - uses: actions/upload-artifact@v4
