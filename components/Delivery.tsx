@@ -20,16 +20,15 @@ export function VehiclePicker({ providerIds }: { providerIds: string[] }) {
   const key = providerIds.join(',') + '|' + JSON.stringify(db.routeVehiclePrices || {}) + '|' + (me?.regionId || '') + '|' + (db.settings.delivery?.mode || '');
   useEffect(() => {
     let live = true;
-    if (!providerIds.length || me?.role !== 'customer') { setOpts([]); setCartVehicle(''); return; }
+    if (!providerIds.length || me?.role !== 'customer') { setOpts([]); setCartVehicle('', false); return; }
     apiDeliveryOptions(providerIds).then((r) => {
       if (!live) return;
       setOpts(r.options || []); setMode(r.mode);
-      const first = (r.options || []).find((o) => o.available);
-      setPick((cur) => { const keep = (r.options || []).find((o) => o.name === cur && o.available); const next = keep ? keep.name : first ? first.name : ''; setCartVehicle(next); return next; });
-    }).catch(() => { if (live) { setOpts([]); setCartVehicle(''); } });
+      setPick((cur) => { const keep = (r.options || []).find((o) => o.name === cur && o.available); const next = keep ? keep.name : ''; // the customer must choose: nothing is picked for him setCartVehicle(next, (r.options || []).length > 0); return next; });
+    }).catch(() => { if (live) { setOpts([]); setCartVehicle('', false); } });
     return () => { live = false; };
   }, [key]);
-  useEffect(() => () => { setCartVehicle(''); }, []);
+  useEffect(() => () => { setCartVehicle('', false); }, []);
   if (!opts.length) return null;
   return (
     <Card style={{ gap: 8 }}>
@@ -39,7 +38,7 @@ export function VehiclePicker({ providerIds }: { providerIds: string[] }) {
         const on = pick === o.name && o.available;
         const u = imgUrl(o.image);
         return (
-          <Pressable key={o.id} disabled={!o.available} onPress={() => { setPick(o.name); setCartVehicle(o.name); }}
+          <Pressable key={o.id} onPress={() => { if (!o.available) return toast(`وسيلة ${o.name} مش متوفرة، اختر وسيلة تانية`, 'err'); setPick(o.name); setCartVehicle(o.name, true); }}
             style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 2, borderColor: on ? C.gold : C.line, backgroundColor: on ? C.goldSoft : '#fff', borderRadius: 14, padding: 10, opacity: o.available ? 1 : 0.45 }}>
             {u ? <Image source={{ uri: u }} style={{ width: 38, height: 38, borderRadius: 10 }} /> : <T size={24}>🛵</T>}
             <View style={{ flex: 1 }}>
@@ -50,7 +49,8 @@ export function VehiclePicker({ providerIds }: { providerIds: string[] }) {
           </Pressable>
         );
       })}
-      {!opts.some((o) => o.available) && <T size={12} color={C.red}>مفيش وسيلة توصيل متاحة دلوقتي لمنطقتك. جرّب بعد شوية.</T>}
+      {!opts.some((o) => o.available) && <T size={12} color={C.red}>مفيش وسيلة توصيل متاحة دلوقتي لمنطقتك، جرّب بعد شوية.</T>}
+      {opts.some((o) => o.available) && !pick && <T size={12} color={C.goldDeep}>اختر وسيلة التوصيل عشان تكمّل الطلب.</T>}
     </Card>
   );
 }

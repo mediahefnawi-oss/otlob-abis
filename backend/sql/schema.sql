@@ -1096,3 +1096,5 @@ CREATE TABLE IF NOT EXISTS route_vehicle_prices (
 -- "the courier decides the delivery price" mode: the limits he may write between
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS courier_fee_min NUMERIC(8,2) NOT NULL DEFAULT 5;
 ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS courier_fee_max NUMERIC(8,2) NOT NULL DEFAULT 50;
+-- owner switch: the customer chooses a delivery means (and pays its price) / off = the plain route price only, as before
+ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS route_vehicles_on BOOLEAN NOT NULL DEFAULT TRUE;

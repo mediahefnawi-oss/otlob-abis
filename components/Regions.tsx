@@ -3,7 +3,7 @@ import { View, Pressable } from 'react-native';
 import { ScrollView } from './KScroll';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Sheet, Field, Chip, SectionTitle, Toggle, toast, confirmDialog } from './ui';
-import { useStore, addRegion, updateRegion, deleteRegion, saveRoutePrices, saveRouteVehiclePrices } from '../lib/store';
+import { useStore, addRegion, updateRegion, deleteRegion, saveRoutePrices, saveRouteVehiclePrices, setRouteVehiclesSwitch } from '../lib/store';
 import { Region } from '../lib/types';
 import { apiPublicCourierVehicles } from '../lib/api';
 
@@ -156,6 +156,8 @@ export function RoutePricesManager() {
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const prices = db.routePrices || {};
+  const vOn = db.settings.delivery?.vehiclesOn !== false;
+  const flipV = async (on: boolean) => { const r = await setRouteVehiclesSwitch(on); toast(r.ok ? (on ? 'تم تشغيل أسعار الوسائل' : 'تم إيقاف أسعار الوسائل (السعر الواحد للمسار)') : r.error, r.ok ? 'ok' : 'err'); };
   useEffect(() => {
     if (!from) return setVals({});
     const v: Record<string, string> = {};
@@ -182,7 +184,15 @@ export function RoutePricesManager() {
       <T w="black" size={15}>أسعار التوصيل بين المناطق</T>
       <T size={11.5} color={C.sub}>اختر منطقة المتجر، واكتب سعر التوصيل لكل منطقة عميل. كل اتجاه له سعره. أي خط تتركه فاضياً غير متاح للطلب (لا يقدر عميل تلك المنطقة يطلب من متاجر هذه المنطقة).</T>
       <RegionPicker value={from} onChange={setFrom} label="من منطقة المتجر" />
-      {!!from && (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 }}>
+        <View style={{ flex: 1 }}>
+          <T w="black" size={13.5}>🛵 أسعار كل وسيلة</T>
+          <T size={11.5} color={C.sub}>{vOn ? 'شغّال: العميل يختار الوسيلة (موتوسيكل / توكتوك / تروسيكل) ويدفع سعرها. الأعمدة تحت هي أسعار الوسائل.' : 'موقوف: العميل مش بيختار وسيلة، والسعر الواحد للمسار هو اللي بيتحسب.'}</T>
+        </View>
+        <Toggle value={vOn} onValueChange={flipV} />
+      </View>
+      {!!from && vOn && <VehiclePriceGrid from={from} />}
+      {!!from && !vOn && (
         <>
           {areas.map((r) => (
             <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -201,11 +211,10 @@ export function RoutePricesManager() {
 }
 
 /** Owner: the delivery price of EACH delivery means (موتوسيكل / توكتوك / تروسيكل ...) from a shop's area to each customer area. An empty price = that means does not go there. */
-export function RouteVehiclePricesManager() {
+function VehiclePriceGrid({ from }: { from: string }) {
   const { db } = useStore();
   const areas = db.regions.filter((r) => r.active);
   const [vehicles, setVehicles] = useState<{ id: number; name: string }[]>([]);
-  const [from, setFrom] = useState('');
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const prices = db.routeVehiclePrices || {};
@@ -231,10 +240,7 @@ export function RouteVehiclePricesManager() {
     toast(r.ok ? 'تم حفظ أسعار الوسائل' : r.error, r.ok ? 'ok' : 'err');
   };
   return (
-    <Card style={{ gap: 10 }}>
-      <T w="black" size={15}>أسعار التوصيل لكل وسيلة</T>
-      <T size={11.5} color={C.sub}>اختر منطقة المتجر واكتب سعر كل وسيلة (موتوسيكل / توكتوك / تروسيكل...) لكل منطقة عميل. الخانة الفاضية = الوسيلة دي مش متاحة للمسار ده. لو مفيش ولا سعر على مسار، العميل مش بيختار وسيلة ويتحسب بالسعر العادي فوق.</T>
-      <RegionPicker value={from} onChange={setFrom} label="من منطقة المتجر" />
+    <View style={{ gap: 10 }}>
       {!!from && vehicles.length === 0 && <T size={12} color={C.sub}>مفيش وسائل توصيل. ضيفها من «وسائل توصيل المندوب».</T>}
       {!!from && vehicles.length > 0 && (
         <>
@@ -253,6 +259,6 @@ export function RouteVehiclePricesManager() {
           <Btn title="حفظ أسعار الوسائل" icon="checkmark" loading={busy} onPress={save} />
         </>
       )}
-    </Card>
+    </View>
   );
 }

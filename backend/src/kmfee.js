@@ -15,10 +15,10 @@ function feeFor(cfg, a, b) {
   const fee = Math.min(Number(cfg.max), Math.max(Number(cfg.min), raw));
   return { fee, km: Math.round(dist * 10) / 10 };
 }
-const cfgFromRow = x => ({ mode: x.fee_mode === 'km' ? 'km' : x.fee_mode === 'courier' ? 'courier' : 'region', courierMin: x.courier_fee_min != null ? Number(x.courier_fee_min) : 5, courierMax: x.courier_fee_max != null ? Number(x.courier_fee_max) : 50, perKm: Number(x.fee_per_km), min: Number(x.fee_min), max: Number(x.fee_max), factor: Number(x.fee_factor) });
+const cfgFromRow = x => ({ mode: x.fee_mode === 'km' ? 'km' : x.fee_mode === 'courier' ? 'courier' : 'region', courierMin: x.courier_fee_min != null ? Number(x.courier_fee_min) : 5, courierMax: x.courier_fee_max != null ? Number(x.courier_fee_max) : 50, vehiclesOn: x.route_vehicles_on !== false, perKm: Number(x.fee_per_km), min: Number(x.fee_min), max: Number(x.fee_max), factor: Number(x.fee_factor) });
 
 async function loadCfg(db) {
-  try { const r = await db.query('SELECT fee_mode, fee_per_km, fee_min, fee_max, fee_factor, courier_fee_min, courier_fee_max FROM app_settings WHERE id=1'); return r.rowCount ? cfgFromRow(r.rows[0]) : { mode: 'region' }; }
+  try { const r = await db.query('SELECT fee_mode, fee_per_km, fee_min, fee_max, fee_factor, courier_fee_min, courier_fee_max, route_vehicles_on FROM app_settings WHERE id=1'); return r.rowCount ? cfgFromRow(r.rows[0]) : { mode: 'region' }; }
   catch { return { mode: 'region' }; } // not migrated yet
 }
 /**

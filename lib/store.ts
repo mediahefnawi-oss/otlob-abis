@@ -58,6 +58,7 @@ export interface State {
   db: DB;
   userId: string | null;
   cart: CartLine[];
+  cartVehicleNeeded?: boolean; // the checkout shows a delivery-means choice: one must be picked
   cartVehicle: string; // the delivery means the customer chose for this order ('' = none: the plain route price)
   cartDest: CartDest; // where the order being made goes: the saved spot, or another address (optionally with its own pin)
   syncError: string | null; // shown as a banner when the app could not refresh from the server
@@ -81,7 +82,8 @@ export const subscribe = (l: () => void) => {
 };
 export const getState = () => state;
 export function setCartDest(d: CartDest) { setState({ cartDest: d }); }
-export function setCartVehicle(v: string) { setState({ cartVehicle: v }); }
+export function setCartVehicle(v: string, needed = false) { setState({ cartVehicle: v, cartVehicleNeeded: needed }); }
+const vehicleError = (): string | null => (state.cartVehicleNeeded && !state.cartVehicle ? 'اختر وسيلة التوصيل أولاً' : null);
 /** The owner's switch for maps and live location (on unless the owner switched it off). */
 export const mapOn = () => state.db.settings.map?.enabled !== false;
 export const mapRequired = () => mapOn() && state.db.settings.map?.required !== false;
@@ -288,6 +290,7 @@ export function vehiclePriceFor(p: Provider, vehicle: string): number | undefine
 function routeHasVehicles(p: Provider): boolean {
   const me = state.db.users.find((u) => u.id === state.userId);
   if (!p.regionId || !me?.regionId) return false;
+  if (state.db.settings.delivery?.vehiclesOn === false) return false;
   const pre = `${p.regionId}:${me.regionId}:`;
   return Object.keys(state.db.routeVehiclePrices || {}).some((k) => k.startsWith(pre));
 }
@@ -305,7 +308,7 @@ export function feeFor(p: Provider): number {
   if (state.db.settings.delivery?.mode === 'courier') return 0; // the courier writes it after taking the order
   const k = kmInfoFor(p);
   if (k) return k.fee;
-  if (state.cartVehicle) { const vp = vehiclePriceFor(p, state.cartVehicle); if (vp !== undefined) return vp; }
+  if (state.cartVehicle && state.db.settings.delivery?.vehiclesOn !== false) { const vp = vehiclePriceFor(p, state.cartVehicle); if (vp !== undefined) return vp; }
   const route = routePriceFor(p);
   return route !== undefined ? route : p.deliveryFee;
 }
@@ -811,6 +814,7 @@ export async function placeOrder(me: User, info: { name: string; phone: string; 
   const det = cartDetails(state.db, state.cart);
   if (!det.groups.length) return { ok: false, error: 'السلة فارغة' };
   { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
+  { const ve = vehicleError(); if (ve) return { ok: false, error: ve }; }
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };
   if (!/^01[0-9]{9}$/.test(normPhone(info.phone))) return { ok: false, error: 'رقم الهاتف غير صحيح' };
   const closed = det.groups.find((g) => !g.provider.open || g.provider.status !== 'active');
@@ -848,6 +852,15 @@ export async function courierSetFee(orderId: string, fee: number): Promise<Resul
     return { ok: true };
   } catch (e) { return { ok: false, error: errMsg(e) }; }
   finally { pendingWrites--; }
+}
+/** Owner: the customer chooses a delivery means (on) / only the plain route price (off). */
+export async function setRouteVehiclesSwitch(on: boolean): Promise<Result> {
+  try {
+    await apiJson('/api/admin/route-vehicles-switch', 'PATCH', { on });
+    const { settings } = await apiGetSettings();
+    applySettings(settings);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 /** Owner / manager: moves a courier to another delivery means. */
 export async function setCourierVehicle(courierId: string, vehicle: string): Promise<Result> {
@@ -1721,6 +1734,7 @@ export async function placeRequestOrder(
   { const g = appGate('customer'); if (g.blocked) return { ok: false, error: g.message || 'التطبيق متوقف حالياً' }; }
   if (!info.provider.open || info.provider.status !== 'active') return { ok: false, error: 'المتجر مغلق حالياً' };
   { const pe = pinError(); if (pe) return { ok: false, error: pe }; }
+  { const ve = vehicleError(); if (ve) return { ok: false, error: ve }; }
   if (!deliveryOpen(info.provider)) return { ok: false, error: 'التوصيل من منطقة هذا المتجر إلى منطقتك غير متاح حالياً' };
   if (info.text.trim().length < 3 && !info.image && !info.voice) return { ok: false, error: 'اكتب طلبك أو ارفع صورة أو سجّل رسالة صوتية' };
   if (info.address.trim().length < 6) return { ok: false, error: 'اكتب العنوان بالتفصيل' };

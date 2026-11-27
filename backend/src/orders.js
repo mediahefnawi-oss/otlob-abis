@@ -88,13 +88,13 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     if (customerId) { const k = await kmFee.forOrder(db, prov.id, customerId, dest); if (k) return k.fee; }
     if (!region) return Number(fallback) || 0; // an old customer account with no area: the shop's own price
     // the customer chose a delivery means: its own price on this route (no price = that means does not go there)
-    if (vehicle) {
+    if (vehicle && (await kmFee.loadCfg(db)).vehiclesOn !== false) {
       const vp = await routeVeh.vehiclePrice(db, prov.id, region.id, vehicle);
       if (vp === null) throw fail(409, `وسيلة التوصيل «${vehicle}» غير متاحة من ${prov.name} إلى منطقتك`);
       return vp;
     }
     const r = await routeFee(db, prov.id, region.id);
-    if (r === null && await routeVeh.routeHasVehicles(db, prov.id, region.id)) { // an older app that cannot choose a means: the cheapest one
+    if (r === null && (await kmFee.loadCfg(db)).vehiclesOn !== false && await routeVeh.routeHasVehicles(db, prov.id, region.id)) { // an older app that cannot choose a means: the cheapest one
       const c = await db.query('SELECT MIN(v.price) AS p FROM providers p JOIN users u ON u.id=p.owner_user_id JOIN route_vehicle_prices v ON v.from_region_id=u.region_id AND v.to_region_id=$2 WHERE p.id=$1', [prov.id, region.id]);
       if (c.rows[0] && c.rows[0].p !== null) return Number(c.rows[0].p);
     }
@@ -104,7 +104,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
   /** The delivery means the customer chose ('' = none): it must exist and at least one such courier must be on duty now. */
   async function vehicleOf(db, b) {
     const v = routeVeh.clean(b && b.vehicle);
-    if (!v) return '';
+    if (!v || (await kmFee.loadCfg(db)).vehiclesOn === false) return ''; // the owner switched the choice off
     const ok = await db.query('SELECT 1 FROM courier_vehicles WHERE active AND name=$1', [v]);
     if (!ok.rowCount) throw fail(400, 'وسيلة التوصيل غير معروفة');
     const duty = await db.query("SELECT 1 FROM users WHERE role='courier' AND status='active' AND available=TRUE AND NOT orders_off AND deleted_at IS NULL AND vehicle=$1 LIMIT 1", [v]);

@@ -26,7 +26,7 @@ const ADMIN_RULES = [
   [/^captains\/[^/]+\/balance$/, 'finance_edit'],
   [/^(couriers|captains|courier-photos)(\/|$)/, 'couriers'],
   [/^orders\/[^/]+\/bells?$/, 'bell'],        // the bell on a courier / shop
-  [/^(route-prices|route-vehicle-prices|delivery-mode)$/, 'delivery_prices'],
+  [/^(route-prices|route-vehicle-prices|route-vehicles-switch|delivery-mode)$/, 'delivery_prices'],
   [/^commissions\/export/, 'export'],
   [/^(commissions|closings|daily-report|counters|premium)(\/|$)/, 'finance'],
   [/^broadcasts(\/|$)/, 'notify'],

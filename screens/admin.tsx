@@ -17,7 +17,7 @@ import {
   useStore, useMe, updateSettings, setProviderStatus, setUserStatus, resetAll, availableCouriers, adminDeleteProvider, adminDeleteCourier, adminDeleteCustomer, adminMoveProvider, adminSetOrderMode, adminSetChatOff, adminPinProvider, adminResetPassword, setProviderFeatured, setProviderRegion, setCustomerFlag, createSupervisor, updateSupervisor, deleteSupervisor, createManager, updateManager, deleteManager, setUserRole,
 } from '../lib/store';
 import { TYPES, money, fmtDateTime, fmtDate, DAYS, isoDay, ORDER_STATUS, FLAGS, inStaffQueue, isBooking, hasProducts, typeKeys } from '../lib/format';
-import { RegionsManager, RegionPicker, RoutePricesManager, RouteVehiclePricesManager } from '../components/Regions';
+import { RegionsManager, RegionPicker, RoutePricesManager } from '../components/Regions';
 import { LoginImageManager, WelcomeScreenManager, AppIconManager, UpdateNoticeManager, ServicesManager } from '../components/Finance';
 import { useCounters } from '../lib/finance';
 import { SupportInbox, useSupportUnread } from '../components/SupportChat';
@@ -120,17 +120,6 @@ const MGR_SHORT: Record<string, string> = { bell: 'الجرس', delivery_prices:
 export function useCan() {
   const me = useMe();
   return (perm: string) => !!me && me.role === 'admin' && (!me.manager || (me.mgrPerms || []).includes(perm) || (perm === 'finance_view' && (me.mgrPerms || []).includes('finance_edit')));
-}
-/** The plain (one price per route) card is folded away: the per-means prices are the main ones; this stays for routes that have no means. */
-function OldRoutePrices() {
-  const [open, setOpen] = useState(false);
-  if (!open) return <Btn variant="soft" small icon="chevron-down" title="السعر العادي للمسار (متقدم)" onPress={() => setOpen(true)} />;
-  return (
-    <>
-      <RoutePricesManager />
-      <Btn variant="soft" small icon="chevron-up" title="إخفاء السعر العادي" onPress={() => setOpen(false)} />
-    </>
-  );
 }
 export function AdminManagersScreen({ navigation }: any) {
   const rc = useRC();
@@ -839,8 +828,7 @@ export function AdminSettingsScreen({ navigation }: any) {
       </Section>
       <Section icon="location" title="المناطق والتوصيل" sub={`${db.regions.length} منطقة • أسعار التوصيل`}>
         <RegionsManager />
-        <RouteVehiclePricesManager />
-        <OldRoutePrices />
+        <RoutePricesManager />
       </Section>
       <Section icon="images" title="الإعلانات والصور" sub={`${(db.ads || []).length} إعلانات • صورة الدخول`}>
         <AdsManager />

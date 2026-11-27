@@ -292,7 +292,7 @@ export interface Settings {
   welcomeLogoV?: number; // 0 / missing = the built-in logo on the first screen
   credits?: Credits | null; // the developer lines at the bottom of the first screen (null = the defaults)
   hours?: Hours; // opening hours (Cairo time); outside them customers see the closed screen
-  delivery?: { mode: 'region' | 'km' | 'courier'; perKm: number; min: number; max: number; factor: number; courierMin?: number; courierMax?: number }; // delivery price by area or by kilometre
+  delivery?: { mode: 'region' | 'km' | 'courier'; perKm: number; min: number; max: number; factor: number; courierMin?: number; courierMax?: number; vehiclesOn?: boolean }; // delivery price by area or by kilometre
   map?: { enabled: boolean; required: boolean }; // owner switch: maps + live location, and whether a delivery pin is required
   theme?: string; // colour theme picked by the owner
   features?: Record<string, boolean>; // the owner's feature switches

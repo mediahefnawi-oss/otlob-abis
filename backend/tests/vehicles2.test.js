@@ -58,6 +58,15 @@ const managers = require('../src/managers.js');
   r = await checkout({}); eq(r.json.orders[0].deliveryFee, 30, 'without a means: the old route price');
   await q('UPDATE users SET available=FALSE WHERE id=$1', [tri]);
 
+  /* the owner's switch: off = no choice, the plain route price, a chosen means is ignored */
+  eq((await call('PATCH /api/admin/route-vehicles-switch', { as: CU, body: { on: false } })).status, 403, 'customers cannot flip the switch');
+  eq((await call('PATCH /api/admin/route-vehicles-switch', { as: A, body: { on: false } })).status, 200, 'switch off');
+  r = await call('POST /api/delivery-options', { as: CU, body: { providerIds: [rest] } }); eq(r.json.options.length, 0, 'switch off: no chooser');
+  r = await checkout({ vehicle: 'موتوسيكل' }); eq([r.status, r.json.orders[0].deliveryFee, r.json.orders[0].vehicle], [201, 30, undefined], 'switch off: plain price, the means is ignored');
+  eq((await call('PATCH /api/admin/route-vehicles-switch', { as: A, body: { on: true } })).status, 200, 'switch on again');
+  r = await call('POST /api/delivery-options', { as: CU, body: { providerIds: [rest] } }); eq(r.json.options.length, 3, 'switch on: the chooser is back (prices were kept)');
+  eq(await managers.gate(pool, 'PATCH', '/api/admin/route-vehicles-switch', ['delivery_prices']), null, 'managers with the permission may flip it');
+
   /* the order is for that means only */
   const oTuk = (await checkout({ vehicle: 'توكتوك' })).json.orders[0]; eq(oTuk.deliveryFee, 15, 'tuk-tuk price');
   await call('POST /api/orders/:id/action', { as: OW, params: { id: oTuk.id }, body: { action: 'accept' } });

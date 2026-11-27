@@ -49,7 +49,7 @@ async function activeVehicles(db) {
  */
 async function optionsFor(db, providerIds, region, cfg) {
   const mode = cfg && cfg.mode ? cfg.mode : 'region';
-  if (mode === 'km' || !region) return { mode, options: [] };
+  if (mode === 'km' || !region || (cfg && cfg.vehiclesOn === false)) return { mode, options: [] };
   const ids = [...new Set((providerIds || []).map(Number).filter(Boolean))];
   if (!ids.length) return { mode, options: [] };
   const [vehicles, duty] = [await activeVehicles(db), await onDuty(db)];
@@ -106,6 +106,15 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, settingsMemo
     await pool.query('UPDATE users SET vehicle=$2 WHERE id=$1', [id, v]);
     if (settingsMemo) settingsMemo.clear();
     res.json({ ok: true, vehicle: v });
+  }));
+
+  /** The owner's switch: the customer chooses a means (on) / only the plain route price (off). The prices written stay saved either way. */
+  app.patch('/api/admin/route-vehicles-switch', auth, roles('admin'), guard(async (req, res) => {
+    const on = (req.body || {}).on === true;
+    try { await pool.query('UPDATE app_settings SET route_vehicles_on=$1, updated_at=NOW() WHERE id=1', [on]); }
+    catch (e) { if (e.code === '42703') throw fail(503, 'قاعدة البيانات لم تُحدَّث بعد'); throw e; }
+    if (settingsMemo) settingsMemo.clear();
+    res.json({ ok: true, on });
   }));
 
   /* ---------- the owner: prices per means for every route ---------- */
