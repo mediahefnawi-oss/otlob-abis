@@ -347,6 +347,7 @@ export async function apiQuote(orderId: string | number, input: { items?: { name
 }
 export type DeliveryOption = { id: number; name: string; image: string | null; price: number | null; couriers: number; available: boolean; reason: string };
 export const apiDeliveryOptions = (providerIds: (string | number)[]) => apiRequest<{ mode: 'region' | 'km' | 'courier'; options: DeliveryOption[]; courierMin: number; courierMax: number }>('/api/delivery-options', { method: 'POST', body: JSON.stringify({ providerIds }) });
+export const apiVehicleChange = (orderId: string | number, vehicle: string) => apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/vehicle-change`, { method: 'POST', body: JSON.stringify({ vehicle }) });
 export const apiCourierFee = (orderId: string | number, fee: number) => apiRequest<{ order: any }>(`/api/orders/${encodeURIComponent(String(orderId))}/courier-fee`, { method: 'POST', body: JSON.stringify({ fee }) });
 export const apiSetCourierVehicle = (courierId: string | number, vehicle: string) => apiRequest<{ ok: boolean; vehicle: string }>(`/api/admin/couriers/${encodeURIComponent(String(courierId))}/vehicle`, { method: 'PATCH', body: JSON.stringify({ vehicle }) });
 export async function apiErrandQuote(orderId: string | number, subtotal: number, fee: number) {

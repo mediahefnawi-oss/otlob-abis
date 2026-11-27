@@ -131,6 +131,28 @@ const managers = require('../src/managers.js');
   r = await call('POST /api/orders/:id/assign', { as: SUP, params: { id: oL.id }, body: { courierId: tuk } }); eq(r.status, 200, 'supervisor links any accepted order of his area (shop answered normally)');
   eq((await call('POST /api/orders/:id/assign', { as: SUP2, params: { id: oL.id }, body: { courierId: moto } })).status, 403, 'not outside his areas');
 
+  /* nobody takes a motorbike order: supervisors are told once, then propose another means; the customer decides */
+  await q("UPDATE users SET available=TRUE WHERE id=$1", [tri]); await q("UPDATE users SET vehicle='توكتوك' WHERE id=$1", [tri]);
+  const oN = (await checkout({ vehicle: 'موتوسيكل' })).json.orders[0];
+  await call('POST /api/orders/:id/action', { as: OW, params: { id: oN.id }, body: { action: 'accept' } });
+  await q("UPDATE orders SET courier_user_id=NULL, updated_at=NOW() WHERE id=$1", [oN.id]);
+  eq(await app.sweepUnclaimed(), 0, 'not yet: only 3 minutes later'); await q("UPDATE orders SET updated_at=NOW() - INTERVAL '4 minutes' WHERE id=$1", [oN.id]);
+  pushes.length = 0; eq(await app.sweepUnclaimed(), 1, 'alert after 3 minutes'); ok(pushes.some(x => x.ids.includes(sup) && /مفيش مندوب/.test(x.p.title)), 'the area supervisor is told'); ok(!pushes.some(x => x.ids.includes(supOut)), 'not the other area');
+  eq(await app.sweepUnclaimed(), 0, 'only once');
+  eq((await call('POST /api/orders/:id/vehicle-change', { as: CU, params: { id: oN.id }, body: { vehicle: 'توكتوك' } })).status, 403, 'customers cannot propose');
+  eq((await call('POST /api/orders/:id/vehicle-change', { as: SUP2, params: { id: oN.id }, body: { vehicle: 'توكتوك' } })).status, 403, 'another area cannot');
+  eq((await call('POST /api/orders/:id/vehicle-change', { as: SUP, params: { id: oN.id }, body: { vehicle: 'موتوسيكل' } })).status, 409, 'same means refused');
+  eq((await call('POST /api/orders/:id/vehicle-change', { as: SUP, params: { id: oN.id }, body: { vehicle: 'تروسيكل' } })).status, 409, 'a means with no price on the route is refused');
+  r = await call('POST /api/orders/:id/vehicle-change', { as: SUP, params: { id: oN.id }, body: { vehicle: 'توكتوك' } }); eq(r.status, 200, 'proposed'); eq(r.json.order.vehicleChange.fee, 15, 'with the tuk-tuk price');
+  r = await call('POST /api/orders/:id/action', { as: SUP, params: { id: oN.id }, body: { action: 'approve_vehicle' } }); ok(r.status === 403 || r.status === 409, 'only the customer approves');
+  r = await call('POST /api/orders/:id/action', { as: CU, params: { id: oN.id }, body: { action: 'approve_vehicle' } }); eq(r.status, 200, 'customer approves');
+  const rN = (await q('SELECT total, data FROM orders WHERE id=$1', [oN.id])).rows[0]; eq([rN.data.vehicle, rN.data.deliveryFee, Number(rN.total), rN.data.vehicleChange], ['توكتوك', 15, 55, undefined], 'means, fee and total follow');
+  /* a courier at the limit cannot get a 4th order from staff */
+  const busy = await mk('مشغول', 'courier', rB, 'موتوسيكل');
+  for (let i = 0; i < 3; i++) await q("INSERT INTO orders(customer_user_id, provider_id, status, courier_user_id, total, region_id, data) VALUES($1,$2,'accepted',$3,10,$4,'{}')", [cust, rest, busy, rB]);
+  const oX = (await checkout({ vehicle: 'موتوسيكل' })).json.orders[0]; await call('POST /api/orders/:id/action', { as: OW, params: { id: oX.id }, body: { action: 'accept' } }); await q('UPDATE orders SET courier_user_id=NULL WHERE id=$1', [oX.id]);
+  r = await call('POST /api/orders/:id/assign', { as: SUP, params: { id: oX.id }, body: { courierId: busy } }); eq(r.status, 409, 'courier with 3 orders: refused'); ok(/الحد الأقصى/.test(JSON.stringify(r.json)), 'says why');
+
   /* managers: new permissions */
   ok(['bell', 'delivery_prices', 'export'].every(p => managers.PERMS.includes(p)), 'new permissions exist');
   eq(managers.parsePerms(['bell', 'nope', 'export']), ['bell', 'export'], 'parsePerms keeps the known ones');

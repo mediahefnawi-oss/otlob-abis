@@ -13,7 +13,7 @@ import {
   apiAdminResetPassword, apiAdminCreateProvider, clearApiToken, hasApiToken, CentralSettings,
   apiListProviders, apiListProducts, apiCreateProduct, apiUpdateProduct, apiDeleteProduct, apiSetProviderLogo, apiSetProductImage, apiUpdateProvider, apiAdminDeleteProvider,
   apiListRegions, apiAdminCreateRegion, apiAdminUpdateRegion, apiAdminDeleteRegion,
-  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiCourierFee, apiSetCourierVehicle, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiPinProvider, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiMarketOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
+  apiAdminCreateAd, apiAdminUpdateAd, apiAdminDeleteAd, ServerAd, apiPlaceRequest, apiQuote, apiErrandQuote, apiCourierFee, apiVehicleChange, apiSetCourierVehicle, apiOrderImage, apiSync, apiCatalog, apiMoveProvider, apiProviderMode, apiProviderChatOff, apiPinProvider, apiApptRequest, apiApptPropose, apiApptAccept, apiBookMode, SyncPayload, apiCheckout, apiCustomOrder, apiMarketOrder, apiOrderAction, apiSendMessage, apiBookAppointment, apiApptAction,
 } from './api';
 import {
   DB, User, Role, Provider, Product, Order, OrderStatus, Appointment, Invoice, Message,
@@ -853,6 +853,14 @@ export async function courierSetFee(orderId: string, fee: number): Promise<Resul
   } catch (e) { return { ok: false, error: errMsg(e) }; }
   finally { pendingWrites--; }
 }
+/** Owner / supervisor: proposes another delivery means for an order nobody took; the customer decides. */
+export async function proposeVehicleChange(orderId: string, vehicle: string): Promise<Result> {
+  try {
+    const r = await apiVehicleChange(orderId, vehicle);
+    mutate((db) => { db.orders = upsertById(db.orders, [r.order as Order]); });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: errMsg(e) }; }
+}
 /** Owner: the customer chooses a delivery means (on) / only the plain route price (off). */
 export async function setRouteVehiclesSwitch(on: boolean): Promise<Result> {
   try {
@@ -1061,7 +1069,7 @@ export async function staffOrderAction(orderId: string, action: 'cancel' | 'dism
   } catch (e) { return { ok: false, error: errMsg(e) }; }
 }
 
-export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver' | 'approve_quote' | 'decline_quote' | 'approve_fee' | 'decline_fee';
+export type OrderAction = 'accept' | 'reject' | 'ready' | 'cancel' | 'courier_accept' | 'pickup' | 'go' | 'arrive' | 'deliver' | 'approve_quote' | 'decline_quote' | 'approve_fee' | 'decline_fee' | 'approve_vehicle';
 
 export function orderAction(orderId: string, action: OrderAction, by: User, reason?: string, extra?: { ready?: boolean; readyDate?: string; readyTime?: string }): Result {
   const o = state.db.orders.find((x) => x.id === orderId);
@@ -1084,6 +1092,9 @@ export function orderAction(orderId: string, action: OrderAction, by: User, reas
         }
         setStatus(db, orderId, 'accepted');
         sysMsg(db, orderId, 'وافق العميل على الفاتورة وجاري تجهيز الطلب 👨‍🍳');
+        break;
+      case 'approve_vehicle':
+        if (o.vehicleChange) db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, vehicle: o.vehicleChange!.to, total: Math.max(0, x.total - x.deliveryFee + o.vehicleChange!.fee), deliveryFee: o.vehicleChange!.fee, vehicleChange: undefined, vehicleAlert: undefined, updatedAt: Date.now() } : x));
         break;
       case 'approve_fee':
         db.orders = db.orders.map((x) => (x.id === orderId ? { ...x, feeState: 'approved', updatedAt: Date.now() } : x));

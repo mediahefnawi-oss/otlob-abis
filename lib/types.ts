@@ -148,6 +148,8 @@ export interface Order {
   privacyMasked?: boolean; // the customer's data was hidden from this shop/courier after delivery
   autoPending?: boolean; // the owner's auto-assign gave it to this courier and he has not opened it yet (the app opens it for him)
   market?: boolean; marketBase?: number; // a «طلبات ماركت» order: the products that already have a price are the minimum the courier can write
+  vehicleAlert?: boolean; // nobody took this means' order for 3 minutes: the supervisor was told
+  vehicleChange?: { to: string; fee: number; from: string }; // the staff proposed another means: the customer decides
   vehicle?: string; // the delivery means the customer chose (only a courier with this means can take the order)
   feeByCourier?: boolean; feeState?: 'open' | 'proposed' | 'approved'; // "the courier decides the delivery price": waiting for his price / waiting for the customer / agreed
   errandQuote?: 'open' | 'quoted' | 'approved'; // «اطلب إيه نجيبهولك»: waiting for the courier's price / waiting for the customer / agreed

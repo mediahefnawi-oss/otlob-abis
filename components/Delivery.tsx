@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, Pressable } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Btn, Sheet, Field, Card, Chip, toast } from './ui';
-import { useStore, useMe, courierSetFee, orderAction, setCartVehicle, setCourierVehicle } from '../lib/store';
-import { apiDeliveryOptions, apiPublicCourierVehicles, apiAdminRideTypes, apiAdminMakeCaptain, DeliveryOption, courierVehicleImageUrl } from '../lib/api';
+import { T, Btn, Sheet, Field, Card, Chip, toast, callPhone } from './ui';
+import { useStore, useMe, courierSetFee, orderAction, setCartVehicle, setCourierVehicle, proposeVehicleChange, listStaffCouriers, assignCourier, StaffCourier } from '../lib/store';
+import { apiBellStart, apiDeliveryOptions, apiPublicCourierVehicles, apiAdminRideTypes, apiAdminMakeCaptain, DeliveryOption, courierVehicleImageUrl } from '../lib/api';
 import { money } from '../lib/format';
 import { Order, User } from '../lib/types';
 
@@ -172,5 +172,72 @@ export function MakeCaptainButton({ courier }: { courier: User }) {
         <Btn title="تفعيل كابتن" icon="checkmark" loading={busy} onPress={save} />
       </Sheet>
     </>
+  );
+}
+
+/** Customer: the staff proposed another delivery means because nobody with his means is free. */
+export function VehicleChangeCard({ o }: { o: Order }) {
+  const me = useMe();
+  if (!me || me.role !== 'customer' || !o.vehicleChange || o.courierId || !['accepted', 'ready'].includes(o.status)) return null;
+  const vc = o.vehicleChange;
+  return (
+    <Card style={{ gap: 8, borderWidth: 2, borderColor: C.gold }}>
+      <T w="black" size={14.5}>🛵 مفيش «{vc.from}» متاح حالياً</T>
+      <T size={12.5} color={C.sub}>الإدارة اقترحت التوصيل بـ«{vc.to}» بسعر {money(vc.fee)}. الإجمالي هيبقى {money(o.total - o.deliveryFee + vc.fee)}.</T>
+      <Btn variant="green" icon="checkmark-circle" title={`موافق على ${vc.to}`} onPress={() => { const r = orderAction(o.id, 'approve_vehicle', me); if (!r.ok) toast(r.error, 'err'); }} />
+      <Btn variant="danger" icon="close-circle" title="ألغي الطلب" onPress={() => { const r = orderAction(o.id, 'cancel', me); if (!r.ok) toast(r.error, 'err'); }} />
+    </Card>
+  );
+}
+
+/** Owner / supervisor: an order for a chosen means that nobody took. Ring or link a courier of that means (even a busy one), propose another means, or call the customer. */
+export function UnclaimedPanel({ o }: { o: Order }) {
+  const { db } = useStore();
+  const me = useMe();
+  const [couriers, setCouriers] = useState<StaffCourier[] | null>(null);
+  const [sheet, setSheet] = useState<'' | 'couriers' | 'means'>('');
+  const [busy, setBusy] = useState('');
+  const on = !!me && (me.role === 'admin' || me.role === 'supervisor') && !!o.vehicle && !o.courierId && ['accepted', 'ready'].includes(o.status);
+  useEffect(() => { if (on && sheet === 'couriers') listStaffCouriers().then(setCouriers); }, [on, sheet]);
+  if (!on) return null;
+  const mine = (couriers || []).filter((c) => c.vehicle === o.vehicle);
+  const provider = db.providers.find((p) => p.id === o.providerId);
+  const prices = db.routeVehiclePrices || {};
+  const others = Array.from(new Set(Object.keys(prices).filter((k) => provider?.regionId && o.regionId && k.startsWith(`${provider.regionId}:${o.regionId}:`)).map((k) => k.split(':').slice(2).join(':')))).filter((n) => n !== o.vehicle);
+  const ring = async (c: StaffCourier) => { setBusy('r' + c.id); try { await apiBellStart(o.id, 'courier', c.id); toast(`🔔 بيرنّ على ${c.name}`); } catch (e: any) { toast(e?.message || 'تعذر', 'err'); } finally { setBusy(''); } };
+  const link = async (c: StaffCourier) => { setBusy('l' + c.id); const r = await assignCourier(o.id, c.id); setBusy(''); if (!r.ok) return toast(r.error, 'err'); toast(`تم ربط الطلب على ${c.name} ✅`); setSheet(''); };
+  const propose = async (name: string) => { setBusy('m' + name); const r = await proposeVehicleChange(o.id, name); setBusy(''); if (!r.ok) return toast(r.error, 'err'); toast('اتبعت اقتراح للعميل ✅'); setSheet(''); };
+  return (
+    <Card style={{ gap: 8, borderWidth: 2, borderColor: o.vehicleAlert ? C.orange : C.line }}>
+      <T w="black" size={14.5}>{o.vehicleAlert ? '⚠️ ' : ''}الطلب ده لـ«{o.vehicle}» ومحدش استلمه</T>
+      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+        <Btn small variant="dark" icon="people" title={`مناديب ${o.vehicle}`} onPress={() => setSheet('couriers')} />
+        {others.length > 0 && <Btn small variant="soft" icon="swap-horizontal" title="تحويل لوسيلة تانية" onPress={() => setSheet('means')} />}
+        {!!o.phone && <Btn small variant="soft" icon="call" title="اتصال بالعميل" onPress={() => callPhone(o.phone)} />}
+      </View>
+      <Sheet visible={sheet === 'couriers'} onClose={() => setSheet('')} title={`مناديب ${o.vehicle}`}>
+        {couriers === null ? <T color={C.sub}>جاري التحميل…</T> : mine.length === 0 ? <T color={C.sub}>مفيش مناديب بالوسيلة دي.</T> : mine.sort((a, b) => Number(b.available) - Number(a.available) || a.busy - b.busy).map((c) => {
+          const full = c.busy >= 3, off = !c.available;
+          return (
+            <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: C.line, paddingVertical: 8 }}>
+              <View style={{ flex: 1 }}>
+                <T w="bold" size={14}>{c.name}</T>
+                <T size={11.5} color={off ? C.red : full ? C.orange : C.sub}>{off ? 'مش متاح' : full ? `معاه ${c.busy} طلبات (الحد الأقصى)` : c.busy ? `معاه ${c.busy} طلب` : 'فاضي'}</T>
+              </View>
+              <Btn small variant="soft" icon="notifications" title="جرس" disabled={off || full} loading={busy === 'r' + c.id} onPress={() => ring(c)} />
+              <Btn small icon="link" title="ربط" disabled={full} loading={busy === 'l' + c.id} onPress={() => link(c)} />
+            </View>
+          );
+        })}
+        <T size={11.5} color={C.sub}>الربط بيحط الطلب عليه بعد اللي معاه (حد أقصى 3). الجرس بيرنّ لحد ما يقبل أو يرفض.</T>
+      </Sheet>
+      <Sheet visible={sheet === 'means'} onClose={() => setSheet('')} title="اقتراح وسيلة تانية للعميل">
+        <T size={12.5} color={C.sub}>العميل هو اللي يوافق، وسعر الوسيلة الجديدة بيتحسب تلقائي.</T>
+        {others.map((n) => {
+          const price = provider?.regionId && o.regionId ? prices[`${provider.regionId}:${o.regionId}:${n}`] : undefined;
+          return <Btn key={n} variant="soft" icon="bicycle" title={`${n}${price != null ? ` — ${money(price)}` : ''}`} loading={busy === 'm' + n} onPress={() => propose(n)} />;
+        })}
+      </Sheet>
+    </Card>
   );
 }

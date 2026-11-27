@@ -161,9 +161,9 @@ export const DEFAULT_CREDITS = { a: 'DESIGNED & DEVELOPED BY', b: 'ENG. AHMED EL
  * (restaurants: only refuse / cancel), or he already took it over.
  */
 export const STAFF_WAIT_MS = 30 * 1000;
-export const needsStaff = (o: { status: string; updatedAt: number; staffHandled?: boolean; cancelledBy?: string; providerType?: string }) =>
-  o.status === 'rejected' || !!o.staffHandled || (o.status === 'cancelled' && o.cancelledBy === 'provider')
+export const needsStaff = (o: { status: string; updatedAt: number; staffHandled?: boolean; cancelledBy?: string; providerType?: string; vehicleAlert?: boolean; courierId?: string }) =>
+  o.status === 'rejected' || !!o.staffHandled || (!!o.vehicleAlert && !o.courierId && ['accepted', 'ready'].includes(o.status)) || (o.status === 'cancelled' && o.cancelledBy === 'provider')
   || (o.providerType !== 'restaurant' && o.status === 'pending' && Date.now() - o.updatedAt >= STAFF_WAIT_MS);
 /** The supervisor's "needs attention" list: refused / cancelled orders stay for 24 hours. */
-export const inStaffQueue = (o: { status: string; updatedAt: number; staffHandled?: boolean; staffDismissed?: boolean; cancelledBy?: string; providerType?: string }) =>
+export const inStaffQueue = (o: { status: string; updatedAt: number; staffHandled?: boolean; staffDismissed?: boolean; cancelledBy?: string; providerType?: string; vehicleAlert?: boolean; courierId?: string }) =>
   needsStaff(o) && !o.staffDismissed && (['rejected', 'cancelled'].includes(o.status) ? Date.now() - o.updatedAt < 24 * 3600 * 1000 : !['delivered', 'unavailable'].includes(o.status));

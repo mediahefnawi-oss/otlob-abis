@@ -36,7 +36,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       providerId: r.provider_id ? String(r.provider_id) : 'custom', providerName: d.providerName || '', providerType: d.providerType || 'custom',
       providerOwnerId: d.providerOwnerId ? String(d.providerOwnerId) : '', items: d.items || [], customText: d.customText || undefined,
       request: d.request ? { text: d.request.text || '', hasImage: !!d.request.hasImage } : undefined, subtotal: num(d.subtotal), discount: d.discount > 0 ? num(d.discount) : undefined, couponCode: d.discount > 0 ? d.couponCode : undefined, giftCode: d.giftCode || undefined, deliveryFee: num(d.deliveryFee), total: num(r.total), status: r.status,
-      courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, vehicle: d.vehicle || undefined, feeByCourier: d.feeByCourier ? true : undefined, feeState: d.feeByCourier ? (d.feeState || 'open') : undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
+      courierId: r.courier_user_id ? String(r.courier_user_id) : undefined, courierName: d.courierName || undefined, courierPhone: d.courierPhone || undefined, courierVehicle: d.courierVehicle || undefined, vehicle: d.vehicle || undefined, vehicleAlert: d.vehicleAlerted ? true : undefined, vehicleChange: d.vehicleChange || undefined, feeByCourier: d.feeByCourier ? true : undefined, feeState: d.feeByCourier ? (d.feeState || 'open') : undefined, rejectReason: d.rejectReason || undefined, readyDate: d.readyDate || undefined, readyTime: d.readyTime || undefined,
       regionId: r.region_id ? String(r.region_id) : undefined, regionName: d.regionName || undefined, providerRegionName: d.providerRegionName || undefined,
       createdAt: ms(r.created_at), updatedAt: ms(r.updated_at), history: d.history || [], premium: d.premium ? true : undefined, courierFee: d.premiumFree && d.normalFee != null ? num(d.normalFee) : undefined, autoPending: r.courier_user_id && d.autoAssigned && !d.courierAck && ['accepted', 'ready'].includes(r.status) ? true : undefined, staffHandled: d.staffHandled ? true : undefined, staffDismissed: d.staffDismissed ? true : undefined, cancelledBy: d.cancelledBy || undefined, errandQuote: d.errandQuote || undefined, market: d.market || undefined, marketBase: d.marketBase != null ? num(d.marketBase) : undefined,
     };
@@ -366,6 +366,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const tag = `order-${row.id}`;
       const jobs = [];
       switch (action) {
+        case 'approve_vehicle': jobs.push(notifyCouriers([row])); break;
         case 'accept': jobs.push(notify(cust, services.tplOf(d.providerType) === 'maker' ? 'قبل الصانع طلبك 🧵' : 'قبل المتجر طلبك 👨‍🍳', services.tplOf(d.providerType) === 'maker' && d.readyDate ? `جاهز ${d.readyDate} الساعة ${d.readyTime}` : (row.status === 'ready' ? 'جاهز للتسليم الآن' : (d.providerName || '')), tag), notifyCouriers([row])); break;
         case 'approve_quote':
           if (d.providerType === 'custom') jobs.push(notify([row.courier_user_id], 'وافق العميل على فاتورتك ✅', `${Number(row.total)} ج.م`, tag));
@@ -938,6 +939,7 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
       const c = await db.query("SELECT id, name, phone, vehicle FROM users WHERE id=$1 AND role='courier' AND status='active' AND deleted_at IS NULL", [cid]);
       if (!c.rowCount) throw fail(404, 'المندوب غير متاح');
       if (Number(row.courier_user_id) === cid) throw fail(409, 'الطلب معيّن لهذا المندوب بالفعل');
+      if (!breakdown) { const have = await db.query('SELECT COUNT(*)::int AS n FROM orders WHERE courier_user_id=$1 AND status = ANY($2)', [cid, BUSY]); if (have.rows[0].n >= MAX_BATCH) throw fail(409, `المندوب معاه ${have.rows[0].n} طلبات وده الحد الأقصى (${MAX_BATCH})`); }
       // after pickup the goods are with the first courier: the order goes back to "ready" so the new courier meets him, takes it (pickup) and delivers
       const handover = breakdown ? { handover: { from: row.data.courierName || '', at: Date.now() } } : {};
       const next = await moveOrder(db, row, afterPickup ? 'ready' : row.status, handover, { id: c.rows[0].id, name: c.rows[0].name, phone: c.rows[0].phone, vehicle: c.rows[0].vehicle });
@@ -1197,6 +1199,19 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
           }
           next = await moveOrder(db, row, 'cancelled', { rejectReason: 'رفض العميل الفاتورة' });
           break;
+        case 'approve_vehicle': {
+          need(isCustomer); state('accepted', 'ready');
+          const vc = row.data.vehicleChange;
+          if (!vc) throw fail(409, 'لا يوجد اقتراح بتغيير الوسيلة');
+          if (row.courier_user_id) throw fail(409, 'الطلب اتقبل من مندوب بالفعل');
+          const charged = row.data.premiumFree ? 0 : vc.fee;
+          const total = await setDeliveryFee(db, row, charged);
+          await db.query('UPDATE orders SET total=$1 WHERE id=$2', [total, id]);
+          next = await moveOrder(db, { ...row, total }, row.status, { vehicle: vc.to, deliveryFee: charged, ...(row.data.premiumFree ? { normalFee: vc.fee } : {}), vehicleChange: undefined, vehicleAlerted: undefined });
+          await sysMsg(db, id, `وافق العميل على التوصيل بـ«${vc.to}» ✅`);
+          next = await tryAutoAssign(db, next);
+          break;
+        }
         case 'approve_fee':
           need(isCustomer); state('accepted', 'ready');
           if (!row.data.feeByCourier || row.data.feeState !== 'proposed') throw fail(409, 'لا يوجد سعر توصيل ينتظر موافقتك');
@@ -1635,10 +1650,60 @@ module.exports = function registerOrderRoutes(app, { pool, auth, authAny, roles,
     res.send(Buffer.from(m[2], 'base64'));
   }));
 
+  /** An order for a chosen delivery means that nobody took for UNCLAIMED_MS: the supervisors of its area are told once (the order card turns orange). */
+  const UNCLAIMED_MS = 3 * 60 * 1000;
+  async function sweepUnclaimed() {
+    const due = await pool.query(
+      `SELECT id FROM orders WHERE courier_user_id IS NULL AND status IN ('accepted','ready') AND COALESCE(data->>'vehicle','') <> '' AND data->>'vehicleAlerted' IS NULL
+          AND updated_at < NOW() - ($1::bigint * INTERVAL '1 millisecond') LIMIT 50`, [UNCLAIMED_MS]);
+    let n = 0;
+    for (const r of due.rows) {
+      try {
+        const u = await pool.query(`UPDATE orders SET data = data || jsonb_build_object('vehicleAlerted', $2::bigint) WHERE id=$1 AND courier_user_id IS NULL AND data->>'vehicleAlerted' IS NULL RETURNING *`, [r.id, Date.now()]);
+        if (!u.rowCount) continue;
+        const row = u.rows[0], d = row.data || {};
+        const ids = row.region_id ? (await pool.query("SELECT id FROM users WHERE role='supervisor' AND status='active' AND deleted_at IS NULL AND $1::text = ANY(string_to_array(NULLIF(sup_regions,''),','))", [String(row.region_id)])).rows.map(x => x.id) : [];
+        await notify(ids, `⚠️ طلب ${d.vehicle} مفيش مندوب استلمه`, `#${row.order_number} ${d.providerName || ''} — ${d.regionName || ''}`, `unclaimed-${row.id}`, true);
+        n++;
+      } catch (e) { console.error('sweepUnclaimed:', e.message); }
+    }
+    return n;
+  }
+  /** Owner / supervisor: propose another delivery means for an order nobody took (the customer decides; the price follows the new means). */
+  app.post('/api/orders/:id/vehicle-change', auth, roles('admin', 'supervisor'), guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف الطلب غير صالح');
+    const to = routeVeh.clean((req.body || {}).vehicle);
+    if (!to) throw fail(400, 'اختر الوسيلة');
+    const out = await withTx(async db => {
+      const f = await db.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [id]);
+      if (!f.rowCount) throw fail(404, 'الطلب غير موجود');
+      const row = f.rows[0];
+      if (!(await staffCan(db, req.auth, row))) throw fail(403, 'هذا الطلب خارج مناطقك');
+      if (!['accepted', 'ready'].includes(row.status) || row.courier_user_id) throw fail(409, 'التحويل متاح للطلب اللي لسه ما اتقبلش من مندوب');
+      if (!row.data.vehicle) throw fail(409, 'العميل ما اختارش وسيلة لهذا الطلب');
+      if (to === row.data.vehicle) throw fail(409, 'دي نفس الوسيلة الحالية');
+      const cfg = await kmFee.loadCfg(db);
+      if (cfg.mode !== 'region' || cfg.vehiclesOn === false) throw fail(409, 'تغيير الوسيلة متاح مع نظام الأسعار بالمناطق وأسعار الوسائل شغّالة');
+      const known = await db.query('SELECT 1 FROM courier_vehicles WHERE active AND name=$1', [to]);
+      if (!known.rowCount) throw fail(400, 'وسيلة التوصيل غير معروفة');
+      const duty = await db.query("SELECT 1 FROM users WHERE role='courier' AND status='active' AND available=TRUE AND NOT orders_off AND deleted_at IS NULL AND vehicle=$1 LIMIT 1", [to]);
+      if (!duty.rowCount) throw fail(409, `لا يوجد مندوب «${to}» متاح حالياً`);
+      const fee = await routeVeh.vehiclePrice(db, row.provider_id, row.region_id, to);
+      if (fee === null) throw fail(409, `وسيلة «${to}» غير متاحة على هذا المسار`);
+      const change = { to, fee, from: row.data.vehicle, by: req.auth.role, at: Date.now() };
+      const next = await moveOrder(db, row, row.status, { vehicleChange: change });
+      await sysMsg(db, id, `مفيش «${row.data.vehicle}» متاح دلوقتي. اقترحت الإدارة التوصيل بـ«${to}» بسعر ${fee} ج.م، وافق عليه أو الغِ الطلب 🛵`);
+      return next;
+    });
+    await notify([out.customer_user_id], 'اقتراح تغيير وسيلة التوصيل 🛵', `${out.data.vehicleChange.to} بسعر ${out.data.vehicleChange.fee} ج.م — افتح الطلب`, `order-${id}`, true);
+    res.json({ order: orderJsonFor(out, req.auth.role) });
+  }));
+
   // an auto-assigned order the courier never opened goes to the next courier (checked every 30 seconds)
   app.sweepUnacked = sweepUnacked;
+  app.sweepUnclaimed = sweepUnclaimed;
   if (!process.env.NO_SWEEP) {
-    const timer = setInterval(() => { sweepUnacked().catch(e => console.error('sweepUnacked:', e.message)); }, 30 * 1000);
+    const timer = setInterval(() => { sweepUnacked().catch(e => console.error('sweepUnacked:', e.message)); sweepUnclaimed().catch(e => console.error('sweepUnclaimed:', e.message)); }, 30 * 1000);
     if (timer.unref) timer.unref();
   }
 };

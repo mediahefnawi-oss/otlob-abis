@@ -17,7 +17,7 @@ import { CommissionTrail } from '../components/Finance';
 import { needsStaff, FLAGS, ORDER_STATUS, TYPES, money, fmtDateTime, fmtDate, prettyIso, SPEC_EMOJI, readyLabel, isMakerTpl } from '../lib/format';
 import { RegionPicker } from '../components/Regions';
 import { Order, OrderStatus } from '../lib/types';
-import { CourierFeeButton, FeeApprovalCard, FeeWaitNote } from '../components/Delivery';
+import { CourierFeeButton, FeeApprovalCard, FeeWaitNote, VehicleChangeCard, UnclaimedPanel } from '../components/Delivery';
 import { QuoteButtons, MakerOrderButtons, RequestPhoto, ErrandQuoteButton } from '../components/Quote';
 import { PushCard } from '../components/PushCard';
 import { OrderStaffTools } from '../components/StaffTools';
@@ -174,6 +174,8 @@ const idx = (() => { const i = FLOW.indexOf(o.status); return i >= 0 ? i : o.sta
         )}
 
         <FeeApprovalCard o={o} />
+        <VehicleChangeCard o={o} />
+        <UnclaimedPanel o={o} />
 
         {/* items */}
         <Card style={{ gap: 10 }}>
