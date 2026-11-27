@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CourierVehicleButton } from '../components/Delivery';
+import { CourierVehicleButton, MakeCaptainButton } from '../components/Delivery';
 import { View, FlatList, Pressable } from 'react-native';
 import { ScrollView } from '../components/KScroll';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -521,7 +521,7 @@ export function AdminCouriersScreen({ navigation }: any) {
                   <T size={12} color={C.sub}>{active} جارية</T>
                   <T size={12} color={C.sub}>{done} مكتملة</T>
                 </View>
-                {item.status === 'active' && <CourierVehicleButton courier={item} />}
+                {item.status === 'active' && <View style={{ flexDirection: 'row', gap: 8 }}><View style={{ flex: 1 }}><CourierVehicleButton courier={item} /></View><View style={{ flex: 1 }}><MakeCaptainButton courier={item} /></View></View>}
                 {item.status === 'pending' && (
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn small variant="green" icon="checkmark" title="قبول المندوب" style={{ flex: 1 }} onPress={() => done(setUserStatus(item.id, 'active'), 'تم قبول المندوب ✅')} />

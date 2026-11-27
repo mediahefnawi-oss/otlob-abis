@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, Pressable } from 'react-native';
 import { C } from '../lib/theme';
-import { T, Btn, Sheet, Field, Card, toast } from './ui';
+import { T, Btn, Sheet, Field, Card, Chip, toast } from './ui';
 import { useStore, useMe, courierSetFee, orderAction, setCartVehicle, setCourierVehicle } from '../lib/store';
-import { apiDeliveryOptions, apiPublicCourierVehicles, DeliveryOption, courierVehicleImageUrl } from '../lib/api';
+import { apiDeliveryOptions, apiPublicCourierVehicles, apiAdminRideTypes, apiAdminMakeCaptain, DeliveryOption, courierVehicleImageUrl } from '../lib/api';
 import { money } from '../lib/format';
 import { Order, User } from '../lib/types';
 
@@ -139,6 +139,37 @@ export function CourierVehicleButton({ courier }: { courier: User }) {
           );
         })}
         <T size={11.5} color={C.sub}>الأنواع هي اللي ضفتها في «وسائل توصيل المندوب». التغيير مش بيتم لو معاه طلب شغال.</T>
+      </Sheet>
+    </>
+  );
+}
+
+/** Owner / manager: makes this delivery courier a captain too (he keeps taking delivery orders). */
+export function MakeCaptainButton({ courier }: { courier: User }) {
+  const [open, setOpen] = useState(false);
+  const [types, setTypes] = useState<{ id: number; name: string }[]>([]);
+  const [typeId, setTypeId] = useState<number | null>(null);
+  const [f, setF] = useState({ model: '', color: '', plate: '' });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open && !types.length) apiAdminRideTypes().then((r) => { setTypes(r.types); if (r.types[0]) setTypeId(r.types[0].id); }).catch(() => {}); }, [open, types.length]);
+  const save = async () => {
+    if (!typeId) return toast('اختر نوع المركبة', 'err');
+    setBusy(true);
+    try { await apiAdminMakeCaptain(courier.id, { typeId, ...f }); toast('تم تفعيله كابتن توصيلة ✅'); setOpen(false); }
+    catch (e: any) { toast(e?.message || 'تعذر التنفيذ', 'err'); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <Btn small variant="soft" icon="car" title="إضافة كابتن توصيلة" onPress={() => setOpen(true)} />
+      <Sheet visible={open} onClose={() => setOpen(false)} title={`كابتن توصيلة: ${courier.name}`}>
+        <T size={12.5} color={C.sub}>هيتفعّل كابتن فوراً ويفضل يستقبل طلبات التوصيل كمان (الاتنين). تقدر تغيّر ده بعدين من تبويب الكباتن.</T>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {types.map((t) => <Chip key={t.id} label={t.name} active={typeId === t.id} onPress={() => setTypeId(t.id)} />)}
+        </View>
+        <Field label="موديل المركبة (اختياري)" value={f.model} onChangeText={(v) => setF((x) => ({ ...x, model: v }))} />
+        <Field label="اللون (اختياري)" value={f.color} onChangeText={(v) => setF((x) => ({ ...x, color: v }))} />
+        <Field label="رقم اللوحة (اختياري)" value={f.plate} onChangeText={(v) => setF((x) => ({ ...x, plate: v }))} />
+        <Btn title="تفعيل كابتن" icon="checkmark" loading={busy} onPress={save} />
       </Sheet>
     </>
   );

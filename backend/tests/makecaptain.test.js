@@ -1,0 +1,28 @@
+process.env.NO_SWEEP = '1';
+const { Pool } = require('./shim');
+const H = require('./h26');
+const R2 = require('../src/rides2.js');
+const { ok, eq, done } = H.counters();
+(async () => {
+  const pool = new Pool(); const q = (t, p) => pool.query(t, p);
+  await q('TRUNCATE ride_types, rides, captain_profiles, captain_photos, captain_ledger RESTART IDENTITY CASCADE');
+  const pushes = []; const { app, asyncRoute, positiveId, auth, roles, call } = H;
+  R2.register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib: { featureOn: async () => true }, pushToUsers: async (ids, p) => { pushes.push({ ids: ids.map(Number), p }); }, hashPassword: async p => 'h:' + p });
+  const mk = async (n, role, st = 'active') => Number((await q("INSERT INTO users(name, phone, password_hash, role, status, available) VALUES($1,$2,'x',$3,$4,TRUE) RETURNING id", [n, H.phone(), role, st])).rows[0].id);
+  const adm = await mk('owner', 'admin'), c1 = await mk('مندوب', 'courier'), c2 = await mk('معلق', 'courier', 'pending'), cust = await mk('عميل', 'customer');
+  const t1 = Number((await q("INSERT INTO ride_types(name, base_fee, per_km, min_fee, adj_pct) VALUES('ملاكي',5,3,10,30) RETURNING id")).rows[0].id);
+  const A = { sub: String(adm), role: 'admin' }, C = { sub: String(cust), role: 'customer' };
+  const mc = (as, id, body) => call('POST /api/admin/couriers/:id/make-captain', { as, params: { id }, body });
+  eq((await mc(C, c1, { typeId: t1 })).status, 403, 'customers cannot');
+  eq((await mc(A, c1, {})).status, 400, 'a type is needed');
+  eq((await mc(A, c1, { typeId: 999999 })).status, 400, 'unknown type');
+  eq((await mc(A, cust, { typeId: t1 })).status, 404, 'only couriers');
+  eq((await mc(A, c2, { typeId: t1 })).status, 409, 'a pending courier must be activated first');
+  pushes.length = 0;
+  eq((await mc(A, c1, { typeId: t1, model: 'لانسر', plate: '123' })).status, 200, 'made a captain');
+  const g = (await call('GET /api/admin/captains', { as: A })).json.captains.find(c => c.id === c1);
+  eq([g.mode, g.status, g.ordersOff, g.model], ['both', 'approved', false, 'لانسر'], 'approved, both jobs, data kept');
+  ok(pushes.some(p => p.ids.includes(c1)), 'the courier is told');
+  eq((await mc(A, c1, { typeId: t1 })).status, 409, 'not twice');
+  process.exit(done('makecaptain'));
+})().catch(e => { console.error(e); process.exit(1); });

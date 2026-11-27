@@ -621,6 +621,7 @@ export const apiAdminRideSettingsSave = (b: any) => apiRequest<{ ok: boolean }>(
 export const apiAdminRides = (status = '') => apiRequest<{ rides: (Ride & { customer: string; driver: string | null })[] }>(`/api/admin/rides${status ? `?status=${status}` : ''}`);
 export const apiAdminRideCancel = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/cancel`, { method: 'POST' });
 export const apiAdminRideComplete = (id: number) => apiRequest<{ ok: boolean; commission: number }>(`/api/admin/rides/${id}/complete`, { method: 'POST' });
+export const apiAdminMakeCaptain = (courierId: string | number, b: { typeId: number; model?: string; color?: string; plate?: string }) => apiRequest<{ ok: boolean; id: number }>(`/api/admin/couriers/${encodeURIComponent(String(courierId))}/make-captain`, { method: 'POST', body: JSON.stringify(b) });
 export const apiAdminCaptainAdd = (b: { name: string; phone: string; password: string; typeId: number; model?: string; color?: string; plate?: string }) => apiRequest<{ ok: boolean; id: number }>('/api/admin/captains', { method: 'POST', body: JSON.stringify(b) });
 export const apiAdminRideAssign = (id: number, driverId: number) => apiRequest<{ ok: boolean }>(`/api/admin/rides/${id}/assign`, { method: 'POST', body: JSON.stringify({ driverId }) });
 export type RideCaptainPick = { id: number; name: string; phone: string; model: string; color: string; plate: string; balance: number; type: string; online: boolean; busy: boolean };

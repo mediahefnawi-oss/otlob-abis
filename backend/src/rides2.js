@@ -171,6 +171,22 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, extrasLib, p
       res.json({ ok: true, id: Number(u.rows[0].id) });
     } catch (e) { try { await c.query('ROLLBACK'); } catch { /* already */ } throw e; } finally { c.release(); }
   }));
+  /** The owner makes an existing delivery courier a captain too (approved at once, he keeps taking delivery orders: "both"). */
+  app.post('/api/admin/couriers/:id/make-captain', ...admin, guard(async (req, res) => {
+    const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
+    const b = req.body || {};
+    const typeId = positiveId(b.typeId); if (!typeId) throw fail(400, 'اختر نوع المركبة');
+    if (!(await pool.query('SELECT 1 FROM ride_types WHERE id=$1', [typeId])).rowCount) throw fail(400, 'نوع المركبة غير موجود');
+    const u = await pool.query("SELECT id, status FROM users WHERE id=$1 AND role='courier' AND deleted_at IS NULL", [id]);
+    if (!u.rowCount) throw fail(404, 'المندوب غير موجود');
+    if (u.rows[0].status !== 'active') throw fail(409, 'فعّل حساب المندوب أولاً');
+    if ((await pool.query('SELECT 1 FROM captain_profiles WHERE user_id=$1', [id])).rowCount) throw fail(409, 'المندوب ده كابتن بالفعل');
+    await pool.query("INSERT INTO captain_profiles(user_id, type_id, model, color, plate, status) VALUES($1,$2,$3,$4,$5,'approved')", [id, typeId, str(b.model, 60), str(b.color, 30), str(b.plate, 20)]);
+    await pool.query('UPDATE users SET orders_off=FALSE WHERE id=$1', [id]);
+    await auditCap(req, 'captain.make', id, null, { typeId });
+    push([id], 'أطلب أبيس — كابتن', 'تم تفعيلك كابتن توصيلة، وتقدر تستقبل الرحلات مع طلبات التوصيل', 'captain-status');
+    res.json({ ok: true, id });
+  }));
   app.get('/api/admin/captains/:id/photo/:kind', ...admin, guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id || !KINDS.includes(req.params.kind)) return res.status(404).end();
     const r = await pool.query('SELECT image, mime FROM captain_photos WHERE user_id=$1 AND kind=$2', [id, req.params.kind]);
