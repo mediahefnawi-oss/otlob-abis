@@ -12,6 +12,8 @@ export const BUILTIN: Record<string, { c: any; bw: any; label: string }> = {
 };
 const LOGO = require('../assets/brand/logo_dark.png');
 const LOGO_BW = require('../assets/brand/logo_bw.png');
+/** the invoice number is made by the app: AB + year-month + the running number, e.g. AB-2611-0042 */
+export const fmtNo = (n: number, at: number) => { const d = new Date(at); return `AB-${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}-${String(n).padStart(4, '0')}`; };
 export const KIND_TITLE: Record<string, string> = { customer: 'فاتورة', provider: 'فاتورة مقدم خدمة', courier: 'فاتورة مندوب', commission: 'فاتورة عمولة' };
 // thermal printers: 80 mm paper prints 72 mm = 576 dots, 58 mm paper prints 48 mm = 384 dots (the picture is made at exactly that width)
 const widthPx = (w: string) => (w === '58' ? 384 : w === '80' ? 576 : 410);
@@ -25,9 +27,9 @@ export function stampSource(ref: string, bw: boolean, uploaded: InvStamp[]) {
   return u ? { uri: u.image } : null;
 }
 
-export const InvoiceView = forwardRef<View, { inv: Pick<Invoice, 'number' | 'kind' | 'partyName' | 'partyPhone' | 'lines' | 'extras' | 'delivery' | 'discount' | 'total' | 'commission' | 'design' | 'stamps' | 'createdAt'> & { voided?: boolean }; stamps: InvStamp[] }>(
-  function InvoiceView({ inv, stamps }, ref) {
-    const d: InvDesign = inv.design;
+export const InvoiceView = forwardRef<View, { inv: Pick<Invoice, 'number' | 'kind' | 'partyName' | 'partyPhone' | 'lines' | 'extras' | 'delivery' | 'discount' | 'total' | 'commission' | 'design' | 'stamps' | 'createdAt'> & { voided?: boolean }; stamps: InvStamp[]; theme?: 'color' | 'bw'; paper?: 'wa' | '80' | '58' }>(
+  function InvoiceView({ inv, stamps, theme, paper }, ref) {
+    const d: InvDesign = { ...inv.design, ...(theme ? { theme } : {}), ...(paper ? { width: paper } : {}) };
     const bw = d.theme === 'bw';
     const W = widthPx(d.width);
     const k = W / 410; // the approved design is drawn at 410 and scales to the paper: 80 mm = 576 dots, 58 mm = 384 dots
@@ -66,11 +68,11 @@ export const InvoiceView = forwardRef<View, { inv: Pick<Invoice, 'number' | 'kin
           </View>
         )}
         <Dash />
-        <T w="black" size={f(21)} color={ink} align="center">{KIND_TITLE[inv.kind]}{inv.voided ? ' (ملغاة)' : ''}</T>
+        <T w="black" size={f(21)} color={ink} align="center">{KIND_TITLE[inv.kind]}</T>
         <Dash />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <View>
-            <T w="bold" size={f(13.5)} color={ink}>رقم الفاتورة: #{inv.number}</T>
+            <T w="bold" size={f(13.5)} color={ink}>رقم الفاتورة: {fmtNo(inv.number, inv.createdAt)}</T>
             {d.showParty && <T w="bold" size={f(13.5)} color={ink}>{inv.kind === 'customer' ? 'العميل' : inv.kind === 'commission' ? 'المطلوب من' : 'الاسم'}: {inv.partyName}</T>}
             {d.showParty && !!inv.partyPhone && <T w="bold" size={f(13.5)} color={ink}>الموبايل: {inv.partyPhone}</T>}
           </View>

@@ -786,5 +786,5 @@ export const apiBillingCommission = (kind: string, id: number, from: string, to:
 export const apiBillingInvoices = (q = '') => apiRequest<{ invoices: InvListRow[] }>(`/api/admin/billing/invoices?q=${encodeURIComponent(q)}`);
 export const apiBillingInvoice = (id: number) => apiRequest<{ invoice: Invoice; stamps: InvStamp[] }>(`/api/admin/billing/invoices/${id}`);
 export const apiBillingCreate = (b: any) => apiRequest<{ invoice: Invoice }>('/api/admin/billing/invoices', { method: 'POST', body: JSON.stringify(b) });
-export const apiBillingVoid = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/billing/invoices/${id}/void`, { method: 'POST' });
+export const apiBillingDelete = (id: number) => apiRequest<{ ok: boolean }>(`/api/admin/billing/invoices/${id}`, { method: 'DELETE' });
 export const apiAdminAddCourier = (b: { name: string; phone: string; password: string; vehicle?: string; regionId?: string }) => apiRequest<{ courier: { id: number; name: string; phone: string; vehicle: string } }>('/api/admin/couriers', { method: 'POST', body: JSON.stringify(b) });

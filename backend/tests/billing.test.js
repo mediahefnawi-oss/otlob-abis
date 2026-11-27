@@ -77,8 +77,9 @@ const { ok, eq, done } = H.counters();
   eq((await call('GET /api/admin/billing/parties', { as: A, query: { kind: 'courier', q: 'مند' } })).json.parties[0].userId, cour, 'courier picker');
   ok((await call('GET /api/admin/billing/invoices', { as: A })).json.invoices.length >= 6, 'list');
   eq((await call('GET /api/admin/billing/invoices', { as: A, query: { q: '1001' } })).json.invoices.length, 1, 'search by number');
-  eq((await call('POST /api/admin/billing/invoices/:id/void', { as: A, params: { id: id1 } })).status, 200, 'void');
-  eq((await call('POST /api/admin/billing/invoices/:id/void', { as: A, params: { id: id1 } })).status, 404, 'void once');
+  eq((await call('DELETE /api/admin/billing/invoices/:id', { as: A, params: { id: id1 } })).status, 200, 'deleted for good');
+  eq((await call('DELETE /api/admin/billing/invoices/:id', { as: A, params: { id: id1 } })).status, 404, 'gone');
+  eq((await call('GET /api/admin/billing/invoices/:id', { as: A, params: { id: id1 } })).status, 404, 'cannot be opened again');
 
   // manager permissions
   const g = (m, u, perms) => M.gate(pool, m, u, perms);

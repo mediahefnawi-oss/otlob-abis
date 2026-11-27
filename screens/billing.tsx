@@ -4,12 +4,12 @@ import { ScrollView } from '../components/KScroll';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Header, Field, Chip, Sheet, Toggle, SectionTitle, Empty, toast, confirmDialog } from '../components/ui';
 import { useMe } from '../lib/store';
-import { InvoiceView, BUILTIN, KIND_TITLE, paperMm, paperName, stampSource } from '../components/InvoiceView';
+import { InvoiceView, BUILTIN, KIND_TITLE, paperMm, paperName, fmtNo, stampSource } from '../components/InvoiceView';
 import { captureView, shareImage, printImage, openWhatsAppChat } from '../lib/shareImage';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import {
   apiBillingConfig, apiBillingDesign, apiBillingStampAdd, apiBillingStampDelete, apiBillingParties, apiBillingCommission, apiBillingInvoices, apiBillingInvoice,
-  apiBillingCreate, apiBillingVoid, InvDesign, InvStamp, InvStampPlace, InvKind, InvParty, InvListRow, Invoice,
+  apiBillingCreate, apiBillingDelete, InvDesign, InvStamp, InvStampPlace, InvKind, InvParty, InvListRow, Invoice,
 } from '../lib/api';
 
 const errText = (e: any) => String(e?.message || 'حدث خطأ، حاول مرة أخرى');
@@ -44,13 +44,13 @@ export function BillingHomeScreen({ navigation }: any) {
         ))}
         {isOwnerAcct(me) && <Btn variant="soft" icon="color-palette" title="تصميم الفاتورة وإدارة الأختام" onPress={() => navigation.navigate('InvoiceDesign')} />}
         <SectionTitle title="فواتيري" />
-        <Field value={q} onChangeText={setQ} placeholder="ابحث بالاسم أو الموبايل أو رقم الفاتورة" icon="search" />
+        <Field value={q} onChangeText={setQ} placeholder="ابحث بالاسم أو الموبايل" icon="search" />
         {rows && rows.length === 0 && <Empty icon="document-text" title="لا توجد فواتير" />}
         {(rows || []).map((r) => (
-          <Card key={r.id} onPress={() => navigation.navigate('InvoiceDetail', { id: r.id })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: r.voided ? 0.5 : 1 }}>
+          <Card key={r.id} onPress={() => navigation.navigate('InvoiceDetail', { id: r.id })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={{ flex: 1 }}>
-              <T w="bold" size={14} style={r.voided ? { textDecorationLine: 'line-through' } : undefined}>#{r.number} • {r.partyName}</T>
-              <T size={11.5} color={C.sub}>{KIND_TITLE[r.kind]} • {new Date(r.createdAt).toLocaleDateString('ar-EG')}{r.voided ? ' • ملغاة' : ''}</T>
+              <T w="bold" size={14}>{fmtNo(r.number, r.createdAt)} • {r.partyName}</T>
+              <T size={11.5} color={C.sub}>{KIND_TITLE[r.kind]} • {new Date(r.createdAt).toLocaleDateString('ar-EG')}</T>
             </View>
             <T w="black" size={15} color={C.goldDeep}>{r.total} ج.م</T>
           </Card>
@@ -142,7 +142,7 @@ export function InvoiceFormScreen({ navigation, route }: any) {
     if (kind === 'commission' && (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to))) return toast('اكتب الفترة بشكل 2026-11-01', 'err');
     setBusy(true);
     try {
-      const body: any = { kind, partyKind, partyName: name.trim(), partyPhone: phone.replace(/\s+/g, ''), partyUserId: uid || undefined, partyProviderId: pid || undefined, extras: preview.extras, stamps, number: number ? num(number) : undefined };
+      const body: any = { kind, partyKind, partyName: name.trim(), partyPhone: phone.replace(/\s+/g, ''), partyUserId: uid || undefined, partyProviderId: pid || undefined, extras: preview.extras, stamps };
       if (kind === 'commission') body.commission = commission; else { body.lines = cleanLines; body.delivery = preview.delivery; body.discount = num(discount); }
       const r = await apiBillingCreate(body);
       toast('تم إنشاء الفاتورة ✅');
@@ -219,7 +219,7 @@ export function InvoiceFormScreen({ navigation, route }: any) {
             </View>
           ))}
           {extras.length < 10 && <Btn small variant="soft" icon="add" title="＋ إضافة بيان" onPress={() => setExtras((a) => [...a, { label: '', value: '' }])} />}
-          <Field label="رقم الفاتورة" value={number} onChangeText={setNumber} keyboardType="number-pad" />
+          <T size={12} color={C.sub}>رقم الفاتورة بيتولد تلقائي: {fmtNo(num(number) || 0, Date.now())}</T>
         </Card>
 
         <Card style={{ gap: 10 }}>
@@ -258,26 +258,35 @@ export function InvoiceDetailScreen({ navigation, route }: any) {
   const id = Number(route.params?.id);
   const [d, setD] = useState<{ invoice: Invoice; stamps: InvStamp[] } | null>(null);
   const [busy, setBusy] = useState('');
+  const [mode, setMode] = useState<'wa' | 'print'>('wa'); // WhatsApp = colour picture, print = black & white receipt
   const ref = useRef<any>(null);
   const load = useCallback(() => { apiBillingInvoice(id).then(setD).catch((e) => toast(errText(e), 'err')); }, [id]);
   useEffect(load, [load]);
   if (!d) return <View style={{ flex: 1, backgroundColor: C.bg }}><Header title="فاتورة" onBack={() => navigation.goBack()} /></View>;
   const inv = d.invoice;
-  const text = `فاتورة رقم ${inv.number} من أطلب أبيس`;
-  const run = async (what: string, fn: (uri: string) => Promise<any>) => {
+  const no = fmtNo(inv.number, inv.createdAt);
+  const text = `فاتورة رقم ${no} من أطلب أبيس`;
+  const roll = inv.design.width === '58' ? '58' : '80';
+  const run = async (what: 'wa' | 'print', fn: (uri: string) => Promise<any>) => {
     setBusy(what);
-    try { const uri = await captureView(ref.current); await fn(uri); } catch (e) { toast(errText(e), 'err'); } finally { setBusy(''); }
+    try { setMode(what); await new Promise((r) => setTimeout(r, 500)); const uri = await captureView(ref.current); await fn(uri); } catch (e) { toast(errText(e), 'err'); } finally { setBusy(''); }
   };
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <Header title={`فاتورة #${inv.number}`} subtitle={inv.voided ? 'ملغاة' : KIND_TITLE[inv.kind]} onBack={() => navigation.goBack()} />
+      <Header title={`فاتورة ${no}`} subtitle={KIND_TITLE[inv.kind]} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
-        <RNScroll horizontal><View style={{ borderWidth: 1, borderColor: C.line }}><InvoiceView ref={ref} inv={inv} stamps={d.stamps} /></View></RNScroll>
-        <Btn title="إرسال الفاتورة (واتساب)" icon="logo-whatsapp" variant="green" loading={busy === 'wa'} onPress={() => run('wa', async (uri) => { const r = await shareImage(uri, `فاتورة-${inv.number}`, text); if (r === 'downloaded') toast('تم تنزيل صورة الفاتورة، ابعتها من واتساب'); })} />
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Chip label="نسخة الواتساب (ملوّنة)" active={mode === 'wa'} onPress={() => setMode('wa')} />
+          <Chip label={`نسخة الطباعة (أبيض وأسود ${roll} مم)`} active={mode === 'print'} onPress={() => setMode('print')} />
+        </View>
+        <RNScroll horizontal><View style={{ borderWidth: 1, borderColor: C.line }}>
+          <InvoiceView ref={ref} inv={inv} stamps={d.stamps} paper={mode === 'print' ? (roll as any) : 'wa'} theme={mode === 'print' ? 'bw' : 'color'} />
+        </View></RNScroll>
+        <Btn title="إرسال الفاتورة (واتساب)" icon="logo-whatsapp" variant="green" loading={busy === 'wa'} onPress={() => run('wa', async (uri) => { const r = await shareImage(uri, `فاتورة-${no}`, text); if (r === 'downloaded') toast('تم تنزيل صورة الفاتورة، ابعتها من واتساب'); })} />
         {!!inv.partyPhone && <Btn title={`فتح محادثة ${inv.partyName} على واتساب`} icon="chatbubble-ellipses" variant="soft" onPress={() => openWhatsAppChat(inv.partyPhone, text)} />}
         <T size={11.5} color={C.sub}>واتساب مش بيسمح لأي تطبيق يبعت صورة لرقم معين لوحده: اضغط «إرسال» واختار المحادثة، أو افتح المحادثة الأول وابعت الصورة.</T>
-        <Btn title={`طباعة (ورق ${inv.design.width === 'wa' ? 80 : paperName(inv.design.width)} مم)`} icon="print" variant="dark" loading={busy === 'pr'} onPress={() => run('pr', (uri) => printImage(uri, paperMm(inv.design.width)))} />
-        {!inv.voided && <Btn title="إلغاء الفاتورة" icon="close-circle" variant="danger" onPress={() => confirmDialog({ title: 'إلغاء الفاتورة؟', message: 'هتفضل ظاهرة في القائمة بعلامة «ملغاة» ومش بتتمسح.', danger: true, confirmText: 'إلغاء الفاتورة', onConfirm: async () => { try { await apiBillingVoid(inv.id); toast('تم إلغاء الفاتورة'); load(); } catch (e) { toast(errText(e), 'err'); } } })} />}
+        <Btn title={`طباعة (ورق ${roll} مم أبيض وأسود)`} icon="print" variant="dark" loading={busy === 'print'} onPress={() => run('print', (uri) => printImage(uri, roll === '58' ? 48 : 72))} />
+        <Btn title="حذف الفاتورة" icon="trash" variant="danger" onPress={() => confirmDialog({ title: 'حذف الفاتورة؟', message: 'هتتمسح نهائياً ومش هتقدر ترجعها.', danger: true, confirmText: 'حذف', onConfirm: async () => { try { await apiBillingDelete(inv.id); toast('تم حذف الفاتورة'); navigation.goBack(); } catch (e) { toast(errText(e), 'err'); } } })} />
       </ScrollView>
     </View>
   );
@@ -314,12 +323,11 @@ export function InvoiceDesignScreen({ navigation }: any) {
           {sw('showLogo', 'الشعار')}{sw('showSupport', 'رقم الدعم والموقع')}{sw('showParty', 'اسم وموبايل الطرف')}{sw('showPayment', 'طريقة الدفع')}{sw('showThanks', 'جملة الشكر')}
         </Card>
         <Card style={{ gap: 10 }}>
-          <T w="black" size={14}>الألوان وعرض الورق</T>
-          <View style={{ flexDirection: 'row', gap: 8 }}><Chip label="ملوّنة" active={d.theme === 'color'} onPress={() => set({ theme: 'color' })} /><Chip label="أبيض وأسود (للطابعة)" active={d.theme === 'bw'} onPress={() => set({ theme: 'bw' })} /></View>
+          <T w="black" size={14}>نسخة الواتساب ورق الطباعة</T>
+          <View style={{ flexDirection: 'row', gap: 8 }}><Chip label="واتساب ملوّن" active={d.theme === 'color'} onPress={() => set({ theme: 'color' })} /><Chip label="واتساب أبيض وأسود" active={d.theme === 'bw'} onPress={() => set({ theme: 'bw' })} /></View>
           <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-            <Chip label="صورة واتساب" active={d.width === 'wa'} onPress={() => set({ width: 'wa' })} />
-            <Chip label="ورق 80 مم" active={d.width === '80'} onPress={() => set({ width: '80' })} />
-            <Chip label="ورق 58 مم" active={d.width === '58'} onPress={() => set({ width: '58' })} />
+            <Chip label="طباعة على رول 80 مم" active={d.width !== '58'} onPress={() => set({ width: '80' })} />
+            <Chip label="طباعة على رول 58 مم" active={d.width === '58'} onPress={() => set({ width: '58' })} />
           </View>
         </Card>
         <Card style={{ gap: 10 }}>

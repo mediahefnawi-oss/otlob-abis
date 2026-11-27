@@ -303,11 +303,11 @@ function register(app, { pool, auth, roles, asyncRoute, positiveId, hashPassword
     }
   }));
 
-  /** an invoice is never deleted: it is marked void (it still shows in the list, struck out) */
-  app.post('/api/admin/billing/invoices/:id/void', ...admin, guard(async (req, res) => {
+  /** cancelling an invoice deletes it for good (the number is not reused) */
+  app.delete('/api/admin/billing/invoices/:id', ...admin, guard(async (req, res) => {
     const id = positiveId(req.params.id); if (!id) throw fail(400, 'معرّف غير صالح');
-    const r = await pool.query('UPDATE manual_invoices SET voided_at=NOW() WHERE id=$1 AND voided_at IS NULL RETURNING id', [id]);
-    if (!r.rowCount) throw fail(404, 'الفاتورة غير موجودة أو ملغاة');
+    const r = await pool.query('DELETE FROM manual_invoices WHERE id=$1 RETURNING id', [id]);
+    if (!r.rowCount) throw fail(404, 'الفاتورة غير موجودة');
     res.json({ ok: true });
   }));
 }
