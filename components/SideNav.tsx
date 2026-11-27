@@ -5,6 +5,7 @@ import { T, Icon, Logo } from './ui';
 import { useStore, useMe, logout } from '../lib/store';
 import { useNav } from '../lib/wide';
 import { navigationRef } from '../lib/nav';
+import { InstallSideButton } from './InstallApp';
 
 const ROLE: Record<string, string> = { admin: 'المالك', supervisor: 'مشرف', provider: 'مقدم خدمة', courier: 'مندوب', customer: 'عميل' };
 
@@ -47,6 +48,7 @@ export function SideNav() {
           );
         })}
       </ScrollView>
+      <InstallSideButton />
       <View style={{ borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)', paddingTop: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: C.dark3, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center' }}>
           <T w="black" size={16} color={C.gold} align="center">{(me.name || '؟').trim().charAt(0)}</T>

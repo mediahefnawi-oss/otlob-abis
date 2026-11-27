@@ -41,6 +41,10 @@ const head =
   '<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">' +
   '<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">' +
   '<link rel="apple-touch-icon" href="/apple-touch-icon.png">' +
+  '<link rel="manifest" href="/manifest.webmanifest">' +
+  '<meta name="theme-color" content="#00211A">' +
+  '<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">' +
+  '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="أطلب أبيس">' +
   '<meta name="google-site-verification" content="Bw9nKcY0NhGcD--98-sgrwGpt3auKO-AkkiZIvVpxy8">' +
   '<meta name="description" content="' + esc(DESC) + '">' +
   '<link rel="canonical" href="' + SITE + '/">' +

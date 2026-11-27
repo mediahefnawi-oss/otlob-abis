@@ -1,3 +1,6 @@
+import { useInstallVisible } from '../lib/installApp';
+import { useInstall } from '../components/InstallApp';
+import { useWide } from '../lib/wide';
 import React, { useEffect, useRef, useState } from 'react';
 import { View, FlatList, Pressable, Share, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
 import { ScrollView } from '../components/KScroll';
@@ -652,6 +655,10 @@ export function SupportScreen({ navigation }: any) {
 /* ---------------- Profile (all roles) ---------------- */
 export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { navigation: any; extra?: React.ReactNode; title?: string }) {
   const me = useMe()!;
+  const canInstall = useInstallVisible();
+  const wideWeb = useWide();
+  const installVisible = canInstall && !wideWeb; // on a computer the side menu has the button
+  const install = useInstall();
   const { db } = useStore();
   const [edit, setEdit] = useState(false);
   const [pw, setPw] = useState(false);
@@ -702,6 +709,7 @@ export function ProfileScreen({ navigation, extra, title = 'حسابي' }: { nav
           {me.role === 'customer' && <><Item icon="ticket" label="أكواد الخصم الخاصة بي" onPress={() => setCpn(true)} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
           {(me.role === 'provider' || me.role === 'courier') && <><Item icon="swap-horizontal" label="اتحول لعميل" sub="اطلب من أي متجر بنفس حسابك" onPress={async () => { const r = await switchMode('customer'); if (!r.ok) toast(r.error, 'err'); }} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
           {me.role === 'customer' && !!me.baseRole && <><Item icon="swap-horizontal" label={me.baseRole === 'courier' ? 'ارجع لحسابي كمندوب' : 'ارجع لحسابي كمقدم خدمة'} sub={me.baseRole === 'courier' ? 'ارجع لشغل التوصيل' : 'متجرك وطلباته زي ما هي'} onPress={async () => { const r = await switchMode('main'); if (!r.ok) toast(r.error, 'err'); }} /><View style={{ height: 1, backgroundColor: C.line }} /></>}
+          {installVisible && <><Item icon="phone-portrait" label="تثبيت على الشاشة الرئيسية" sub="يفتح زي التطبيق وخفيف (للويب فقط)" onPress={install.press} /><View style={{ height: 1, backgroundColor: C.line }} />{install.sheet}</>}
           <Item icon="logo-whatsapp" label="الدعم الفني واتساب" sub="01004379508 — أحمد حفناوي" onPress={() => openWhats('01004379508', `مرحباً، أنا ${me.name}`)} />
           <View style={{ height: 1, backgroundColor: C.line }} />
           <Item icon="log-out" label="تسجيل الخروج" danger onPress={() => confirmDialog({ title: 'تسجيل الخروج', message: 'هل تريد تسجيل الخروج من حسابك؟', confirmText: 'خروج', danger: true, onConfirm: logout })} />

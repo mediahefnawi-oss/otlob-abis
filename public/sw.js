@@ -2,6 +2,9 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
+// (installable web app) pages and files go straight to the network, nothing is cached here
+self.addEventListener('fetch', () => {});
+
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: 'أطلب أبيس', body: event.data ? event.data.text() : '' }; }
