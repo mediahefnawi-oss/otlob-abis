@@ -103,7 +103,7 @@ jobs:
           sed -i 's/networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
           for i in 1 2 3 4 5 6; do ./gradlew --version --no-daemon && break; echo "download failed, retry $i"; sleep 30; done
           sed -i '/^org.gradle.jvmargs/d' gradle.properties
-          echo 'org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=1536m' >> gradle.properties
+          echo 'org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m' >> gradle.properties
           # the lint pass ran out of memory with the extra libraries and adds nothing to a release build we sign ourselves
           ./gradlew assembleRelease --no-daemon -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease
       - name: Name the file
