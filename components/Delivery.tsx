@@ -24,7 +24,7 @@ export function VehiclePicker({ providerIds }: { providerIds: string[] }) {
     apiDeliveryOptions(providerIds).then((r) => {
       if (!live) return;
       setOpts(r.options || []); setMode(r.mode);
-      setPick((cur) => { const keep = (r.options || []).find((o) => o.name === cur && o.available); const next = keep ? keep.name : ''; // the customer must choose: nothing is picked for him setCartVehicle(next, (r.options || []).length > 0); return next; });
+      setPick((cur) => { const keep = (r.options || []).find((o) => o.name === cur && o.available); const next = keep ? keep.name : ''; /* the customer must choose: nothing is picked for him */ setCartVehicle(next, (r.options || []).length > 0); return next; });
     }).catch(() => { if (live) { setOpts([]); setCartVehicle('', false); } });
     return () => { live = false; };
   }, [key]);
