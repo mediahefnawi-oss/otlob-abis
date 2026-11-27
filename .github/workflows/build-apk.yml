@@ -39,7 +39,7 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx expo install expo-audio
-          npx expo install expo-image-picker expo-image-manipulator expo-notifications expo-location expo-task-manager react-native-webview expo-sharing expo-print expo-file-system
+          npx expo install expo-image-picker expo-image-manipulator expo-notifications expo-location expo-task-manager react-native-webview react-native-view-shot expo-sharing expo-print expo-file-system
       - name: Phone-only settings (kept out of the web build)
         run: |
           node -e "
@@ -93,13 +93,13 @@ jobs:
                       signingConfig signingConfigs.release
                   }
               }
+              // the lint pass ran out of memory once more libraries were added; it adds nothing to a release build we sign ourselves
+              lint {
+                  checkReleaseBuilds = false
+                  abortOnError = false
+              }
           }
           EOF
-      - name: Diagnose autolinking
-        continue-on-error: true
-        run: |
-          npx expo-modules-autolinking resolve --platform android 2>&1 | tail -30 || true
-          npx react-native config 2>&1 | tail -30 || true
       - name: Build the APK
         working-directory: android
         env:
@@ -107,10 +107,7 @@ jobs:
         run: |
           sed -i 's/networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
           for i in 1 2 3 4 5 6; do ./gradlew --version --no-daemon && break; echo "download failed, retry $i"; sleep 30; done
-          sed -i '/^org.gradle.jvmargs/d' gradle.properties
-          echo 'org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m' >> gradle.properties
-          # the lint pass ran out of memory with the extra libraries and adds nothing to a release build we sign ourselves
-          ./gradlew assembleRelease --no-daemon --stacktrace -x lintVitalAnalyzeRelease -x lintVitalReportRelease -x lintVitalRelease
+          ./gradlew assembleRelease --no-daemon
       - name: Name the file
         run: cp android/app/build/outputs/apk/release/*.apk otlob-abis.apk
       - uses: actions/upload-artifact@v4
