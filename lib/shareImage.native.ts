@@ -1,6 +1,6 @@
 import { Linking } from 'react-native';
 /** Phone app: view-shot draws the invoice to a PNG; expo-sharing opens the share sheet; expo-print sends it to the (Bluetooth / Wi-Fi) printer. */
-const VS = (): any => require('react-native-view-shot');
+const VS = (): any => { try { return require('react-native-view-shot'); } catch { throw new Error('التقاط الصورة غير متاح في هذه النسخة'); } };
 const SH = (): any => require('expo-sharing');
 const PR = (): any => require('expo-print');
 const FS = (): any => require('expo-file-system/legacy');
