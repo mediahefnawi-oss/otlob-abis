@@ -46,9 +46,9 @@ export const InvoiceView = forwardRef<View, { inv: Pick<Invoice, 'number' | 'kin
     return (
       <View ref={ref} collapsable={false} onLayout={(e) => setH(e.nativeEvent.layout.height)} style={{ width: W, backgroundColor: '#fff', paddingHorizontal: small ? 12 : 18, paddingVertical: 16 }}>
         {d.showLogo && (
-          <View style={{ alignItems: 'center', gap: 2 }}>
+          <View style={{ alignItems: 'center', gap: 2, ...(bw ? {} : { backgroundColor: '#00211A', marginHorizontal: small ? -12 : -18, marginTop: -16, paddingTop: 14, paddingBottom: 12 }) }}>
             <Image source={bw ? LOGO_BW : LOGO} style={{ width: small ? 120 : 150, height: small ? 56 : 70 }} resizeMode="contain" />
-            {!!d.tagline && <T w="bold" size={fs(11.5)} color={sub} align="center">{d.tagline}</T>}
+            {!!d.tagline && <T w="bold" size={fs(11.5)} color={bw ? sub : '#F2B51D'} align="center">{d.tagline}</T>}
           </View>
         )}
         <Rule />
