@@ -4,7 +4,7 @@ import { ScrollView } from '../components/KScroll';
 import { C } from '../lib/theme';
 import { T, Icon, Card, Btn, Header, Field, Chip, Sheet, Toggle, SectionTitle, Empty, toast, confirmDialog } from '../components/ui';
 import { useMe } from '../lib/store';
-import { InvoiceView, BUILTIN, KIND_TITLE, paperMm, stampSource } from '../components/InvoiceView';
+import { InvoiceView, BUILTIN, KIND_TITLE, paperMm, paperName, stampSource } from '../components/InvoiceView';
 import { captureView, shareImage, printImage, openWhatsAppChat } from '../lib/shareImage';
 import { pickImage, canPickImage } from '../lib/pickImage';
 import {
@@ -276,7 +276,7 @@ export function InvoiceDetailScreen({ navigation, route }: any) {
         <Btn title="إرسال الفاتورة (واتساب)" icon="logo-whatsapp" variant="green" loading={busy === 'wa'} onPress={() => run('wa', async (uri) => { const r = await shareImage(uri, `فاتورة-${inv.number}`, text); if (r === 'downloaded') toast('تم تنزيل صورة الفاتورة، ابعتها من واتساب'); })} />
         {!!inv.partyPhone && <Btn title={`فتح محادثة ${inv.partyName} على واتساب`} icon="chatbubble-ellipses" variant="soft" onPress={() => openWhatsAppChat(inv.partyPhone, text)} />}
         <T size={11.5} color={C.sub}>واتساب مش بيسمح لأي تطبيق يبعت صورة لرقم معين لوحده: اضغط «إرسال» واختار المحادثة، أو افتح المحادثة الأول وابعت الصورة.</T>
-        <Btn title={`طباعة (${paperMm(inv.design.width)} مم)`} icon="print" variant="dark" loading={busy === 'pr'} onPress={() => run('pr', (uri) => printImage(uri, paperMm(inv.design.width)))} />
+        <Btn title={`طباعة (ورق ${inv.design.width === 'wa' ? 80 : paperName(inv.design.width)} مم)`} icon="print" variant="dark" loading={busy === 'pr'} onPress={() => run('pr', (uri) => printImage(uri, paperMm(inv.design.width)))} />
         {!inv.voided && <Btn title="إلغاء الفاتورة" icon="close-circle" variant="danger" onPress={() => confirmDialog({ title: 'إلغاء الفاتورة؟', message: 'هتفضل ظاهرة في القائمة بعلامة «ملغاة» ومش بتتمسح.', danger: true, confirmText: 'إلغاء الفاتورة', onConfirm: async () => { try { await apiBillingVoid(inv.id); toast('تم إلغاء الفاتورة'); load(); } catch (e) { toast(errText(e), 'err'); } } })} />}
       </ScrollView>
     </View>

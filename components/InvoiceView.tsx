@@ -13,8 +13,10 @@ export const BUILTIN: Record<string, { c: any; bw: any; label: string }> = {
 const LOGO = require('../assets/brand/logo.png');
 const LOGO_BW = require('../assets/brand/logo_bw.png');
 export const KIND_TITLE: Record<string, string> = { customer: 'فاتورة', provider: 'فاتورة مقدم خدمة', courier: 'فاتورة مندوب', commission: 'فاتورة عمولة' };
-const widthPx = (w: string) => (w === '58' ? 264 : w === '80' ? 384 : 400);
-export const paperMm = (w: string) => (w === '58' ? 58 : 80);
+// thermal printers: 80 mm paper prints 72 mm = 576 dots, 58 mm paper prints 48 mm = 384 dots (the picture is made at exactly that width)
+const widthPx = (w: string) => (w === '58' ? 384 : w === '80' ? 576 : 400);
+export const paperMm = (w: string) => (w === '58' ? 48 : 72);
+export const paperName = (w: string) => (w === '58' ? 58 : 80);
 const n2 = (n: number) => String(Math.round(n * 100) / 100);
 
 export function stampSource(ref: string, bw: boolean, uploaded: InvStamp[]) {
@@ -28,9 +30,10 @@ export const InvoiceView = forwardRef<View, { inv: Pick<Invoice, 'number' | 'kin
     const d: InvDesign = inv.design;
     const bw = d.theme === 'bw';
     const W = widthPx(d.width);
-    const small = d.width === '58';
+    const small = false;
+    const k = d.width === '80' ? 1.5 : d.width === '58' ? 1.05 : 1; // text scales with the paper so it reads like a shop receipt
     const ink = bw ? '#000' : '#00211A', sub = bw ? '#000' : '#5B6B65', accent = bw ? '#000' : '#C98F0A', line = bw ? '#000' : '#D9DED9';
-    const fs = (x: number) => (small ? x - 1.5 : x);
+    const fs = (x: number) => x * k;
     const [h, setH] = useState(0);
     const date = new Date(inv.createdAt);
     const when = `${date.toLocaleDateString('ar-EG')} • ${date.toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' })}`;
@@ -47,7 +50,7 @@ export const InvoiceView = forwardRef<View, { inv: Pick<Invoice, 'number' | 'kin
       <View ref={ref} collapsable={false} onLayout={(e) => setH(e.nativeEvent.layout.height)} style={{ width: W, backgroundColor: '#fff', paddingHorizontal: small ? 12 : 18, paddingVertical: 16 }}>
         {d.showLogo && (
           <View style={{ alignItems: 'center', gap: 2, ...(bw ? {} : { backgroundColor: '#00211A', marginHorizontal: small ? -12 : -18, marginTop: -16, paddingTop: 14, paddingBottom: 12 }) }}>
-            <Image source={bw ? LOGO_BW : LOGO} style={{ width: small ? 120 : 150, height: small ? 56 : 70 }} resizeMode="contain" />
+            <Image source={bw ? LOGO_BW : LOGO} style={{ width: 150 * k, height: 70 * k }} resizeMode="contain" />
             {!!d.tagline && <T w="bold" size={fs(11.5)} color={bw ? sub : '#F2B51D'} align="center">{d.tagline}</T>}
           </View>
         )}
@@ -78,14 +81,14 @@ export const InvoiceView = forwardRef<View, { inv: Pick<Invoice, 'number' | 'kin
           <View>
             <View style={{ flexDirection: 'row', paddingBottom: 4 }}>
               <T w="black" size={fs(12)} color={ink} style={{ flex: 1 }}>الصنف</T>
-              <T w="black" size={fs(12)} color={ink} style={{ width: 34 }} align="center">كمية</T>
-              <T w="black" size={fs(12)} color={ink} style={{ width: small ? 52 : 64 }} align="left">السعر</T>
+              <T w="black" size={fs(12)} color={ink} style={{ width: 34 * k }} align="center">كمية</T>
+              <T w="black" size={fs(12)} color={ink} style={{ width: 64 * k }} align="left">السعر</T>
             </View>
             {inv.lines.map((l, i) => (
               <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 2 }}>
                 <T size={fs(13)} color={ink} style={{ flex: 1 }}>{l.name}</T>
-                <T size={fs(13)} color={ink} style={{ width: 34 }} align="center">{n2(l.qty)}</T>
-                <T w="bold" size={fs(13)} color={ink} style={{ width: small ? 52 : 64 }} align="left">{n2(l.qty * l.price)}</T>
+                <T size={fs(13)} color={ink} style={{ width: 34 * k }} align="center">{n2(l.qty)}</T>
+                <T w="bold" size={fs(13)} color={ink} style={{ width: 64 * k }} align="left">{n2(l.qty * l.price)}</T>
               </View>
             ))}
             <Rule />
