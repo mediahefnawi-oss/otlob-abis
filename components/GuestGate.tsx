@@ -7,6 +7,9 @@ import { T, Btn, Field, Sheet, Icon, Card, Header, openWhats, toast } from './ui
 import { login, cartAdd, onGuestPrompt, requireLogin, GuestPending, useStore } from '../lib/store';
 import { navigationRef } from '../lib/nav';
 import { DEFAULT_CREDITS } from '../lib/format';
+import { useInstallVisible } from '../lib/installApp';
+import { useInstall } from './InstallApp';
+import { useWide } from '../lib/wide';
 
 /**
  * Guest browsing (switch "guestBrowse"): a visitor can look at every shop and price without an account.
@@ -60,6 +63,9 @@ export function GuestAccountScreen({ navigation, title = 'حسابي' }: { navig
   const supportRaw = (db.settings.supportPhone || '').trim() || '01004379508';
   const cr = db.settings.credits || DEFAULT_CREDITS;
   const go = (name: string, params?: any) => navigation.navigate(name, params);
+  const canInstall = useInstallVisible();
+  const wideWeb = useWide();
+  const install = useInstall();
   const Row = ({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }) => (
     <Pressable onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.line }}>
       <Icon name={icon} size={20} color={C.goldDeep} /><T w="bold" size={14} style={{ flex: 1 }}>{label}</T><Icon name="chevron-back" size={16} color={C.sub} />
@@ -79,6 +85,7 @@ export function GuestAccountScreen({ navigation, title = 'حسابي' }: { navig
           <Row icon="headset" label="المساعدة والدعم" onPress={() => openWhats(supportRaw, 'مرحباً، أحتاج مساعدة في تطبيق أطلب أبيس')} />
           <Row icon="storefront" label="سجّل كمقدم خدمة" onPress={() => go('Register', { role: 'provider' })} />
           <Row icon="bicycle" label="انضم كمندوب" onPress={() => go('Register', { role: 'courier' })} />
+          {title === 'حسابي' && canInstall && !wideWeb && <><Row icon="phone-portrait" label="تثبيت على الشاشة الرئيسية" onPress={install.press} />{install.sheet}</>}
         </Card>
         <View style={{ alignItems: 'center', paddingTop: 6 }}>
           <T size={7.5} color="#8FA89F" align="center" style={{ letterSpacing: 1.2 }}>{cr.a}</T>
